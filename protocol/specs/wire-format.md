@@ -1,6 +1,8 @@
 # Spécification — Format filaire des événements Nyx (v1)
 
 Statut : **acté** — implémenté dans `server/internal/journal/event.go`.
+> v1.1 (2026-10-12, session 10) : ajout du type **`alias`** (réservation de pseudonyme
+> unique, support des invitations) — voir §6.
 
 ## Principe
 
@@ -13,7 +15,7 @@ côté serveurs en v0.2).
 
 ```json
 {
-  "type":  "msg",                     // "msg" | "contact" | "prekey" | "meta"
+  "type":  "msg",                     // "msg" | "contact" | "prekey" | "meta" | "alias" (v1.1)
   "author": "abcd...56.onion",        // adresse onion v3 de l'auteur (= sa clé publique)
   "seq": 42,                          // séquence par auteur, strictement croissante, sans trou
   "ts": 1728739200,                   // horodatage unix en secondes (déclaré par l'auteur)
@@ -61,6 +63,52 @@ faire passer un événement pour un autre auteur.
 | `contact` | JSON `{alias, onion, added_at}` NON chiffré (annoncé publiquement par l'auteur) | Annonce « j'ajoute X » |
 | `prekey` | JSON de pré-clés Signal (bundle), chiffré ou public selon la clé | Établissement de session (v0.2) |
 | `meta` | Réservé (purge TTL, routage) | Phase 2 |
+| `alias` **(v1.1)** | JSON NON chiffré `{"alias":"…","action":"claim"}` (base64) | Réservation d'un pseudonyme unique — §6 |
+
+## 6. Type `alias` — pseudonyme unique (v1.1, session 10)
+
+### 6.1 Objet
+
+Permettre à un utilisateur de réserver un **alias unique** (pseudonyme lisible) lié à
+son adresse onion, pour les invitations (« ajoute-moi par `@mon_alias` ») — demandé
+par l'opérateur (session 10). L'alias est **optionnel** : l'adresse onion reste
+l'identité (ADR-003) ; l'alias est une étiquette publique ET SÉPARABLE — il ne doit
+jamais contenir d'élément d'identité réelle (ADR-010).
+
+### 6.2 Format
+
+- Événement standard (canonique NYX1 inchangé) : `type = "alias"`, `to = ""`
+  (diffusion), `body` = base64 du JSON : `"alias": string, "action": "claim"`
+  (seule action v1.1 ; une future `release` fera l'objet d'une révision).
+- Format d'alias : `^[a-z0-9_]{3,24}$` — minuscules, chiffres, underscore,
+  3 à 24 caractères. Validation côté serveur (rejet 400) et côté client.
+- L'unicité est **globale au réseau de réplicas** via le journal : premier
+  arrivé, signé, servi.
+
+### 6.3 Conflits et convergence
+
+Deux auteurs peuvent prétendre au même alias (gossip intermittent). Règle
+**déterministe** appliquée par tous les réplicas au replay comme à l'append :
+
+> **Le gagnant est le claim dont l'événement a le plus petit `id`
+> (sha256 canonique, comparaison hexadécimale lexicographique).**
+
+Les réplicas convergent donc vers le même détenteur sans coordination. Un claim
+perdant reste dans le journal (append-only) mais ne résout pas l'alias ; le client
+peut le détecter par résolution et re-claim (nouvelle seq).
+
+### 6.4 Résolution
+
+Voir `api.md` §`GET /client/alias?name=` : `{taken, by}`. Pas de listing global
+(anti-énumération) : seul le résolveur point à point existe. Réplicas recommandés :
+limiter les requêtes de résolution par circuit (implémentation v0.2) ; les clients
+ne doivent résoudre qu'à la demande explicite de l'utilisateur.
+
+### 6.5 Limites v1.1
+
+- Pas d'expiration ni de libération (`release` prévu en révision future).
+- Pas de limite du nombre d'alias par auteur (recommandation réplicas : refuser
+  au-delà de N par auteur — mise en œuvre v0.2 si abus, cf. ADR-010 PoW).
 
 ## Chiffrement du corps (v0.1)
 

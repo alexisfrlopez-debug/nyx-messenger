@@ -11,6 +11,7 @@ import (
         "encoding/base64"
         "encoding/json"
         "fmt"
+        "regexp"
         "strings"
 
         "golang.org/x/crypto/sha3"
@@ -28,12 +29,13 @@ type Event struct {
         Sig    string `json:"sig"`             // base64 ed25519 sur canonique
 }
 
-// Types d'événements connus (v0.1).
+// Types d'événements connus (v0.1 + alias v1.1, wire-format.md §6).
 var KnownTypes = map[string]bool{
         "msg":     true,
         "contact": true,
         "prekey":  true,
         "meta":    true,
+        "alias":   true,
 }
 
 // Limites v0.1.
@@ -41,6 +43,39 @@ const (
         MaxBodySize   = 256 * 1024 // 256 Ko
         MaxTSDriftSec = 24 * 3600  // tolérance horloge (latence Tor)
 )
+
+// AliasRE — format d'un pseudonyme unique (wire-format.md §6.2) : minuscules,
+// chiffres, underscore, 3 à 24 caractères.
+var AliasRE = regexp.MustCompile(`^[a-z0-9_]{3,24}$`)
+
+// aliasBody — corps d'un événement type "alias" (JSON, non chiffré).
+type aliasBody struct {
+        Alias  string `json:"alias"`
+        Action string `json:"action"`
+}
+
+// AliasFromEvent — extrait et valide l'alias d'un événement type "alias".
+// Retourne une erreur si le body n'est pas un claim valide.
+func AliasFromEvent(ev *Event) (string, error) {
+        if ev.Type != "alias" {
+                return "", fmt.Errorf("type %q ≠ alias", ev.Type)
+        }
+        raw, err := b64.DecodeString(ev.Body)
+        if err != nil {
+                return "", fmt.Errorf("body non base64: %w", err)
+        }
+        var ab aliasBody
+        if err := json.Unmarshal(raw, &ab); err != nil {
+                return "", fmt.Errorf("body alias non JSON: %w", err)
+        }
+        if ab.Action != "claim" {
+                return "", fmt.Errorf("action alias %q inconnue (attendu claim)", ab.Action)
+        }
+        if !AliasRE.MatchString(ab.Alias) {
+                return "", fmt.Errorf("format d'alias invalide: %q (attendu ^[a-z0-9_]{3,24}$)", ab.Alias)
+        }
+        return ab.Alias, nil
+}
 
 var b64 = base64.StdEncoding
 
@@ -141,6 +176,12 @@ func (e *Event) Validate(now int64) error {
         }
         if drift > MaxTSDriftSec {
                 return fmt.Errorf("horodatage hors tolérance (%ds)", drift)
+        }
+        // Validation sémantique du corps alias (wire-format.md §6)
+        if e.Type == "alias" {
+                if _, err := AliasFromEvent(e); err != nil {
+                        return err
+                }
         }
         return nil
 }

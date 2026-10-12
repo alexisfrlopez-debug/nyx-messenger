@@ -141,6 +141,58 @@ class NyxRepository(
     fun contacts(): Flow<List<ContactEntity>> = contactDao.all()
     fun conversation(peer: String): Flow<List<MessageEntity>> = messageDao.conversation(peer)
 
+    /* ---------------- alias (v0.1.2 — wire-format.md §6) ---------------- */
+
+    /** État de disponibilité d'un pseudonyme sur le réplica rattaché. */
+    data class AliasInfo(val name: String, val taken: Boolean, val by: String? = null)
+
+    /**
+     * Vérifie la disponibilité d'un alias sur le réplica rattaché.
+     * Échoue proprement si aucun réplica n'est configuré/joignable — l'UI
+     * affiche alors que la confirmation se fera à la première connexion.
+     */
+    suspend fun checkAlias(name: String): Result<AliasInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            val relay = client ?: error("aucun réplica configuré — vérification à la première connexion")
+            val res = relay.resolveAlias(name)
+            AliasInfo(name, res.taken, res.by)
+        }
+    }
+
+    /**
+     * Réserve le pseudonyme : événement signé type "alias" (claim) déposé sur le
+     * réplica rattaché — la convergence inter-réplicas suit la règle du plus petit
+     * id (déterministe, wire-format.md §6.3).
+     */
+    suspend fun claimAlias(name: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val relay = client ?: error("aucun réplica configuré")
+            val me = identity.onionAddress ?: error("identité absente")
+            val priv = identity.secretKey()
+            val bodyJson = "{\"alias\":\"$name\",\"action\":\"claim\"}"
+            val body = B64.encode(bodyJson.toByteArray(Charsets.UTF_8))
+            val seq = nextSeqFor(me)
+            val ev = WireEvent(
+                type = "alias", author = me, seq = seq,
+                ts = System.currentTimeMillis() / 1000, ttl = 0,
+                to = null, body = body, sig = ""
+            )
+            val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+            relay.postEvent(ev.copy(sig = cipher.signEvent(canonical, priv))).getOrThrow()
+        }
+    }
+
+    /**
+     * Garantit que l'alias choisi (s'il existe) est réservé : appelé à l'entrée
+     * sur la liste des conversations — si le claim avait différé (aucun réplica
+     * joignable à l'onboarding), il part dès qu'un réplica répond.
+     */
+    suspend fun ensureAliasClaimed(): Unit = withContext(Dispatchers.IO) {
+        val name = identity.alias ?: return@withContext
+        if (identity.aliasClaimed || replicas.isEmpty()) return@withContext
+        claimAlias(name).onSuccess { identity.markAliasClaimed() }
+    }
+
     suspend fun addContact(onion: String, alias: String): Result<Unit> = runCatching {
         OnionCodec.onionToPubKey(onion) // validation de l'adresse
         contactDao.upsert(ContactEntity(onion.lowercase(), alias.ifBlank { onion.take(10) + "…" }, System.currentTimeMillis()))

@@ -14,11 +14,12 @@ import (
 type Store struct {
         mu       sync.RWMutex
         path     string
-        all      []*Event
-        byID     map[string]*Event          // dé-duplication (sha256 canonique)
-        lastSeq  map[string]uint64          // dernier seq accepté, par auteur
-        pending  map[string][]*Event        // événements hors séquence en attente
-        maxIndex int64                      // curseur global (position dans le journal)
+        all      []*Event           // journal en mémoire (ordre d'insertion)
+        byID     map[string]*Event  // dé-duplication (sha256 canonique)
+        lastSeq  map[string]uint64  // dernier seq accepté, par auteur
+        pending  map[string][]*Event // événements hors séquence en attente
+        byAlias  map[string]*Event  // alias → claim gagnant (règle min-id, wire-format.md §6.3)
+        maxIndex int64              // curseur global (position dans le journal)
 }
 
 // OpenStore — charge le journal existant (JSONL) et reconstruit les index.
@@ -28,6 +29,7 @@ func OpenStore(dataDir string) (*Store, error) {
                 byID:    map[string]*Event{},
                 lastSeq: map[string]uint64{},
                 pending: map[string][]*Event{},
+                byAlias: map[string]*Event{},
         }
         f, err := os.Open(s.path)
         if err != nil {
@@ -52,6 +54,7 @@ func OpenStore(dataDir string) (*Store, error) {
                 // Chargement sans re-validation cryptographique (déjà validée à l'insertion)
                 s.byID[ev.ID()] = ev
                 s.all = append(s.all, ev)
+                s.indexAlias(ev)
                 if ev.Seq > s.lastSeq[ev.Author] {
                         s.lastSeq[ev.Author] = ev.Seq
                 }
@@ -87,6 +90,7 @@ func (s *Store) Append(ev *Event, now int64) (bool, error) {
         s.all = append(s.all, ev)
         s.lastSeq[ev.Author] = ev.Seq
         s.maxIndex++
+        s.indexAlias(ev)
         // Admission des événements en attente devenus consécutifs
         changed := true
         for changed {
@@ -101,6 +105,7 @@ func (s *Store) Append(ev *Event, now int64) (bool, error) {
                                 s.all = append(s.all, p)
                                 s.lastSeq[ev.Author] = p.Seq
                                 s.maxIndex++
+                                s.indexAlias(p)
                                 s.pending[ev.Author] = append(pend[:i:i], pend[i+1:]...)
                                 changed = true
                                 break
@@ -108,6 +113,37 @@ func (s *Store) Append(ev *Event, now int64) (bool, error) {
                 }
         }
         return false, nil
+}
+
+// indexAlias — met à jour l'index des pseudonymes (type "alias") selon la règle
+// déterministe de convergence : le claim gagnant est celui au plus petit id
+// (sha256 canonique hexadécimal, comparaison lexicographique — wire-format.md §6.3).
+// Tolérant aux erreurs : un événement alias invalide n'a jamais dû passer Append
+// (Validate vérifie le body) ; au replay, on ignore silencieusement un corps
+// illisible plutôt que de refuser le démarrage.
+func (s *Store) indexAlias(ev *Event) {
+        if ev.Type != "alias" {
+                return
+        }
+        alias, err := AliasFromEvent(ev)
+        if err != nil {
+                return
+        }
+        cur, ok := s.byAlias[alias]
+        if !ok || ev.ID() < cur.ID() {
+                s.byAlias[alias] = ev
+        }
+}
+
+// ResolveAlias — détenteur d'un pseudonyme. Retourne ("", false) si libre.
+func (s *Store) ResolveAlias(name string) (string, bool) {
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+        ev, ok := s.byAlias[name]
+        if !ok {
+                return "", false
+        }
+        return ev.Author, true
 }
 
 func (s *Store) writeLine(ev *Event) error {

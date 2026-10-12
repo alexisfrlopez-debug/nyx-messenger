@@ -51,6 +51,23 @@ ré-interroger ensuite avec la valeur `cursor` renvoyée dans la réponse
 Journal public d'un auteur (utile pour les événements `contact` non chiffrés et la
 récupération d'historique d'un compte sur un nouveau réplica).
 
+### `GET /client/alias?name=<alias>` — v1.1 (session 10)
+
+Résolution d'un **pseudonyme unique** (voir `wire-format.md` §6). Réponse :
+
+```json
+{ "alias": "mon_alias", "taken": true, "by": "abcd…56.onion" }
+```
+
+- `taken=false` (et `by` absent) → alias libre, claim possible.
+- `taken=true` → `by` = détenteur gagnant (règle du plus petit `id` — déterministe
+  et convergente entre réplicas).
+- `400` → paramètre `name` manquant ou format invalide (`^[a-z0-9_]{3,24}$`).
+- Le claim lui-même est un événement standard envoyé à `POST /client/event`
+  (`type="alias"`, body JSON base64 `{"alias":"…","action":"claim"}`) — aucun
+  endpoint dédié : la réservation passe par le journal comme tout le reste.
+- **Pas de listing global** (anti-énumération) : résolution point à point uniquement.
+
 ## Routes gossip (nœud ↔ nœud)
 
 ### `GET /gossip/peers`

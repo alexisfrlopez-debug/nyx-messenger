@@ -4,11 +4,14 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import net.nyx.messenger.di.ServiceLocator
+import net.nyx.messenger.security.AppLock
+import net.nyx.messenger.settings.SettingsManager
 import net.nyx.messenger.tor.TorManager
 import net.nyx.messenger.ui.NyxNavHost
 import net.nyx.messenger.ui.theme.NyxTheme
@@ -20,8 +23,12 @@ import net.nyx.messenger.ui.theme.NyxTheme
  * Démarrage du Tor embarqué (ADR-007) dès que l'identité existe : le démon tor
  * bootstrape pendant que l'utilisateur navigue. La notification persistante est
  * demandée (Android 13+) au premier lancement.
+ *
+ * Note (v0.1.2) : FragmentActivity (hérite de ComponentActivity) — requise par
+ * BiometricPrompt pour le verrou biométrique opt-in (ADR-010 §3). Le passage en
+ * arrière-plan re-verrouille ([AppLock.onBackgrounded]).
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -34,6 +41,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         startEmbeddedTor()
+        // Verrou biométrique opt-in (ADR-010 §3) : verrouillé à froid si activé.
+        AppLock.init(
+            ServiceLocator.identity.exists && SettingsManager.get(this).biometricLock
+        )
         setContent {
             NyxTheme {
                 NyxNavHost(
@@ -44,6 +55,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        AppLock.onBackgrounded()
     }
 
     private fun requestNotificationPermissionIfNeeded() {

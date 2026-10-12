@@ -24,4 +24,28 @@
     <string name="sending">Envoi via Tor…</string>
     <string name="sent">Envoyé</string>
     <string name="failed">Échec (réessaie)</string>
+
+    <!-- Alias — pseudonyme unique optionnel (v0.1.2, wire-format.md §6) -->
+    <string name="alias_title">Votre alias</string>
+    <string name="alias_optional">Optionnel — un pseudonyme public unique pour vos invitations. N\'y mettez JAMAIS de nom réel : il est visible sur le réseau.</string>
+    <string name="alias_check">Vérifier la disponibilité</string>
+    <string name="alias_checking">Vérification…</string>
+    <string name="alias_free">« @%1$s » est disponible et réservé sur ce réplica.</string>
+    <string name="alias_taken">Cet alias est déjà pris — choisissez une suggestion :</string>
+    <string name="alias_pending">« @%1$s » sera réservé à la première connexion à un réplica.</string>
+    <string name="alias_suggestions">Alias disponibles suggérés :</string>
+    <string name="alias_invalid">Format invalide : minuscules, chiffres et « _ » uniquement (3 à 24 caractères).</string>
+    <string name="alias_for_invites">Pour inviter un contact : partagez « @votre_alias » ou votre adresse onion.</string>
+
+    <!-- Verrou biométrique local opt-in (v0.1.2, ADR-010 §3) -->
+    <string name="biometric_enable">Protéger l\'accès par biométrie</string>
+    <string name="biometric_enable_desc">Empreinte ou code de l\'appareil demandés à chaque retour sur l\'application. La vérification est effectuée par l\'appareil : aucune donnée biométrique n\'est lue, stockée ni transmise.</string>
+    <string name="biometric_unavailable">Indisponible : enregistrez d\'abord une empreinte ou un code sur cet appareil.</string>
+    <string name="biometric_confirm_title">Confirmer pour activer le verrou</string>
+    <string name="biometric_confirm_subtitle">Vérifiez votre empreinte ou votre code de l\'appareil</string>
+    <string name="lock_title">Nyx est verrouillé</string>
+    <string name="lock_subtitle">Vérifiez votre empreinte ou votre code de l\'appareil pour continuer</string>
+    <string name="lock_unlock">Déverrouiller</string>
+    <string name="lock_unavailable_desc">Aucun moyen de vérification disponible sur cet appareil (biométrie ou code supprimé). Vous pouvez désactiver le verrou pour accéder à l\'application.</string>
+    <string name="lock_disable">Désactiver le verrou</string>
 </resources>

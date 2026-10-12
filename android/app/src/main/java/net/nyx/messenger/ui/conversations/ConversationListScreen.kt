@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,13 @@ fun ConversationListScreen(
     val repo = remember { ServiceLocator.repository }
 
     val torState by TorManager.get(LocalContext.current).state.collectAsState()
+
+    // Claim d'alias différé : si l'alias choisi à l'onboarding n'a pas pu être
+    // réservé (aucun réplica joignable), il part dès que le Tor embarqué est prêt.
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2_000) // laisse le bootstrap Tor démarrer
+        repo.ensureAliasClaimed()
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.conversations)) }) }

@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 9).
+> Dernière mise à jour : **2026-10-12** (session 10).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.
@@ -34,7 +34,39 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 9 — 2026-10-12)
+## 3. État actuel (session 10 — 2026-10-12)
+
+### Fait ✅ (session 10)
+- **v0.1.2 livrée** (versionCode 3, SHA-256 `40f97236…`) — deux fonctionnalités
+  demandées par l'opérateur, cadrées ADR-010 + spec filaire :
+  1. **Verrou biométrique local opt-in** : BiometricPrompt (androidx.biometric
+     1.1.0 + fragment-ktx 1.8.5 explicite — lint), à froid et à chaque retour au
+     1er plan ([AppLock]/[LockScreen]/[SettingsManager]) ; l'OS vérifie, l'app ne
+     reçoit qu'un succès/échec — AUCUNE donnée biométrique lue/stockée/transmise ;
+     MainActivity → FragmentActivity ; permissions USE_BIOMETRIC/USE_FINGERPRINT
+     ajoutées à la liste fermée du contrôle d'autonomie (justifiée ADR-010) ;
+     sortie de secours si le device perd ses moyens de vérification.
+  2. **Alias unique (pseudonyme d'invitations)** : SPEC D'ABORD (wire-format.md
+     §6 + api.md — règle §5), serveur Go complet (type `alias` validé, index
+     déterministe min-id convergent, `GET /client/alias`), client : champ
+     optionnel à l'onboarding, normalisation, vérification en ligne,
+     **suggestions si pris**, claim signé différé automatiquement à la 1re
+     connexion ([ensureAliasClaimed]). Alias optionnel/public — jamais de nom réel.
+- **Tests** : 2 nouveaux tests Go verts (circuit claim→résolution + convergence
+  min-id/replay) ; 4 tests Kotlin (AliasValidator, miroir serveur) — 8 JVM au total.
+- **Hygiène du dépôt public (demande opérateur)** — nouvelle règle **§9.7** :
+  1. **Dépôt privé `nyx-admin` créé** (même compte GitHub) : spec console admin
+     (APPLI_ADMIN.md déplacée du public) + ops/INFRA.md (IDs Drive, inventaire
+     credentials, procédure complète) + futur code console — plus rien d'admin
+     sur le public ;
+  2. **Zéro référence d'infrastructure sur le public** : IDs Drive + n° projet
+     GCP purgés de RESTART.md (script purge_ids.py) et de gdrive.py (résolution
+     par CHEMIN DE NOMS « z.ai/Messagerie » — testée de bout en bout ; override
+     env NYX_ROOT_FOLDER_ID possible) ;
+  3. Scan perso : commits déjà anonymes (Z User <z@container>) — aucune
+     réécriture d'historique nécessaire ; le nom du compte GitHub (URL publique)
+     est le seul identifiant restant (intrinsèque).
+- Audit strict PASSED → build signé → 13 contrôles autonomie OK → APK livré.
 
 ### Fait ✅ (session 9)
 - **ADR-010 (modération & biométrie) acté** après cadrage avec l'opérateur :
@@ -95,7 +127,8 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
   « Tokens » dans le Drive** (voir §6) contenant tous les credentials ; accès API
   Drive vérifié (refresh OAuth OK) et PAT GitHub vérifiée.
 - **Dossier `/livrables` créé sur le Drive** à la racine du dossier projet
-  (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`) — conformément à la règle §9.4.
+  « Messagerie » — conformément à la règle §9.4 (référence exacte : dépôt privé
+  `nyx-admin`, `ops/INFRA.md`).
 - **Instructions mises à jour (ce fichier)** : le dossier dédié « Tokens » est
   désormais référencé partout (§6, §9.2, §9.3, §9.5) — c'est LA source de
   restauration des credentials d'une session neuve.
@@ -239,28 +272,39 @@ scripts/release.sh --version 0.1.1 [--commit <sha>] [--prerelease] [--title "…
    - aucun secret dans le dépôt (identités, clés, tokens) — `.gitignore` calibré §9.5 ;
    - terminer la session en mettant à jour ce fichier (§3 État + §8 Journal).
 
-## 6. Accès et sauvegarde — dossier dédié « Tokens »
+## 6. Accès et sauvegarde — dossier dédié « Tokens » + dépôt privé `nyx-admin`
 
 > **LE DOSSIER DÉDIÉ DE L'AGENT SUR LE DRIVE EST « Tokens »** (nommé ainsi par
 > l'utilisateur, session 6). Il est la source unique des credentials : toute
 > session neuve commence par en restaurer le contenu vers
 > `/home/z/my-project/.credentials/tokens/`.
+>
+> **RÈGLE (session 10) : aucune référence d'infrastructure exploitable
+> (IDs de dossiers Drive, inventaire détaillé des credentials, numéros de
+> projet) n'apparaît sur ce dépôt PUBLIC.** Elles vivent dans le **dépôt
+> privé `nyx-admin`** (même compte GitHub, fichier `ops/INFRA.md`) —
+> l'accès à ce dépôt suppose le PAT (dossier « Tokens »). Le dépôt public
+> ne documente que la procédure par NOMS de dossiers.
 
-| Ressource | Référence |
+| Ressource | Référence (sans identifiant — détail : dépôt privé `nyx-admin` ops/INFRA.md) |
 |---|---|
-| Dossier Drive projet « Messagerie » | id `1xR8aME_sCa-8Q3OWBXjpO5pdCtwU4JmA` (RESTART.md, GUIDE_DEMARRAGE.md, README.md, archive tar.gz, sous-dossiers) |
-| **Dossier dédié « Tokens » (credentials)** | id **`1IUYrT_BeGEbJWW_88QQ47Sqaba1ig8q1`** — contenu : `client_secret_15826935491-*.json` (OAuth client) · `oauth_token_relais_2026-10-07.json` (refresh_token Drive, cycle ~7 j → ré-autorisation à prévoir) · `physichong-4b3b7222b48c.json` (compte de service) · `token_git.txt` (PAT GitHub fine-grained, compte `alexisfrlopez-debug`) · `nyx-release.jks` + `keystore.properties` (keystore release — règle §9.5) |
-| Dossier Drive `/livrables` | id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9` — APK signés + rapports d'audit + empreintes SHA-256 (règle §9.4) |
-| Module de synchro Drive | `scripts/gdrive.py` (versionné dans le dépôt, stdlib only) ; credentials dans `.credentials/` du workspace (JAMAIS dans le dépôt) |
-| GitHub | Dépôt : **`github.com/alexisfrlopez-debug/nyx-messenger`** (créé session 1) ; `token_git.txt` = PAT fine-grained du compte `alexisfrlopez-debug` |
+| Dossier Drive projet | « **Messagerie** » (racine du Drive utilisateur — résolution par NOM ; contenu : RESTART.md, GUIDE_DEMARRAGE.md, README.md, archive tar.gz) |
+| **Dossier dédié « Tokens » (credentials)** | sous-dossier « **Tokens** » de « Messagerie » — contenu : OAuth client · oauth_token_relais (refresh Drive, cycle ~7 j → ré-autorisation à prévoir) · compte de service · `token_git.txt` (PAT GitHub fine-grained) · `nyx-release.jks` + `keystore.properties` (keystore release — règle §9.5) |
+| Dossier Drive `/livrables` | sous-dossier « **livrables** » de « Messagerie » — APK signés + rapports d'audit + empreintes SHA-256 (règle §9.4) ⚠️ 4 dossiers « livrables » homonymes existent ailleurs dans ce Drive (autres projets) : toujours descendre depuis « Messagerie », JAMAIS depuis la racine |
+| Module de synchro Drive | `scripts/gdrive.py` (versionné, stdlib only, **aucun ID en dur** — résolution par noms depuis « Messagerie ») ; credentials dans `.credentials/` du workspace (JAMAIS dans le dépôt) |
+| GitHub — dépôt public | `github.com/alexisfrlopez-debug/nyx-messenger` (code, docs génériques, releases) — `token_git.txt` = PAT fine-grained du compte `alexisfrlopez-debug` |
+| GitHub — **dépôt privé** | `alexisfrlopez-debug/nyx-admin` — **spec console admin + ops/INFRA.md (IDs, credentials, restauration complète) + futur code console** — JAMAIS de contenu de ce dépôt vers le public |
 
 **Procédure de restauration d'une session neuve** (workspace vierge) :
 1. Cloner le dépôt public GitHub (code, docs, scripts, wrapper Gradle).
-2. Télécharger le contenu du dossier « Tokens » → `.credentials/tokens/`
-   (4 credentials + keystore) — tout y est, rien à redemander à l'utilisateur.
-3. Reconstruire l'env. de build si besoin (JDK 21 + SDK android-35, §7) —
+2. Cloner le dépôt privé `nyx-admin` (PAT requis) → `ops/INFRA.md` donne les IDs.
+3. Télécharger le contenu du dossier « Tokens » → `.credentials/tokens/`
+   (credentials + keystore) — tout y est, rien à redemander à l'utilisateur
+   (fallback sans dépôt privé : résolution par noms depuis le lien « Messagerie »
+   fourni par l'utilisateur — gdrive.py gère).
+4. Reconstruire l'env. de build si besoin (JDK 21 + SDK android-35, §7) —
    ou vérifier qu'ils ont survécu dans `tools/`.
-4. Lancer le cycle : audit → build → livrables → synchro (§9).
+5. Lancer le cycle : audit → build → livrables → release GitHub → synchro (§9).
 
 Ré-autorisation OAuth : le refresh_token expire ~7 jours (note dans
 oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autorisation
@@ -287,10 +331,11 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 3 | **Demande utilisateur : « que l'appli installe son propre service Tor, autonomie totale »** → ADR-007 : Tor embarqué via tor-android (binaire `libtor.so` exécuté par notre `NyxTorService` au 1er plan, torrc généré, ports dynamiques) ; nouveau code : NyxTorConfig, TorControlClient (miroir Go), NyxTorService, TorManager réécrit (bootstrap %, publication auto ADD_ONION de l'identité), OnionServiceManager réel ; câblage MainActivity/Onboarding/bannière Tor/manifest/strings ; Gradle (Guardian maven, useLegacyPackaging). Orbot supprimé comme prérequis (repli censure documenté). Code non compilé ici (pas de SDK) — premier build device = TODO 1. Push GitHub + Drive v0.3. |
 | 2026-10-12 | 4 | **Demande utilisateur : « installe tout ce qu'il faut pour compiler toi-même »** → environnement Android complet installé (JDK 21 Temurin, SDK 35, build-tools 34, Gradle 8.9, wrapper committé) ; **premiers builds verts : assembleDebug 39,9 Mo + assembleRelease (R8) 21,2 Mo** ; tor-android (maven Guardian injoignable) remplacé par **tor-binary 0.4.6.5 (Maven Central)** — même architecture, binaire `libTor.so` (ADR-007 §5) ; 7 corrections de code révélées par la compilation (package lazysodium v5, MessageCipher sur API Native byte[] avec sealOpen 5 args + ordre conversions, **bug crypto : pk 32 octets pas 64**, StateFlow kotlinx, @JvmField clash setter, jna @aar + exclusion, sqlcipher 4.5.4, R8 dontwarn awt) ; packaging 4 ABI vérifié dans l'APK. Reste : runtime sur device (TODO 1). Push GitHub + Drive v0.4. |
 | 2026-10-12 | 5 | **Demande utilisateur : « audit systématique avant chaque recompilation ; APK entièrement autonomes (1 clic) ; synchro Drive+GitHub systématique ; livrables dans /livrables du Drive ; ajouter tout ça au fichier d'instructions »** → §9 instauré ; scripts/audit.py (6 catégories, strict, rapport MD) + build-apk.sh (audit bloquant → build release signé → 13 contrôles autonomie → livrables/) + sync.sh (GitHub+Drive) + gdrive.py réécrit ; premier cycle audit→corrections (singleton repository, mort : socksProxy/Replicas/rng/bloc onboarding, verifySignature branchée, bouton Copier adresse, strings, .gitignore durci) ; signature release ajoutée (keystore hors dépôt) — l'APK release n'était pas signé ; APK v0.1.0 21 Mo vérifié et livré. Environnement reconstruit (reset workspace). Synchro en attente des credentials du dossier « accès ». |
-| 2026-10-12 | 6 | **Demande utilisateur : « tu as un dossier dédié dans le drive, indique-le dans les instructions »** → dossier **« Tokens »** identifié sur le Drive (id `1IUYrT_BeGEbJWW_88QQ47Sqaba1ig8q1`) : client_secret OAuth, oauth_token_relais, compte de service, PAT GitHub. Credentials restaurés, **accès API Drive vérifié (refresh OK) et PAT GitHub validée** ; **dossier `/livrables` créé** (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`) ; ce fichier mis à jour (§3, §6, §9) ; commits session 5 poussés vers GitHub ; APK v0.1.0 + rapport d'audit + SHA256 déposés dans /livrables ; keystore + keystore.properties sauvegardés dans « Tokens » (§9.5) ; archive session 6 uploadée. Synchro Drive+GitHub pleinement opérationnelle. |
+| 2026-10-12 | 6 | **Demande utilisateur : « tu as un dossier dédié dans le drive, indique-le dans les instructions »** → dossier **« Tokens »** identifié sur le Drive (référence exacte : dépôt privé `nyx-admin`, `ops/INFRA.md`) : client_secret OAuth, oauth_token_relais, compte de service, PAT GitHub. Credentials restaurés, **accès API Drive vérifié (refresh OK) et PAT GitHub validée** ; **dossier `/livrables` créé** ; ce fichier mis à jour (§3, §6, §9) ; commits session 5 poussés vers GitHub ; APK v0.1.0 + rapport d'audit + SHA256 déposés dans /livrables ; keystore + keystore.properties sauvegardés dans « Tokens » (§9.5) ; archive session 6 uploadée. Synchro Drive+GitHub pleinement opérationnelle. |
 | 2026-10-12 | 7 | **Retour utilisateur : l'app se lance mais crash à la création d'identité — « SHA3-256 MessageDigest not available »** → cause : `MessageDigest("SHA3-256")` absent d'Android ≤ 13 (Conscrypt ne fournit SHA-3 qu'à partir d'Android 14 ; minSdk 26) ; **correctif : Bouncy Castle bcprov-jdk18on (SHA3Digest FIPS 202, pas Keccak)** dans OnionCodec ; **4 tests unitaires JVM verts** (NIST + vecteur hashlib Python + aller-retour + checksum invalide) ; audit.py corrigé (COH-PKG plantait sur src/test) ; cycle complet : audit PASSED → release signée → 13 contrôles OK → **APK v0.1.1 (versionCode 2, SHA-256 411cdb15…) livré** dans /livrables ; docs à jour (android/README.md § Correctif v0.1.1). |
 | 2026-10-12 | 8 | **Demande utilisateur : « section releases dans le git + explication déploiement serveur (hidden services dès le lancement d'un client, rien de local) + appli admin séparée Windows/Android + mettre à jour les instructions »** → **Releases GitHub actées** : script `release.sh` (tag annoté + release API + assets, idempotent), notes versionnées `docs/releases/`, **v0.1.1 = Latest** + v0.1.0 pré-release historique (APK+SHA256SUMS+audit en assets, tags v0.1.0→edc6cac, v0.1.1→98b5093) ; règle permanente **§9.6**. **ADR-009** (hébergement 100 % réseau, zéro local, rendezvous signé, client = découverte) + **ADR-008** (console nyx-admin séparée Win+Android, onion d'admin dédié, commandes signées) + **docs/DEPLOIEMENT_SERVEUR.md** (exploitation complète) + **docs/APPLI_ADMIN.md** (API admin v1, écrans, menace, roadmap). TODO n°3/n°4 ajoutés (admin, bundle deploy). |
 | 2026-10-12 | 9 | **Cadrage opérateur : biométrie + modération** → ADR-010 : rejet de la collecte d'identité réelle cachée/non consentie (architecture sans compte + RGPD art. 9/13 + pénal) — la modération se fera par mécanismes protocolaires TRANSPARENTS (signalements signés, blocklists de réplicas, orphanage, PoW) ; **biométrie acceptée en déverrouillage LOCAL opt-in** (BiometricPrompt client / Windows Hello admin, aucune donnée biométrique transmise — l'OS vérifie) ; verrou technique AUT-PERM (CAMERA/MICRO bloqués) rappelé. Biométrie client planifiée pour v0.1.2. |
+| 2026-10-12 | 10 | **Demande utilisateur : « périmètre tout » + alias unique pour invitations + admin non public + zéro info perso sur le git public** → **v0.1.2 livrée** : verrou biométrique opt-in (BiometricPrompt/FragmentActivity/AppLock — ADR-010, zéro donnée biométrique) + alias unique (spec filaire §6 d'abord, serveur Go + index min-id convergent + GET /client/alias, client onboarding avec suggestions, claim différé auto) ; tests : 2 Go + 4 Kotlin verts ; **dépôt privé `nyx-admin` créé** (spec admin + ops/INFRA.md déplacés du public) ; **IDs Drive/GCP purgés du public** (RESTART.md + gdrive.py → résolution par noms z.ai/Messagerie testée) ; commits déjà anonymes (pas de réécriture) ; règle permanente **§9.7** (hygiène publique). |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 
@@ -350,7 +395,7 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   refresh ~7 j → ré-autorisation utilisateur si expiré). Uploads :
   `RESTART.md` + `README.md` + `GUIDE_DEMARRAGE.md` (racine du dossier projet
   « Messagerie »), archive source tar.gz de l'état de session, et tous les livrables
-  dans `/livrables` (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`).
+  dans `/livrables` (référence exacte : dépôt privé `nyx-admin`, `ops/INFRA.md`).
 - Si les credentials manquent : **SKIP explicite** (jamais d'échec silencieux) et
   consigner ce qui reste en attente de synchro.
 - À la reprise d'un workspace vierge : tout restaurer depuis le dépôt GitHub (public)
@@ -361,9 +406,9 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
 
 - Local : `livrables/` à la racine du dépôt (git-ignoré) — dépôt de sortie du pipeline.
 - Drive : dossier **`/livrables`** à la racine du dossier projet « Messagerie »
-  — **id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`** (créé session 6 ; `sync.sh` y dépose
-  au besoin). Chaque APK y est accompagné de son rapport d'audit (`audit-report.txt`)
-  et des empreintes (`SHA256SUMS-latest.txt`).
+  (créé session 6 ; `sync.sh` y dépose au besoin ; référence exacte : dépôt
+  privé `nyx-admin`, `ops/INFRA.md`). Chaque APK y est accompagné de son rapport
+  d'audit (`audit-report.txt`) et des empreintes (`SHA256SUMS-latest.txt`).
 - Nommage : `nyx-v<versionName>-<AAAAMMJJ-HHMMSS>-release.apk`.
 
 ### 9.5 Hygiène permanente (rappel durci)
@@ -396,3 +441,26 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   corrigée (ex. v0.1.0).
 - **Ordre du cycle de livraison** (règle de bout en bout) : audit §9.1 → build
   §9.2 → livrables locaux §9.4 → **release GitHub §9.6** → synchro Drive §9.3.
+
+### 9.7 Hygiène du dépôt public — zéro info personnelle, admin séparé (session 10+)
+
+> Instaurée à la demande utilisateur (session 10) : « les applis admin ne doivent
+> pas être publiques sur git, et aucune info personnelle ne doit exister sur le
+> git public (drive, mail, etc.) ».
+
+- **Deux dépôts, deux visibilités** :
+  | Dépôt | Visibilité | Contenu autorisé |
+  |---|---|---|
+  | `nyx-messenger` | **public** | code client/serveur, docs génériques, ADR résumés, releases APK, notes de version |
+  | `nyx-admin` | **privé** | spec console admin (endpoints privilégiés), code console (futur), `ops/INFRA.md` : IDs d'infrastructure, inventaire credentials, procédure de restauration complète |
+- **Interdit sur le dépôt PUBLIC** : tout identifiant d'infrastructure (IDs de
+  dossiers Drive, numéros de projet GCP, URLs privées), toute info personnelle
+  (email, nom réel, téléphone), toute référence au dossier « Tokens » autre que
+  par NOM de dossier. `scripts/gdrive.py` : **aucun ID en dur** — résolution par
+  chemin de noms (`z.ai/Messagerie`), override `NYX_ROOT_FOLDER_ID` si besoin.
+- **Commits** : identité git neutre (`Z User <z@container>` — vérifier avant tout
+  premier push d'un workspace neuf ; JAMAIS d'email personnel).
+- **Fichiers des opérations sensibles** : ne jamais les créer sous `nyx/` — les
+  créer dans `/home/z/my-project/nyx-admin/` (clone du privé) ou hors dépôt.
+- L'audit §9.1 (SEC-*) complète cette règle : aucun secret dans le dépôt public ;
+  `docs/APPLI_ADMIN.md` et tout doc d'endpoints privilégiés vivent au privé.

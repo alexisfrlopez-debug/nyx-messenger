@@ -40,6 +40,7 @@ func (s *Server) Handler() http.Handler {
         mux.HandleFunc("/client/event", s.handleClientEvent)
         mux.HandleFunc("/client/inbox", s.handleInbox)
         mux.HandleFunc("/client/events", s.handleEventsByAuthor)
+        mux.HandleFunc("/client/alias", s.handleAliasResolve)
         mux.HandleFunc("/gossip/peers", s.handleGossipPeers)
         mux.HandleFunc("/gossip/push", s.handleGossipPush)
         mux.HandleFunc("/gossip/pull", s.handleGossipPull)
@@ -92,6 +93,26 @@ func (s *Server) handleClientEvent(w http.ResponseWriter, r *http.Request) {
         // Re-propager immédiatement vers les pairs
         select { case s.Kick <- struct{}{}: default: }
         writeJSON(w, 200, map[string]any{"accepted": true, "id": ev.ID()})
+}
+
+// GET /client/alias?name=<alias> — résolution d'un pseudonyme unique
+// (wire-format.md §6, api.md « /client/alias »). Pas de listing global (anti-énumération).
+func (s *Server) handleAliasResolve(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodGet {
+                writeJSON(w, 405, map[string]string{"error": "méthode interdite"})
+                return
+        }
+        name := r.URL.Query().Get("name")
+        if !journal.AliasRE.MatchString(name) {
+                writeJSON(w, 400, map[string]string{"error": "paramètre name requis (format ^[a-z0-9_]{3,24}$)"})
+                return
+        }
+        author, taken := s.Store.ResolveAlias(name)
+        resp := map[string]any{"alias": name, "taken": taken}
+        if taken {
+                resp["by"] = author
+        }
+        writeJSON(w, 200, resp)
 }
 
 // GET /client/inbox?to=<onion>&after=<curseur global>&limit=

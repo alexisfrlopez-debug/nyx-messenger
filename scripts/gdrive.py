@@ -26,9 +26,12 @@ CREDS_DIR = Path("/home/z/my-project/.credentials")
 API = "https://www.googleapis.com/drive/v3"
 UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"  # endpoint d'upload (segment /upload OBLIGATOIRE)
 TOKEN_URL = "https://oauth2.googleapis.com/token"
-# Racine ANCRÉE : dossier projet « Messagerie » (ne JAMAIS résoudre depuis la racine
-# de Mon Drive — d'autres projets y ont des dossiers homonymes, ex. « livrables »).
-ROOT_FOLDER_ID = "1xR8aME_sCa-8Q3OWBXjpO5pdCtwU4JmA"
+# Racine ANCRÉE par NOM (règle session 10 : AUCUN ID d'infrastructure dans ce
+# dépôt PUBLIC — les IDs vivent au dépôt privé `nyx-admin`, ops/INFRA.md).
+# Résolution : dossier « Messagerie » cherché à la racine Mon Drive (nom unique).
+# Override optionnel : variable d'environnement NYX_ROOT_FOLDER_ID (p.ex. extraite
+# du lien Drive fourni par l'utilisateur) — JAMAIS codée ici.
+ROOT_FOLDER_NAME = "Messagerie"
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
@@ -91,9 +94,34 @@ class Drive:
 
     # ---------------------------------------------------------------- API haut niveau
 
+    def _find_child(self, name: str, parent: str) -> str:
+        """ID du dossier `name` sous `parent` — unicité exigée (sinon erreur explicite)."""
+        q = (f"name = '{name}' and mimeType = '{FOLDER_MIME}' "
+             f"and '{parent}' in parents and trashed = false")
+        res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,name)&pageSize=10")
+        files = res.get("files", [])
+        if len(files) == 1:
+            return files[0]["id"]
+        where = "à la racine" if parent == "root" else f"sous {parent}"
+        if not files:
+            raise SystemExit(f"Dossier « {name} » introuvable {where} — vérifier le Drive / fournir NYX_ROOT_FOLDER_ID")
+        raise SystemExit(f"{len(files)} dossiers « {name} » homonymes {where} — lever l'ambiguïté via NYX_ROOT_FOLDER_ID")
+
+    def root_folder_id(self) -> str:
+        """ID du dossier projet — env var si fournie, sinon résolution par CHEMIN DE NOMS
+        (« z.ai/Messagerie » — aucun ID codé en dur, règle session 10)."""
+        import os
+        env = os.environ.get("NYX_ROOT_FOLDER_ID", "").strip()
+        if env:
+            return env
+        parent = "root"
+        for name in ["z.ai", ROOT_FOLDER_NAME]:
+            parent = self._find_child(name, parent)
+        return parent
+
     def resolve(self, path: str, create: bool = True) -> str:
-        """Résout un chemin « a/b/c » depuis le dossier projet « Messagerie » (ancré, création au besoin)."""
-        parent = ROOT_FOLDER_ID  # ancre : jamais « root »
+        """Résout un chemin « a/b/c » depuis le dossier projet « Messagerie » (création au besoin)."""
+        parent = self.root_folder_id()  # ancre : jamais « root »
         for part in [p for p in path.strip("/").split("/") if p]:
             q = (f"name = '{part}' and mimeType = '{FOLDER_MIME}' "
                  f"and '{parent}' in parents and trashed = false")

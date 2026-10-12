@@ -82,10 +82,13 @@ N_SPLITS=$(ls android/app/build/outputs/apk/release/*.apk 2>/dev/null | wc -l)
 
 # e) permissions : liste fermée minimale (+ permissions auto-définies par notre
 #    propre namespace — ex. DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION générée par AGP,
-#    protection-level signature : jamais une dépendance externe)
+#    protection-level signature : jamais une dépendance externe).
+#    USE_BIOMETRIC / USE_FINGERPRINT : déverrouillage LOCAL opt-in (ADR-010 §3) —
+#    apportées par androidx.biometric au manifest fusionné ; l'OS vérifie,
+#    l'app ne reçoit qu'un succès/échec, aucune donnée biométrique n'est lue.
 BADGE=$("$BT/aapt2" dump badging "$APK_SRC")
 BAD_PERMS=$(echo "$BADGE" | rg "uses-permission" \
-  | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS" \
+  | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT" \
   | rg -v "net\.nyx\.messenger\.[A-Z_]+" || true)
 [ -z "$BAD_PERMS" ] && check "Permissions minimales (liste fermée)" 0 \
                    || check "Permissions non autorisées" 1 "$BAD_PERMS"

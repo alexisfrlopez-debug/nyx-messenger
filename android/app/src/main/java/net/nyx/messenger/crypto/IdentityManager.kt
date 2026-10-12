@@ -14,6 +14,8 @@ import java.util.Base64
  *   onion         : adresse complète "xxx….onion"
  *   onion_pub     : base64 (32 octets)
  *   onion_priv    : base64 du scellé KeystoreBox(64 octets)
+ *   alias         : pseudonyme unique optionnel (wire-format.md §6 — v0.1.2)
+ *   alias_claimed : true une fois le claim accepté par un réplica
  */
 class IdentityManager private constructor(context: Context) {
 
@@ -24,6 +26,16 @@ class IdentityManager private constructor(context: Context) {
     var publicKey: ByteArray? = null; private set
 
     val exists: Boolean get() = prefs.getString(KEY_PRIV, null) != null
+
+    /** Pseudonyme unique optionnel (à l'onboarding — v0.1.2). */
+    var alias: String? = null
+        get() = field ?: prefs.getString(KEY_ALIAS, null)
+        private set
+
+    /** Le claim d'alias a été accepté par au moins un réplica. */
+    var aliasClaimed: Boolean
+        get() = prefs.getBoolean(KEY_ALIAS_CLAIMED, false)
+        private set(value) = prefs.edit().putBoolean(KEY_ALIAS_CLAIMED, value).apply()
 
     /** Crée l'identité si absente. Retourne l'adresse onion. */
     @Synchronized
@@ -67,6 +79,18 @@ class IdentityManager private constructor(context: Context) {
         return KeystoreBox.open(Base64.getDecoder().decode(sealed))
     }
 
+    /** Enregistre l'alias choisi (vérifié avant appel — AliasValidator + réplica). */
+    @Synchronized
+    fun setAlias(name: String) {
+        prefs.edit().putString(KEY_ALIAS, name).apply()
+    }
+
+    /** Marque le claim comme accepté (POST /client/event réussi). */
+    @Synchronized
+    fun markAliasClaimed() {
+        prefs.edit().putBoolean(KEY_ALIAS_CLAIMED, true).apply()
+    }
+
     /** Suppression totale (fonction « panique »). */
     fun destroy() {
         prefs.edit().clear().apply()
@@ -78,6 +102,8 @@ class IdentityManager private constructor(context: Context) {
         private const val KEY_ONION = "onion"
         private const val KEY_PUB = "onion_pub"
         private const val KEY_PRIV = "onion_priv"
+        private const val KEY_ALIAS = "alias"
+        private const val KEY_ALIAS_CLAIMED = "alias_claimed"
 
         @Volatile private var instance: IdentityManager? = null
         fun get(context: Context): IdentityManager =

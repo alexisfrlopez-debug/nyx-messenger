@@ -25,8 +25,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     signingConfigs {
@@ -78,6 +78,10 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons)
+    // Verrou biométrique local opt-in (ADR-010 §3) — l'OS vérifie, l'app ne reçoit
+    // qu'un succès/échec ; aucune donnée biométrique n'est lue, stockée, transmise.
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.navigation.compose)
     implementation(libs.androidx.lifecycle.runtime)

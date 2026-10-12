@@ -32,6 +32,10 @@ data class WireEvent(
 @Serializable
 data class InboxResponse(val events: List<WireEvent> = emptyList(), val cursor: Long = 0)
 
+/** Réponse de résolution d'un pseudonyme — GET /client/alias (wire-format.md §6). */
+@Serializable
+data class AliasResolve(val alias: String, val taken: Boolean, val by: String? = null)
+
 class RelayClient private constructor(
     replicaOnion: String,
     socksHost: String = "127.0.0.1",
@@ -75,6 +79,15 @@ class RelayClient private constructor(
         client.newCall(req).execute().use { resp ->
             check(resp.code == 200) { "GET /client/inbox → HTTP ${resp.code}" }
             json.decodeFromString(InboxResponse.serializer(), resp.body!!.string())
+        }
+    }
+
+    /** GET /client/alias?name=… — disponibilité d'un pseudonyme (v0.1.2). */
+    suspend fun resolveAlias(name: String): AliasResolve = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$base/client/alias?name=$name").build()
+        client.newCall(req).execute().use { resp ->
+            check(resp.code == 200) { "GET /client/alias → HTTP ${resp.code}" }
+            json.decodeFromString(AliasResolve.serializer(), resp.body!!.string())
         }
     }
 
