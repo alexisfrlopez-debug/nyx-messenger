@@ -1,8 +1,11 @@
 package net.nyx.messenger.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -23,8 +26,13 @@ import net.nyx.messenger.ui.settings.SettingsScreen
  *   → conversations → chat/{peer}
  *   ; mon adresse (partage) · mon profil · profil contact · paramètres.
  *
- * L'écran de verrou est la porte d'entrée : aucun contenu (ni conversations,
- * ni onboarding) n'est accessible tant que l'OS n'a pas authentifié l'utilisateur.
+ * L'écran de verrou est un CALQUE AU-DESSUS de la navigation (v0.2.1) : aucun
+ * contenu n'est accessible tant que l'OS n'a pas authentifié l'utilisateur,
+ * MAIS le NavController et l'écran en cours SURVIVENT au verrouillage — après
+ * déverrouillage, l'utilisateur retrouve exactement où il en était (avant
+ * v0.2.1, le verrou démontait la navigation et ramenait à l'écran d'accueil
+ * en perdant les éditions en cours, p. ex. une photo de profil en cours de
+ * sélection).
  *
  * v0.2.0 : le dialogue de fermeture (réduire = Tor + notifications actifs /
  * quitter = tout arrêter proprement) est fourni par MainActivity et composé
@@ -37,56 +45,57 @@ fun NyxNavHost(
     exitDialog: (@Composable () -> Unit)? = null
 ) {
     val locked by AppLock.locked.collectAsState()
-    if (locked) {
-        LockScreen()
-        return
-    }
-
     val nav = rememberNavController()
     val hasIdentity = ServiceLocator.initialized && ServiceLocator.identity.exists
     val start = if (hasIdentity) "conversations" else "onboarding"
 
-    NavHost(navController = nav, startDestination = start) {
-        composable("onboarding") {
-            OnboardingScreen(
-                onIdentityCreated = {
-                    nav.navigate("conversations") { popUpTo("onboarding") { inclusive = true } }
-                }
-            )
+    Box(modifier = Modifier.fillMaxSize()) {
+        NavHost(navController = nav, startDestination = start) {
+            composable("onboarding") {
+                OnboardingScreen(
+                    onIdentityCreated = {
+                        nav.navigate("conversations") { popUpTo("onboarding") { inclusive = true } }
+                    }
+                )
+            }
+            composable("conversations") {
+                ConversationListScreen(
+                    pendingAdd = initialAddRequest,
+                    onOpenConversation = { peer -> nav.navigate("chat/$peer") },
+                    onOpenMyOnion = { nav.navigate("myonion") },
+                    onOpenMyProfile = { nav.navigate("myprofile") },
+                    onOpenSettings = { nav.navigate("settings") }
+                )
+            }
+            composable("chat/{peer}") { entry ->
+                ChatScreen(
+                    peerOnion = entry.arguments?.getString("peer").orEmpty(),
+                    onOpenProfile = { peer -> nav.navigate("contactprofile/$peer") }
+                )
+            }
+            composable("myonion") {
+                MyOnionScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenProfile = { nav.navigate("myprofile") }
+                )
+            }
+            composable("myprofile") {
+                ProfileEditScreen(onBack = { nav.popBackStack() })
+            }
+            composable("contactprofile/{peer}") { entry ->
+                ContactProfileScreen(
+                    peerOnion = entry.arguments?.getString("peer").orEmpty(),
+                    onBack = { nav.popBackStack() }
+                )
+            }
+            composable("settings") {
+                SettingsScreen(onBack = { nav.popBackStack() })
+            }
         }
-        composable("conversations") {
-            ConversationListScreen(
-                pendingAdd = initialAddRequest,
-                onOpenConversation = { peer -> nav.navigate("chat/$peer") },
-                onOpenMyOnion = { nav.navigate("myonion") },
-                onOpenMyProfile = { nav.navigate("myprofile") },
-                onOpenSettings = { nav.navigate("settings") }
-            )
-        }
-        composable("chat/{peer}") { entry ->
-            ChatScreen(
-                peerOnion = entry.arguments?.getString("peer").orEmpty(),
-                onOpenProfile = { peer -> nav.navigate("contactprofile/$peer") }
-            )
-        }
-        composable("myonion") {
-            MyOnionScreen(
-                onBack = { nav.popBackStack() },
-                onOpenProfile = { nav.navigate("myprofile") }
-            )
-        }
-        composable("myprofile") {
-            ProfileEditScreen(onBack = { nav.popBackStack() })
-        }
-        composable("contactprofile/{peer}") { entry ->
-            ContactProfileScreen(
-                peerOnion = entry.arguments?.getString("peer").orEmpty(),
-                onBack = { nav.popBackStack() }
-            )
-        }
-        composable("settings") {
-            SettingsScreen(onBack = { nav.popBackStack() })
-        }
+
+        // Calque de verrou : dessiné en dernier = au-dessus de tout le contenu,
+        // opaque (fond système) — la navigation reste composée SOUS le verrou.
+        if (locked) LockScreen()
     }
 
     // Dialogue de fermeture (réduire vs quitter) — fenêtre système au-dessus de tout.

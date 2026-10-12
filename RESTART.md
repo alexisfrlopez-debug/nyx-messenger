@@ -38,7 +38,53 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 14 — 2026-10-13)
+## 3. État actuel (session 15 — 2026-10-13)
+
+### Fait ✅ (session 15)
+- **Correctif Android v0.2.1 — « choisir une photo de profil verrouille l'app
+  et revient à l'écran d'invitation sans enregistrer »** (diagnostic : 3 défauts
+  combinés) :
+  1. l'ouverture du photo-picker système met MainActivity en pause →
+     `AppLock.onBackgrounded()` re-verrouillait (opt-in biométrique actif) ;
+     correctif : `AppLock.suspendNextBackground()` — drapeau one-shot consommé
+     au prochain arrière-plan (flux système attendu : picker, feuille de
+     partage) ; tout ARRIÈRE-PLAN suivant re-verrouille normalement ;
+  2. `NyxNavHost` plaçait le verrou AVANT `rememberNavController()` : chaque
+     verrouillage démontait la navigation (retour à l'écran d'accueil, éditions
+     perdues, coroutine de l'écran annulée) → le verrou est désormais un
+     CALQUE opaque AU-DESSUS de la navigation (le NavController, la pile et
+     l'écran en cours survivent au verrouillage/déverrouillage) ; LockScreen
+     passe opaque (fond du thème) ;
+  3. lecture/décodage de la photo : `Dispatchers.IO` + `runCatching` (URI
+     expirée ou image illisible → message d'erreur, jamais un crash) ;
+  - même correctif appliqué au partage de « Mon adresse Nyx » (même cause) ;
+  - **7 tests JVM AppLock** (suspension consommée une seule fois, purge du
+    drapeau à enable/disable/init, re-verrouillage) — 22 tests verts au total ;
+  - versionCode 5, release GitHub **v0.2.1** + Drive (build-apk.sh : archivage
+    auto de v0.2.0).
+- **Installateur Windows 1 clic pour nyx-admin** (demande opérateur : « un exe
+  autosuffisant qui déploie tout en un clic ») — console **v0.2.1** :
+  - `installer/` (Go, dépôt PRIVÉ) : payload zip EMBARQUÉ dans l'exe
+    (`go:embed`) ; SHA-256 de référence COMPILÉ en dur (ldflags) et vérifié à
+    l'exécution ; extraction anti Zip-Slip ; contrôle fichiers essentiels
+    (java.exe/tor.exe/jar/lanceur) ; raccourcis Bureau + Menu Démarrer
+    (PowerShell, redirections OneDrive gérées) ; `desinstaller.bat`
+    (données `~\.nyx-admin` préservées) ; lancement proposé ; `-silent`/`-dir` ;
+  - **smoke test réel sous Linux du MÊME binaire** (embed + intégrité +
+    extraction : 223 fichiers en 1,2 s, contrôles OK) + 7 tests Go + vet +
+    contrôles PE (`MZ`, taille ≥ payload) ; le zip « manière manuelle » reste
+    livré ; APK admin v0.2.1 (versionCode 3) rebuildé ; SHA256SUMS régénéré ;
+  - distribution Drive `dernieres-livrables/` + archivage v0.2.0
+    (`archives/nyx-admin-v0.2.0/`) — toujours AUCUNE release GitHub admin
+    (ADR-008).
+- **Robustesse build (2  incidents durcis dans les scripts)** :
+  - OOM-killer noyau (conteneur 4,1 Go — JVM de build à ~2,3 Go RSS) :
+    `GRADLE_USER_HOME/gradle.properties` (-Xmx2g) ÉCRASE le gradle.properties
+    projet → borne mémoire passée PAR LIGNE DE COMMANDE
+    (`-Dorg.gradle.jvmargs=-Xmx1408m… --no-daemon`, 1 worker) dans
+    build-apk.sh (public), build-apk.sh + build-windows.sh (privé) ;
+  - disque plein pendant `go build` (embed 105 Mo) : purge
+    gradle-home/caches/8.9 + go-build + intermédiaires (à surveiller, §9.5).
 
 ### Fait ✅ (session 14)
 - **Provisionnement des réplicas depuis la console nyx-admin v0.2.0** (demande
@@ -314,8 +360,11 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 4. **Rendezvous signé embarqué dans l'APK** (suite ADR-009 §3) — le bundle
    one-shot de déploiement est RÉALISÉ (ADR-012, assistant console) ; reste la
    liste de rendezvous des réplicas d'amorçage dans les releases.
-5. Run device v0.2.0 : profil (avatar + visibilité par champ), contact par
-   alias, Mon adresse (partage), dialogue fermeture, thème.
+5. Run device v0.2.1 : **CHOISIR UNE PHOTO DE PROFIL (correctif session 15 —
+   doit rester sur l'écran profil, enregistrer et afficher l'avatar)**, profil
+   (visibilité par champ), contact par alias, Mon adresse (partage), dialogue
+   fermeture, thème ; côté Windows : installateur 1 clic (SmartScreen →
+   « Exécuter quand même »), premier lancement, association console↔nœud.
 6. TODO app restants (android/README.md) : persistance compteur de séquence, écran
    d'ajout de réplica, tests instrumentés.
 7. Repli censure : ponts obfs4/snowflake via IPtProxy dans le torrc (ADR-007 §3).
@@ -457,6 +506,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 11 | **Demande utilisateur : « l'application d'administration serveur compilée pour windows et android et déposée dans le dossier livrables du drive »** → **console nyx-admin v0.1.0 livrée** : dépôt privé (`:core` admin-core — client API `/admin/*` signé ed25519, chaîne canonique `nyx-admin-v1` figée, client-auth Tor `.auth_private` ; `:desktop` Compose Desktop ; `:android` APK `net.nyx.admin` Tor embarqué + verrou biométrique opt-in) ; pipeline dédié (audit.py miroir §9.1 → build-apk.sh → build-windows.sh) ; **livrables Drive `/livrables`** : APK 16 Mo signé (SHA c65dfc9d…) + zip Windows 103 Mo 100 % autonome (fat jar + Java 21 jlinké + tor 15.0.24, SHA 5704c7f0…) + SHA256SUMS + audit ; **ADR-008 révisé** (admin hors public, distribution Drive) ; spec/notes à jour ; API `/admin/*` serveur = TODO 3 (console opérationnelle dès déploiement). Corrections : Gradle mémoire bornée (OOM 4,1 Go), contrôles unzip via fichiers temporaires (SIGPIPE/pipefail). |
 | 2026-10-12 | 12 | **Demande utilisateur : « implémente l'API admin + contact par alias + partage adresse onion + menu paramètres + édition de profil (avatar, visibilité par champ) + dialogue fermeture (réduire vs tuer proprement) + définis la licence »** → **API admin serveur complète** (adminapi : 2 barrières, anti-replay, 12 endpoints, checkpoints RFC 6962 signés, audit JSONL, onion dédié 9091, défaut sûr) + **type `profile` v1.2** (spec §7 d'abord ; invariant anti-fuite serveur ; index dernier-gagne ; GET /client/profile) + **client v0.2.0** (profil par champ avec avatar, contact par alias, Mon adresse partageable, Paramètres thème/fermeture, dialogue réduire vs quitter proprement) + **AGPL-3.0-only** (ADR-011, LICENSE public+privé, contrôle COH-LIC) ; audit strict 0/0/4, 4 paquets Go + 12 tests JVM verts, APK v0.2.0 signé (SHA ea020098…), release GitHub v0.2.0, sync Drive+GitHub, APPLI_ADMIN.md §8 mis à jour (API livrée). |
 | 2026-10-12 | 13 | **Demande utilisateur : « dans le drive, dossier /livrables, classer le contenu : un sous-dossier pour ranger tous les dossiers archives, un pour stocker les documents et un pour déposer les dernières livrables — propage le rangement sur github »** → **Drive** : `/livrables` structuré en 3 zones — `archives/v0.1.0·v0.1.1·v0.1.2/` (APK+empreintes par version, immuables), `documents/` (rapports d'audit client+admin), `dernieres-livrables/` (jeu courant : APK v0.2.0, console admin v0.1.0 APK+zip, SHA256SUMS) — 14 fichiers déplacés via le nouveau `gdrive.py move`, arborescence vérifiée par `tree` ; **dépôt public** : miroir versionné SÉLECTIF (livrables/README.md + SHA256SUMS + audit-report.txt ; `.gitignore` porte la structure `*.md`/`*.txt`, exclut les binaires — Releases GitHub = canal des binaires) ; **pipeline adapté** : build-apk.sh livre dans `dernieres-livrables/` + ARCHIVAGE AUTO de la version remplacée + rapport d'audit vers `documents/`, sync.sh upload récursif miroir (uploads immuables nom+taille → skip), gdrive.py +`move`/`tree`/`upload --immutable`, release.sh à jour ; décision 12 + §9.3/§9.4 révisés + entrée 12 remise dans le tableau du journal ; IDs des 3 sous-dossiers consignés au privé (ops/INFRA.md) ; audit.py privé CORRIGÉ (binaires skippés — faux positif e-mail sur gradle-wrapper.jar ; mot de passe keystore : seuls les littéraux en dur sont flaggés, la lecture getProperty du git-ignoré keystore.properties est la bonne pratique §9.5) ; audits public et privé PASSED ; push public + privé ; synchro Drive complète. |
+| 2026-10-13 | 15 | **Demandes utilisateur : (1) « quand je choisis une photo de profil et que je clique sur ok, l'app se verrouille et revient à l'écran d'invitation sans enregistrer » ; (2) « pour l'appli admin windows, un exe autosuffisant qui déploie tout en un clic »** → **v0.2.1 client** : AppLock.suspendNextBackground (picker/partage = arrière-plan ATTENDU, consommé une fois), verrou = calque opaque au-dessus de la navigation (NavController + pile + écran survivent — plus de retour à l'accueil ni de perte d'édition), décodage photo durci (IO + runCatching) ; 7 tests JVM AppLock (22 verts) ; APK signé + release GitHub + Drive. **nyx-admin v0.2.1** : installer/ Go (payload zip EMBARQUÉ dans l'exe, SHA de référence compilé vérifié à l'exécution, extraction anti Zip-Slip, raccourcis Bureau+Menu Démarrer, désinstalleur, -silent/-dir), smoke test Linux du même binaire (223 fichiers) + 7 tests Go + vet, zip manuel + APK admin rebuildés + SHA256SUMS ; ADR-008 respecté (Drive, pas de release GitHub admin). Build : mémoire gradle bornée par ligne de commande (OOM noyau durci dans les 3 scripts), purge disque. |
 | 2026-10-13 | 14 | **Demande utilisateur : « les réplicas se créent seuls dans la console admin quand je clique sur ajouter réplica, en gardant la possibilité d'en ajouter des existants »** → **ADR-012 + console v0.2.0** : admin-core `OnionIdentity` (ed25519, onion v3 SHA-3 BC — vecteur croisé Go↔Kotlin, X25519) + `ReplicaProvisioning` (bundle tar.gz ustar : binaire serveur linux/amd64, identités pré-remplies, config parrain+clé admin, torrc durci, systemd, install.sh avec sha256sum -c, LISEZMOI) — validé par GNU tar réel ; UI desktop choix Créer/Existant + état « en attente » + promotion + câblage flotte automatiques ; **correctif addPeer (gossip_pub base64 via GET /identity — l'envoi du booléen était rejeté 400)** ; miroir Android ; ADR-009 §2 amendé (identité forgée console, menace honnête hébergeur) ; APPLI_ADMIN.md §9 ; 7 tests JVM verts ; audits PASSED ; livrables zip Windows 106 Mo + APK signé → Drive. |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)

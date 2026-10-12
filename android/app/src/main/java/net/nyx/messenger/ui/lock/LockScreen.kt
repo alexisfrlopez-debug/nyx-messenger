@@ -2,6 +2,7 @@ package net.nyx.messenger.ui.lock
 
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -62,8 +63,11 @@ private fun prompt(activity: FragmentActivity, onSuccess: () -> Unit) {
 }
 
 /**
- * Écran de verrou : affiché AVANT toute navigation quand l'opt-in biométrique
- * est actif (à froid, après retour au premier plan). Le prompt se déclenche
+ * Écran de verrou : affiché AU-DESSUS de la navigation quand l'opt-in
+ * biométrique est actif (à froid, après retour au premier plan). OPAQUE par
+ * construction (fond du thème) — v0.2.1 : composé en calque par NyxNavHost,
+ * la navigation survive dessous mais rien n'est lisible ni accessible tant
+ * que l'OS n'a pas authentifié l'utilisateur. Le prompt se déclenche
  * automatiquement ; l'OS effectue la vérification — aucun secret ne transite.
  */
 @Composable
@@ -83,7 +87,12 @@ fun LockScreen() {
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            // Opaque : le verrou est un calque au-dessus de la navigation
+            // (NyxNavHost v0.2.1) — le contenu dessous ne doit pas transparaître.
+            .background(MaterialTheme.colorScheme.background)
+            .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

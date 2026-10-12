@@ -42,7 +42,12 @@ fi
 
 # ---------- 2. build ----------
 echo "${YLW}═══ 2/4 BUILD RELEASE SIGNÉ ═══${NC}"
-( cd android && ./gradlew :app:assembleRelease --console=plain -q )
+# Mémoire bornée par ligne de commande (priorité sur GRADLE_USER_HOME/gradle.properties
+# qui porte -Xmx2g) : conteneur 4,1 Go — sans borne, le JVM culmine à ~2,3 Go RSS
+# et l'OOM-killer du noyau tue le build (session 15). Kotlin in-process + 1 worker.
+( cd android && ./gradlew :app:assembleRelease --console=plain -q --no-daemon \
+    -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=448m -Dfile.encoding=UTF-8" \
+    -Dorg.gradle.workers.max=1 )
 APK_SRC=$(ls -t android/app/build/outputs/apk/release/*.apk | head -1)
 [ -f "$APK_SRC" ] || { echo "${RED}APK introuvable après build${NC}"; exit 1; }
 echo "APK brut : $APK_SRC ($(du -h "$APK_SRC" | cut -f1))"

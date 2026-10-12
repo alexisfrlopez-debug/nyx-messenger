@@ -47,13 +47,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.profile.AvatarCodec
 import net.nyx.messenger.profile.OwnProfile
 import net.nyx.messenger.profile.ProfileKeys
 import net.nyx.messenger.profile.ProfileStore
+import net.nyx.messenger.security.AppLock
 
 /**
  * Édition du profil (v0.2.0 — wire-format.md §7) : nom affiché, bio, site,
@@ -93,16 +96,25 @@ fun ProfileEditScreen(onBack: () -> Unit) {
         avatarB64.takeIf { it.isNotBlank() }?.let { AvatarCodec.fromBase64(it) }
     }
 
-    // Photo picker système (androidx.activity — pas de permission, pas de GMS)
+    // Photo picker système (androidx.activity — pas de permission, pas de GMS).
+    // v0.2.1 : le picker est une activité système — son ouverture met MainActivity
+    // en pause ; on annonce ce passage en arrière-plan ATTENDU (AppLock) pour que
+    // choisir une photo ne verrouille pas l'application, et la lecture/décodage
+    // sont protégés (IO + runCatching) : une URI expirée ou une image illisible
+    // produit un message d'erreur, jamais un crash ni une perte d'édition.
     val pickAvatar = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
             scope.launch {
-                val bytes = context.contentResolver.openInputStream(uri)?.use {
-                    it.readBytes()
+                val b64 = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use {
+                            it.readBytes()
+                        }
+                        bytes?.let { AvatarCodec.downscaleToBase64(it) }
+                    }.getOrNull()
                 }
-                val b64 = bytes?.let { AvatarCodec.downscaleToBase64(it) }
                 if (b64 != null) {
                     avatarB64 = b64
                     publishError = null
@@ -158,6 +170,7 @@ fun ProfileEditScreen(onBack: () -> Unit) {
                     Text(stringResource(R.string.profile_avatar), style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {
+                            AppLock.suspendNextBackground()
                             pickAvatar.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )

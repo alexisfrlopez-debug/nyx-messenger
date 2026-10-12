@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.profile.ProfileKeys
+import net.nyx.messenger.security.AppLock
 
 /**
  * « Mon adresse Nyx » (v0.2.0) : affichage de l'adresse onion DE L'UTILISATEUR
@@ -100,6 +101,9 @@ fun MyOnionScreen(
                 Button(onClick = {
                     // Partage : l'utilisateur choisit le canal ET le destinataire —
                     // Nyx ne transmet rien de son côté (aucune donnée sortante ici).
+                    // v0.2.1 : la feuille de partage est une activité système —
+                    // passage en arrière-plan attendu, ne pas verrouiller.
+                    AppLock.suspendNextBackground()
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, shareText(alias, onion))
