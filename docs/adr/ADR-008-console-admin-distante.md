@@ -57,3 +57,21 @@ modèle journal), faire tourner une identité. Contraintes héritées du projet 
 - ⚠️ Le redémarrage post-crash dépend de l'hôte (systemd) tant que `nyx-agent`
   n'existe pas — documenté dans docs/APPLI_ADMIN.md.
 - Spec détaillée (commandes, formats, roadmap) : `docs/APPLI_ADMIN.md`.
+
+## Révision (2026-10-12, session 11)
+
+Amendements à la décision initiale, sans changer l'architecture :
+
+1. **Localisation du code** : le point « livrée dans le même dépôt (`admin/`) »
+   est **révoqué** — la console vit dans le **dépôt privé dédié `nyx-admin`**
+   (décision opérateur session 10 : ni le code, ni la spec des endpoints
+   privilégiés sur le dépôt public ; cf. ADR-010 §2 pour l'esprit — réduction
+   de surface). Le dépôt public ne référence pas ce dépôt par lien direct.
+2. **Distribution des livrables** : PAS de release GitHub pour les binaires
+   admin — le zip Windows autonome (fat jar + runtime Java 21 jlinké + tor
+   expert bundle) et l'APK signé sont déposés dans le **dossier Drive privé
+   `livrables`**, avec SHA256SUMS et rapport d'audit.
+3. **Première livraison** : console v0.1.0 (Windows + Android) effective —
+   périmètre détaillé dans la spec (dépôt privé, §8 « État »). L'API `/admin/*`
+   côté `nyx-server` reste à implémenter (TODO 3) : la console gère l'absence
+   proprement et fonctionnera sans modification dès son déploiement.

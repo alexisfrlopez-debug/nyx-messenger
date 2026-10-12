@@ -31,10 +31,38 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 7 | Console d'admin | **nyx-admin : appli SÉPARÉE Windows + Android** (monitoring, start/stop, réplication, élagage) — plan de contrôle = onion d'admin dédié + onion auth + commandes signées ed25519 | ADR-008 |
 | 8 | Hébergement réplicas | **100 % réseau, zéro local** : réplicas sur hôtes distants, exposés UNIQUEMENT en hidden services ; le client DÉCOUVRE le réseau (rendezvous signé embarqué), il ne déploie rien | ADR-009 |
 | 9 | Modération & biométrie | **AUCUNE collecte d'identité réelle (jamais cachée/non consentie)** ; modération protocolaire transparente (signalements, blocklists, PoW) ; **biométrie = déverrouillage LOCAL opt-in** (BiometricPrompt client, Windows Hello admin) — aucune donnée biométrique ne quitte le device | ADR-010 |
+| 10 | Console admin (révision) | **Code/spec admin = dépôt PRIVÉ `nyx-admin`** ; **livrables = Drive privé `/livrables`** (zip Windows autonome + APK signé) — AUCUNE release GitHub pour l'admin ; le public n'a ni code, ni spec, ni binaires admin | ADR-008 (rév. session 11) |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 10 — 2026-10-12)
+## 3. État actuel (session 11 — 2026-10-12)
+
+### Fait ✅ (session 11)
+- **Console nyx-admin v0.1.0 COMPILÉE ET LIVRÉE (Windows + Android)** — demande
+  opérateur : « l'application d'administration serveur compilée pour windows et
+  android et déposée dans le dossier livrables du drive » :
+  1. **Dépôt privé `nyx-admin`** : modules `:core` (admin-core — client API
+     `/admin/*` complet + signature ed25519 `X-Nyx-Admin/Ts/Nonce/Sig`, chaîne
+     canonique `nyx-admin-v1` figée dans la spec §3, client-auth Tor via
+     `.auth_private`/ClientOnionAuthDir, contrôle bootstrap miroir) +
+     `:desktop` (Compose Desktop) + `:android` (APK `net.nyx.admin`, Tor
+     embarqué 4 ABI, verrou biométrique opt-in ADR-010, clé scellée Keystore) ;
+     pipeline dédié : `audit.py` (miroir §9.1) → `build-apk.sh` →
+     `build-windows.sh`.
+  2. **Livrables Drive `/livrables`** : `nyx-admin-android-v0.1.0-*.apk`
+     (16 Mo, signé, universel, zéro GMS, SHA-256 `c65dfc9d…`) +
+     `nyx-admin-windows-v0.1.0-*.zip` (103 Mo, 100 % autonome : fat jar +
+     runtime Java 21 jlinké + tor 15.0.24 expert bundle + `nyx-admin.bat`,
+     SHA-256 `5704c7f0…`) + `SHA256SUMS-nyx-admin-v0.1.0.txt` + rapport d'audit.
+  3. **ADR-008 révisé** (code admin hors du public, distribution Drive — PAS de
+     release GitHub pour l'admin) ; spec APPLI_ADMIN.md à jour (distribution,
+     formats canoniques, §8 « État ») ; notes `docs/releases/v0.1.0.md` (privé).
+  4. **Dépendance documentée** : l'API `/admin/*` côté nyx-server reste à
+     implémenter (TODO 3) — la console diagnostique proprement (404 → « API
+     admin absente ») et fonctionnera sans modification dès le déploiement.
+  5. Enseignements build : conteneur 4,1 Go → Gradle mémoire bornée + Kotlin
+     in-process (OOM kill sinon) ; `unzip | rg -q` sous `pipefail` = SIGPIPE →
+     contrôles via fichiers temporaires.
 
 ### Fait ✅ (session 10)
 - **v0.1.2 livrée** (versionCode 3, SHA-256 `40f97236…`) — deux fonctionnalités
@@ -194,9 +222,11 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
    (correctif SHA-3), bootstrap tor (bannière %), publication onion (logcat
    `nyx-tor`), connexion au réplica de dev (GUIDE_DEMARRAGE.md §2 option 1 + §3).
 2. **Test 3 réplicas sur machine avec Tor** — GUIDE_DEMARRAGE.md §2 (option 1).
-3. **Chantier nyx-admin (ADR-008)** : API admin read-only dans nyx-server (§4 de
-   docs/APPLI_ADMIN.md) + module `admin-core` + console Windows/Android —
-   démarrer par le monitoring (v0.2 admin).
+3. **Chantier nyx-admin — API admin côté serveur (ADR-008)** : implémenter
+   `/admin/*` dans nyx-server (spec §4 du dépôt privé, formats canoniques §3 :
+   signature ed25519 + nonce cache + fenêtre ±120 s) ; la CONSOLE (v0.1.0,
+   Windows+Android) est déjà livrée et fonctionnera sans modification dès le
+   déploiement — commencer par monitoring read-only, puis commandes.
 4. **Bundle deploy/ (ADR-009 §2)** : script one-shot hôte distant (systemd +
    torrc durci) + liste de rendezvous signée embarquée dans l'APK.
 5. TODO app restants (android/README.md) : persistance compteur de séquence, écran
@@ -214,12 +244,12 @@ nyx/
 ├── README.md               ← vue d'ensemble
 ├── docs/                   ← architecture, sécurité, protocoles, roadmap, setup, ADR/
 │     ├── DEPLOIEMENT_SERVEUR.md (exploitation réplicas — ADR-008/009)
-│     ├── APPLI_ADMIN.md         (spec console nyx-admin Windows+Android)
+│     │     (la spec détaillée APPLI_ADMIN.md vit dans le dépôt PRIVÉ, §9.7)
 │     └── releases/              ← notes de version (docs/releases/vX.Y.Z.md)
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
-├── admin/                  ← (à créer, ADR-008) console nyx-admin : core + windows + android
+├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh
 ```
 
@@ -336,6 +366,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 8 | **Demande utilisateur : « section releases dans le git + explication déploiement serveur (hidden services dès le lancement d'un client, rien de local) + appli admin séparée Windows/Android + mettre à jour les instructions »** → **Releases GitHub actées** : script `release.sh` (tag annoté + release API + assets, idempotent), notes versionnées `docs/releases/`, **v0.1.1 = Latest** + v0.1.0 pré-release historique (APK+SHA256SUMS+audit en assets, tags v0.1.0→edc6cac, v0.1.1→98b5093) ; règle permanente **§9.6**. **ADR-009** (hébergement 100 % réseau, zéro local, rendezvous signé, client = découverte) + **ADR-008** (console nyx-admin séparée Win+Android, onion d'admin dédié, commandes signées) + **docs/DEPLOIEMENT_SERVEUR.md** (exploitation complète) + **docs/APPLI_ADMIN.md** (API admin v1, écrans, menace, roadmap). TODO n°3/n°4 ajoutés (admin, bundle deploy). |
 | 2026-10-12 | 9 | **Cadrage opérateur : biométrie + modération** → ADR-010 : rejet de la collecte d'identité réelle cachée/non consentie (architecture sans compte + RGPD art. 9/13 + pénal) — la modération se fera par mécanismes protocolaires TRANSPARENTS (signalements signés, blocklists de réplicas, orphanage, PoW) ; **biométrie acceptée en déverrouillage LOCAL opt-in** (BiometricPrompt client / Windows Hello admin, aucune donnée biométrique transmise — l'OS vérifie) ; verrou technique AUT-PERM (CAMERA/MICRO bloqués) rappelé. Biométrie client planifiée pour v0.1.2. |
 | 2026-10-12 | 10 | **Demande utilisateur : « périmètre tout » + alias unique pour invitations + admin non public + zéro info perso sur le git public** → **v0.1.2 livrée** : verrou biométrique opt-in (BiometricPrompt/FragmentActivity/AppLock — ADR-010, zéro donnée biométrique) + alias unique (spec filaire §6 d'abord, serveur Go + index min-id convergent + GET /client/alias, client onboarding avec suggestions, claim différé auto) ; tests : 2 Go + 4 Kotlin verts ; **dépôt privé `nyx-admin` créé** (spec admin + ops/INFRA.md déplacés du public) ; **IDs Drive/GCP purgés du public** (RESTART.md + gdrive.py → résolution par noms z.ai/Messagerie testée) ; commits déjà anonymes (pas de réécriture) ; règle permanente **§9.7** (hygiène publique). |
+| 2026-10-12 | 11 | **Demande utilisateur : « l'application d'administration serveur compilée pour windows et android et déposée dans le dossier livrables du drive »** → **console nyx-admin v0.1.0 livrée** : dépôt privé (`:core` admin-core — client API `/admin/*` signé ed25519, chaîne canonique `nyx-admin-v1` figée, client-auth Tor `.auth_private` ; `:desktop` Compose Desktop ; `:android` APK `net.nyx.admin` Tor embarqué + verrou biométrique opt-in) ; pipeline dédié (audit.py miroir §9.1 → build-apk.sh → build-windows.sh) ; **livrables Drive `/livrables`** : APK 16 Mo signé (SHA c65dfc9d…) + zip Windows 103 Mo 100 % autonome (fat jar + Java 21 jlinké + tor 15.0.24, SHA 5704c7f0…) + SHA256SUMS + audit ; **ADR-008 révisé** (admin hors public, distribution Drive) ; spec/notes à jour ; API `/admin/*` serveur = TODO 3 (console opérationnelle dès déploiement). Corrections : Gradle mémoire bornée (OOM 4,1 Go), contrôles unzip via fichiers temporaires (SIGPIPE/pipefail). |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 
@@ -441,6 +472,9 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   corrigée (ex. v0.1.0).
 - **Ordre du cycle de livraison** (règle de bout en bout) : audit §9.1 → build
   §9.2 → livrables locaux §9.4 → **release GitHub §9.6** → synchro Drive §9.3.
+- **Exception (session 11)** : les livrables de la console **nyx-admin** ne
+  passent PAS par une release GitHub (régle §9.7 — dépôt privé) : distribution
+  directe dans `/livrables` (Drive), avec SHA256SUMS + rapport d'audit dédiés.
 
 ### 9.7 Hygiène du dépôt public — zéro info personnelle, admin séparé (session 10+)
 
@@ -452,7 +486,7 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   | Dépôt | Visibilité | Contenu autorisé |
   |---|---|---|
   | `nyx-messenger` | **public** | code client/serveur, docs génériques, ADR résumés, releases APK, notes de version |
-  | `nyx-admin` | **privé** | spec console admin (endpoints privilégiés), code console (futur), `ops/INFRA.md` : IDs d'infrastructure, inventaire credentials, procédure de restauration complète |
+  | `nyx-admin` | **privé** | spec console admin (endpoints privilégiés), **code console (`:core`/`:desktop`/`:android`, session 11)**, pipeline de build admin, `ops/INFRA.md` : IDs d'infrastructure, inventaire credentials, procédure de restauration complète |
 - **Interdit sur le dépôt PUBLIC** : tout identifiant d'infrastructure (IDs de
   dossiers Drive, numéros de projet GCP, URLs privées), toute info personnelle
   (email, nom réel, téléphone), toute référence au dossier « Tokens » autre que
