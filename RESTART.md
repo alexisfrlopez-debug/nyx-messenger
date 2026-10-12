@@ -34,10 +34,40 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 10 | Console admin (révision) | **Code/spec admin = dépôt PRIVÉ `nyx-admin`** ; **livrables = Drive privé `/livrables`** (zip Windows autonome + APK signé) — AUCUNE release GitHub pour l'admin ; le public n'a ni code, ni spec, ni binaires admin | ADR-008 (rév. session 11) |
 | 11 | API admin serveur + profil + licence | **`/admin/*` implémentée dans nyx-server** (2 barrières : onion dédié 9091 + signature canonique `nyx-admin-v1` + nonce anti-replay ; checkpoints RFC 6962 ; défaut sûr sans clé) ; **type `profile`** (wire-format §7 : visibilité PAR CHAMP, privé = local uniquement, invariant serveur anti-fuite) ; **licence AGPL-3.0-only** (ADR-011) | ADR-011, APPLI_ADMIN.md §8 (privé) |
 | 12 | Rangement des livrables | **`/livrables` en 3 zones (miroir Drive ↔ git public)** : `dernieres-livrables/` (jeu courant) · `archives/v<version>/` (versions remplacées, immuables) · `documents/` (rapports d'audit) ; binaires HORS git (Releases GitHub §9.6) — git porte structure + empreintes + rapports ; archivage automatique par `build-apk.sh`, propagation par `sync.sh` | §9.4 (rév. session 13) |
+| 13 | Provisionnement des réplicas | **Création autonome depuis la console** : « Ajouter un réplica » offre Créer (la console forge les identités — onion client + admin + gossip + client-auth — et produit un bundle one-shot tar.gz : binaire serveur, identités pré-remplies, config, torrc durci, systemd, install.sh) ou Existant ; cycle « en attente → actif » + câblage flotte automatiques (pairs ajoutés des deux sens) ; identité forgée console = amendement motivé ADR-009 §2 (l'hôte lit le disque de toute façon) | ADR-012 |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 13 — 2026-10-12)
+## 3. État actuel (session 14 — 2026-10-13)
+
+### Fait ✅ (session 14)
+- **Provisionnement des réplicas depuis la console nyx-admin v0.2.0** (demande
+  opérateur : « les réplicas se créent seuls dans la console quand je clique
+  sur ajouter réplica, en gardant l'ajout d'existant » — ADR-012) :
+  - admin-core : `OnionIdentity` (ed25519 + dérivation onion v3 SHA-3 BC +
+    X25519 gossip + paire client-auth) — **vecteur de test croisé Go↔Kotlin** ;
+    `ReplicaProvisioning` (bundle tar.gz ustar minimal : binaire nyx-server
+    linux/amd64, identity.json + admin_identity.json pré-remplis — supportés
+    tels quels par `LoadOrCreate` serveur, config.json [parrain + clé admin],
+    torrc durci, unité systemd durcie, install.sh one-shot avec contrôle
+    SHA256SUMS, LISEZMOI) — **bundle validé par GNU tar réel** (extraction +
+    `sha256sum -c` + modes 755/600/644) ;
+  - desktop : « Ajouter un réplica » = choix **Créer** (libellé + parrain
+    joignable + FileChooser → bundle + instructions) / **Existant** (flux
+    inchangé) ; réplica inscrit « en attente de déploiement » (badge) →
+    promotion automatique à la première réponse → **câblage flotte
+    bidirectionnel automatique** (GET /admin/identity → POST /admin/peers) ;
+  - **correctif "Ajouter un pair"** : `addPeer` envoyait un booléen là où le
+    serveur exige la chaîne base64 32 octets (400 systématique) — le gossip_pub
+    est désormais récupéré automatiquement via `GET /identity` du pair (API
+    client publique), saisie manuelle en secours ; miroir Android complet
+    (KeyVault pending, promotion/câblage, addPeerDiscovered) ;
+  - build-windows.sh embarque `server/nyx-server` (linux/amd64) dans le zip ;
+  - 7 tests JVM verts ; audits public/privé PASSED ; console v0.2.0 livrée
+    (zip Windows 106 Mo + APK Android signé) — Drive `dernieres-livrables/`.
+- **ADR-012** + amendement ADR-009 §2 (identité forgée par la console : l'hôte
+  lit le disque de toute façon — mitigation = remplacement du réplica) ;
+  APPLI_ADMIN.md §9 (flux, format bundle, menace bundle) + §7 roadmap.
 
 ### Fait ✅ (session 13)
 - **Rangement du dossier `/livrables` (Drive) + miroir sur GitHub** (demande
@@ -281,8 +311,9 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
    puis configurer `admin.authorized_keys` sur chaque nœud ; l'ONION D'ADMIN
    s'affiche dans les logs (`ONION ADMIN publié : xxx.onion`) — à déclarer dans
    nyx-admin (dépôt privé) ; tester le cycle complet console↔nœud.
-4. **Bundle deploy/ (ADR-009 §2)** : script one-shot hôte distant (systemd +
-   torrc durci) + liste de rendezvous signée embarquée dans l'APK.
+4. **Rendezvous signé embarqué dans l'APK** (suite ADR-009 §3) — le bundle
+   one-shot de déploiement est RÉALISÉ (ADR-012, assistant console) ; reste la
+   liste de rendezvous des réplicas d'amorçage dans les releases.
 5. Run device v0.2.0 : profil (avatar + visibilité par champ), contact par
    alias, Mon adresse (partage), dialogue fermeture, thème.
 6. TODO app restants (android/README.md) : persistance compteur de séquence, écran
@@ -426,6 +457,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 11 | **Demande utilisateur : « l'application d'administration serveur compilée pour windows et android et déposée dans le dossier livrables du drive »** → **console nyx-admin v0.1.0 livrée** : dépôt privé (`:core` admin-core — client API `/admin/*` signé ed25519, chaîne canonique `nyx-admin-v1` figée, client-auth Tor `.auth_private` ; `:desktop` Compose Desktop ; `:android` APK `net.nyx.admin` Tor embarqué + verrou biométrique opt-in) ; pipeline dédié (audit.py miroir §9.1 → build-apk.sh → build-windows.sh) ; **livrables Drive `/livrables`** : APK 16 Mo signé (SHA c65dfc9d…) + zip Windows 103 Mo 100 % autonome (fat jar + Java 21 jlinké + tor 15.0.24, SHA 5704c7f0…) + SHA256SUMS + audit ; **ADR-008 révisé** (admin hors public, distribution Drive) ; spec/notes à jour ; API `/admin/*` serveur = TODO 3 (console opérationnelle dès déploiement). Corrections : Gradle mémoire bornée (OOM 4,1 Go), contrôles unzip via fichiers temporaires (SIGPIPE/pipefail). |
 | 2026-10-12 | 12 | **Demande utilisateur : « implémente l'API admin + contact par alias + partage adresse onion + menu paramètres + édition de profil (avatar, visibilité par champ) + dialogue fermeture (réduire vs tuer proprement) + définis la licence »** → **API admin serveur complète** (adminapi : 2 barrières, anti-replay, 12 endpoints, checkpoints RFC 6962 signés, audit JSONL, onion dédié 9091, défaut sûr) + **type `profile` v1.2** (spec §7 d'abord ; invariant anti-fuite serveur ; index dernier-gagne ; GET /client/profile) + **client v0.2.0** (profil par champ avec avatar, contact par alias, Mon adresse partageable, Paramètres thème/fermeture, dialogue réduire vs quitter proprement) + **AGPL-3.0-only** (ADR-011, LICENSE public+privé, contrôle COH-LIC) ; audit strict 0/0/4, 4 paquets Go + 12 tests JVM verts, APK v0.2.0 signé (SHA ea020098…), release GitHub v0.2.0, sync Drive+GitHub, APPLI_ADMIN.md §8 mis à jour (API livrée). |
 | 2026-10-12 | 13 | **Demande utilisateur : « dans le drive, dossier /livrables, classer le contenu : un sous-dossier pour ranger tous les dossiers archives, un pour stocker les documents et un pour déposer les dernières livrables — propage le rangement sur github »** → **Drive** : `/livrables` structuré en 3 zones — `archives/v0.1.0·v0.1.1·v0.1.2/` (APK+empreintes par version, immuables), `documents/` (rapports d'audit client+admin), `dernieres-livrables/` (jeu courant : APK v0.2.0, console admin v0.1.0 APK+zip, SHA256SUMS) — 14 fichiers déplacés via le nouveau `gdrive.py move`, arborescence vérifiée par `tree` ; **dépôt public** : miroir versionné SÉLECTIF (livrables/README.md + SHA256SUMS + audit-report.txt ; `.gitignore` porte la structure `*.md`/`*.txt`, exclut les binaires — Releases GitHub = canal des binaires) ; **pipeline adapté** : build-apk.sh livre dans `dernieres-livrables/` + ARCHIVAGE AUTO de la version remplacée + rapport d'audit vers `documents/`, sync.sh upload récursif miroir (uploads immuables nom+taille → skip), gdrive.py +`move`/`tree`/`upload --immutable`, release.sh à jour ; décision 12 + §9.3/§9.4 révisés + entrée 12 remise dans le tableau du journal ; IDs des 3 sous-dossiers consignés au privé (ops/INFRA.md) ; audit.py privé CORRIGÉ (binaires skippés — faux positif e-mail sur gradle-wrapper.jar ; mot de passe keystore : seuls les littéraux en dur sont flaggés, la lecture getProperty du git-ignoré keystore.properties est la bonne pratique §9.5) ; audits public et privé PASSED ; push public + privé ; synchro Drive complète. |
+| 2026-10-13 | 14 | **Demande utilisateur : « les réplicas se créent seuls dans la console admin quand je clique sur ajouter réplica, en gardant la possibilité d'en ajouter des existants »** → **ADR-012 + console v0.2.0** : admin-core `OnionIdentity` (ed25519, onion v3 SHA-3 BC — vecteur croisé Go↔Kotlin, X25519) + `ReplicaProvisioning` (bundle tar.gz ustar : binaire serveur linux/amd64, identités pré-remplies, config parrain+clé admin, torrc durci, systemd, install.sh avec sha256sum -c, LISEZMOI) — validé par GNU tar réel ; UI desktop choix Créer/Existant + état « en attente » + promotion + câblage flotte automatiques ; **correctif addPeer (gossip_pub base64 via GET /identity — l'envoi du booléen était rejeté 400)** ; miroir Android ; ADR-009 §2 amendé (identité forgée console, menace honnête hébergeur) ; APPLI_ADMIN.md §9 ; 7 tests JVM verts ; audits PASSED ; livrables zip Windows 106 Mo + APK signé → Drive. |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 

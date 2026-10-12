@@ -40,6 +40,13 @@ réseau »**. Autrement dit :
    (journal+gossip tolère les intermittences — ADR-001) ; un réplica retiré est
    remplacé par un nouveau provisionnement, le réseau re-converge seul.
 
+> **Mise à jour (2026-10-13, ADR-012)** : le bundle de déploiement est réalisé
+> et piloté depuis la console nyx-admin (assistant « Créer un réplica »).
+> L'identité est forgée **par la console** (et non sur l'hôte) — amendement
+> motivé et borné dans ADR-012 §2 : l'hébergeur lit le disque de toute façon ;
+> la mitigation contre un hébergeur malveillant reste le remplacement du
+> réplica (§5).
+
 ## Conséquences
 
 - ✅ Aucune dépendance à une machine de l'opérateur ; le réseau survit à son
