@@ -3,8 +3,6 @@ package net.nyx.messenger.ui.onboarding
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,8 +37,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,8 +44,6 @@ import net.nyx.messenger.R
 import net.nyx.messenger.crypto.AliasValidator
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.repo.NyxRepository
-import net.nyx.messenger.security.AppLock
-import net.nyx.messenger.settings.SettingsManager
 import net.nyx.messenger.tor.TorManager
 
 /**
@@ -115,7 +109,7 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             AliasSection()
             Spacer(Modifier.height(16.dp))
-            BiometricSection()
+            net.nyx.messenger.ui.components.BiometricSwitch()
             Spacer(Modifier.height(24.dp))
             Button(onClick = onIdentityCreated, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.continuer))
@@ -272,68 +266,4 @@ private fun AliasSection() {
     }
     Spacer(Modifier.height(4.dp))
     Text(stringResource(R.string.alias_for_invites), style = MaterialTheme.typography.bodySmall)
-}
-
-/**
- * Opt-in du verrou biométrique : activation demandant une confirmation OS
- * immédiate (le device doit avoir une biométrie ou un code enregistré).
- * Aucune donnée biométrique n'est lue — l'OS renvoie succès/échec (ADR-010 §3).
- */
-@Composable
-private fun BiometricSection() {
-    val context = LocalContext.current
-    val settings = SettingsManager.get(context)
-    var enabled by remember { mutableStateOf(settings.biometricLock) }
-    val available = BiometricManager.from(context).canAuthenticate(
-        BiometricManager.Authenticators.BIOMETRIC_WEAK or
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL
-    ) == BiometricManager.BIOMETRIC_SUCCESS
-
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.biometric_enable), style = MaterialTheme.typography.titleMedium)
-            Text(
-                stringResource(
-                    if (available) R.string.biometric_enable_desc else R.string.biometric_unavailable
-                ),
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Switch(
-            checked = enabled,
-            onCheckedChange = { want ->
-                val activity = context as? FragmentActivity
-                if (!want) {
-                    settings.biometricLock = false
-                    AppLock.disable()
-                    enabled = false
-                } else if (activity != null) {
-                    // Confirmation immédiate par l'OS avant d'activer l'opt-in
-                    val prompt = BiometricPrompt(
-                        activity,
-                        ContextCompat.getMainExecutor(activity),
-                        object : BiometricPrompt.AuthenticationCallback() {
-                            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                                settings.biometricLock = true
-                                AppLock.enable(sessionActive = true)
-                                enabled = true
-                            }
-                        }
-                    )
-                    prompt.authenticate(
-                        BiometricPrompt.PromptInfo.Builder()
-                            .setTitle(activity.getString(R.string.biometric_confirm_title))
-                            .setSubtitle(activity.getString(R.string.biometric_confirm_subtitle))
-                            .setAllowedAuthenticators(
-                                BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                            )
-                            .build()
-                    )
-                }
-            },
-            enabled = available || enabled
-        )
-    }
 }

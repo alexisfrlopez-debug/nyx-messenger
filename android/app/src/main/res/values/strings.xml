@@ -13,7 +13,6 @@
     <string name="restore_backup">Restaurer une sauvegarde (v0.2)</string>
     <string name="conversations">Conversations</string>
     <string name="add_contact">Ajouter un contact</string>
-    <string name="add_contact_hint">Adresse onion du contact (56 caractères…)</string>
     <string name="add">Ajouter</string>
     <string name="message_hint">Message…</string>
     <string name="send">Envoyer</string>
@@ -48,4 +47,72 @@
     <string name="lock_unlock">Déverrouiller</string>
     <string name="lock_unavailable_desc">Aucun moyen de vérification disponible sur cet appareil (biométrie ou code supprimé). Vous pouvez désactiver le verrou pour accéder à l\'application.</string>
     <string name="lock_disable">Désactiver le verrou</string>
+
+    <!-- v0.2.0 (session 12) — menu principal -->
+    <string name="menu_more">Menu</string>
+    <string name="menu_my_onion">Mon adresse Nyx</string>
+    <string name="menu_my_profile">Mon profil</string>
+    <string name="menu_settings">Paramètres</string>
+
+    <!-- Mon adresse Nyx — affichage + partage -->
+    <string name="my_onion_title">Mon adresse Nyx</string>
+    <string name="my_onion_label">Votre adresse onion (votre identité)</string>
+    <string name="my_onion_share">Partager</string>
+    <string name="my_onion_share_chooser">Partager votre adresse Nyx avec…</string>
+    <string name="my_onion_privacy_note">Votre adresse onion est un identifiant pseudonyme : elle ne contient aucune information sur vous. Partagez-la uniquement aux personnes de votre choix — qui la connaît peut vous écrire (et vous reconnaître sous cet identifiant).</string>
+    <string name="my_onion_edit_profile">Modifier mon profil public</string>
+
+    <!-- Profil — édition (wire-format.md §7) -->
+    <string name="profile_title">Mon profil</string>
+    <string name="profile_visibility_intro">Chaque champ est PRIVÉ (il reste uniquement sur cet appareil) ou PUBLIC (diffusé sur le réseau avec votre identité, visible par tous). Rien n\'est public par défaut.</string>
+    <string name="profile_avatar">Photo de profil</string>
+    <string name="profile_avatar_desc">Photo de profil</string>
+    <string name="profile_pick_avatar">Choisir une photo…</string>
+    <string name="profile_remove">Retirer</string>
+    <string name="profile_avatar_error">Image illisible ou trop grande après réduction.</string>
+    <string name="profile_display_name">Nom affiché</string>
+    <string name="profile_bio">Bio (à propos de vous)</string>
+    <string name="profile_website">Site web</string>
+    <string name="profile_location">Localisation</string>
+    <string name="profile_public_on">Public — diffusé avec votre adresse</string>
+    <string name="profile_public_off">Privé — reste sur cet appareil</string>
+    <string name="profile_save">Enregistrer et publier</string>
+    <string name="profile_saved">Profil enregistré et publié (champs publics).</string>
+    <string name="profile_saved_local_only">Profil enregistré localement — publication dès qu\'un réplica sera joignable.</string>
+    <string name="profile_privacy_note">Les champs privés ne quittent JAMAIS cet appareil : ils ne sont ni stockés sur un serveur, ni transmis, même chiffrés. L\'avatar publié est réduit à 256×256 avant diffusion.</string>
+
+    <!-- Profil d\'un contact -->
+    <string name="contact_profile_title">Profil du contact</string>
+    <string name="contact_profile_loading">Chargement du profil public…</string>
+    <string name="contact_profile_empty">Ce contact n\'a publié aucun champ public.</string>
+    <string name="contact_profile_website">Site : %1$s</string>
+    <string name="contact_profile_location">Localisation : %1$s</string>
+
+    <!-- Paramètres -->
+    <string name="settings_title">Paramètres</string>
+    <string name="settings_theme">Thème</string>
+    <string name="settings_theme_system">Suivre le système</string>
+    <string name="settings_theme_light">Clair</string>
+    <string name="settings_theme_dark">Sombre</string>
+    <string name="settings_close">Fermeture de l\'application</string>
+    <string name="settings_close_desc">Comportement du bouton retour / fermeture.</string>
+    <string name="settings_close_ask">Demander à chaque fois</string>
+    <string name="settings_close_minimize">Réduire</string>
+    <string name="settings_close_minimize_desc">Tor reste actif, les notifications continuent — la messagerie reçoit en arrière-plan.</string>
+    <string name="settings_close_exit">Quitter complètement</string>
+    <string name="settings_close_exit_desc">Tous les processus (Tor compris) sont arrêtés proprement.</string>
+    <string name="settings_about">À propos</string>
+    <string name="settings_about_body">Nyx — messagerie anonyme et chiffrée, 100 % Tor. Licence AGPL-3.0 (voir LICENSE dans le dépôt). Vos réglages restent locaux : aucun de ces choix ne quitte l\'appareil.</string>
+
+    <!-- Dialogue de fermeture (réduire vs quitter) -->
+    <string name="exit_dialog_title">Fermer Nyx ?</string>
+    <string name="exit_dialog_message">« Réduire » garde Tor actif et la réception en arrière-plan (notification visible). « Quitter » arrête proprement tous les processus, Tor compris — plus aucune réception tant que l\'application n\'est pas relancée.</string>
+    <string name="exit_dialog_minimize">Réduire (Tor actif)</string>
+    <string name="exit_dialog_exit">Quitter complètement</string>
+
+    <!-- Ajout de contact par alias unique (v0.2.0) -->
+    <string name="add_contact_hint">Adresse onion du contact… ou son alias (@pseudo)</string>
+    <string name="add_contact_local_alias">Nom local (optionnel)</string>
+    <string name="add_contact_added_alias">Contact ajouté : @%1$s</string>
+    <string name="add_contact_alias_free">« @%1$s » n\'est pas réservé sur ce réplica — vérifiez l\'orthographe.</string>
 </resources>

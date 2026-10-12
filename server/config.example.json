@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Configuration du nœud Nyx. Copier vers <data-dir>/config.json. Les pairs sont des réplicas : onion = adresse v3, gossip_pub = clé X25519 du canal de réplication (GET /identity sur ce pair).",
+  "_commentaire": "Configuration du nœud Nyx. Copier vers <data-dir>/config.json. Les pairs sont des réplicas : onion = adresse v3, gossip_pub = clé X25519 du canal de réplication (GET /identity sur ce pair). La section admin active l'API d'administration (onion DÉDIÉ port 9091, console nyx-admin — dépôt privé APPLI_ADMIN.md) : authorized_keys = clés publiques ed25519 (base64, 32 octets) des appareils autorisés. Section admin absente ou vide = API admin désactivée (aucun onion privilégié publié).",
   "data_dir": "./data",
   "http_port": 8080,
   "control_port": 9051,
@@ -9,5 +9,14 @@
       "onion": "exemple56caracteresbase32xxxxxxxxxxxxxxxxxxxxxxxxxx.onion",
       "gossip_pub": "BASE64_DE_LA_CLE_X25519_DU_PAIR"
     }
-  ]
+  ],
+  "admin": {
+    "authorized_keys": [
+      {
+        "public_key": "BASE64_CLE_PUBLIQUE_ED25519_CONSOLE_ADMIN",
+        "label": "console principale",
+        "added_at": "2026-10-12T00:00:00Z"
+      }
+    ]
+  }
 }

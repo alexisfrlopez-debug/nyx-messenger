@@ -32,10 +32,40 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 8 | Hébergement réplicas | **100 % réseau, zéro local** : réplicas sur hôtes distants, exposés UNIQUEMENT en hidden services ; le client DÉCOUVRE le réseau (rendezvous signé embarqué), il ne déploie rien | ADR-009 |
 | 9 | Modération & biométrie | **AUCUNE collecte d'identité réelle (jamais cachée/non consentie)** ; modération protocolaire transparente (signalements, blocklists, PoW) ; **biométrie = déverrouillage LOCAL opt-in** (BiometricPrompt client, Windows Hello admin) — aucune donnée biométrique ne quitte le device | ADR-010 |
 | 10 | Console admin (révision) | **Code/spec admin = dépôt PRIVÉ `nyx-admin`** ; **livrables = Drive privé `/livrables`** (zip Windows autonome + APK signé) — AUCUNE release GitHub pour l'admin ; le public n'a ni code, ni spec, ni binaires admin | ADR-008 (rév. session 11) |
+| 11 | API admin serveur + profil + licence | **`/admin/*` implémentée dans nyx-server** (2 barrières : onion dédié 9091 + signature canonique `nyx-admin-v1` + nonce anti-replay ; checkpoints RFC 6962 ; défaut sûr sans clé) ; **type `profile`** (wire-format §7 : visibilité PAR CHAMP, privé = local uniquement, invariant serveur anti-fuite) ; **licence AGPL-3.0-only** (ADR-011) | ADR-011, APPLI_ADMIN.md §8 (privé) |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 11 — 2026-10-12)
+## 3. État actuel (session 12 — 2026-10-12)
+
+### Fait ✅ (session 12)
+- **API admin `/admin/*` côté nyx-server (TODO 3 réalisé)** : package
+  `server/internal/adminapi` — authentification 2 barrières (onion d'admin
+  DÉDIÉ publié en 9091 dès qu'une clé existe dans `config.json` ; signature
+  ed25519 sur la chaîne canonique `nyx-admin-v1` exactement = AdminSigner.kt ;
+  fenêtre ±120 s ; cache de nonce anti-replay 10 min), 12 endpoints de la spec
+  (status/resources/peers/log, maintenance/shutdown/restart, add/remove/resync
+  pairs, checkpoint propose/apply, identity, keys CRUD) + journal d'audit JSONL
+  local ; **checkpoints** : racine de Merkle RFC 6962 signée par la clé onion,
+  application en 2 étapes (archivage hors ligne + troncature vérifiable) ;
+  sans clé admin configurée → AUCUN onion admin publié (défaut sûr).
+- **Gossip enrichi** pour le monitoring : stats par pair (dernier contact,
+  latence, backoff exponentiel borné, curseurs push/pull), RemovePeer/ResetPeer.
+- **Type `profile` v1.2** (wire-format §7 + api.md) : validation serveur
+  (clés fermées, limites, invariant « diffusion = tout public »), index
+  dernier-seq-gagne, `GET /client/profile?author=`.
+- **Client v0.2.0** : profil à visibilité PAR CHAMP (avatar photo picker +
+  recodage 256×256 local, display_name/bio/website/location — privé = ne quitte
+  JAMAIS l'appareil), ajout de contact PAR ALIAS (résolution §6), écran
+  « Mon adresse Nyx » (copier/partager), écran Paramètres (thème système/clair/
+  sombre, comportement de fermeture, verrou biométrique), **dialogue de
+  fermeture** (réduire = Tor+notifications actifs / quitter = arrêt PROPRE de
+  tous les processus Tor compris), profil contact depuis le chat.
+- **Licence AGPL-3.0-only** (ADR-011) : LICENSE public + privé, README
+  (racine/server/android), contrôle audit COH-LIC.
+- Qualité : audit strict **0/0/4** ; 4 paquets Go verts (10 tests adminapi) ;
+  12 tests JVM verts (7 profil) ; **APK v0.2.0 signé** (versionCode 4,
+  SHA-256 ea020098…) dans livrables/ ; release GitHub v0.2.0 (docs/releases/).
 
 ### Fait ✅ (session 11)
 - **Console nyx-admin v0.1.0 COMPILÉE ET LIVRÉE (Windows + Android)** — demande
@@ -222,17 +252,18 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
    (correctif SHA-3), bootstrap tor (bannière %), publication onion (logcat
    `nyx-tor`), connexion au réplica de dev (GUIDE_DEMARRAGE.md §2 option 1 + §3).
 2. **Test 3 réplicas sur machine avec Tor** — GUIDE_DEMARRAGE.md §2 (option 1).
-3. **Chantier nyx-admin — API admin côté serveur (ADR-008)** : implémenter
-   `/admin/*` dans nyx-server (spec §4 du dépôt privé, formats canoniques §3 :
-   signature ed25519 + nonce cache + fenêtre ±120 s) ; la CONSOLE (v0.1.0,
-   Windows+Android) est déjà livrée et fonctionnera sans modification dès le
-   déploiement — commencer par monitoring read-only, puis commandes.
+3. **Déployer la flotte + associer la console** : déployer 1+ réplicas (todo 4)
+   puis configurer `admin.authorized_keys` sur chaque nœud ; l'ONION D'ADMIN
+   s'affiche dans les logs (`ONION ADMIN publié : xxx.onion`) — à déclarer dans
+   nyx-admin (dépôt privé) ; tester le cycle complet console↔nœud.
 4. **Bundle deploy/ (ADR-009 §2)** : script one-shot hôte distant (systemd +
    torrc durci) + liste de rendezvous signée embarquée dans l'APK.
-5. TODO app restants (android/README.md) : persistance compteur de séquence, écran
+5. Run device v0.2.0 : profil (avatar + visibilité par champ), contact par
+   alias, Mon adresse (partage), dialogue fermeture, thème.
+6. TODO app restants (android/README.md) : persistance compteur de séquence, écran
    d'ajout de réplica, tests instrumentés.
-6. Repli censure : ponts obfs4/snowflake via IPtProxy dans le torrc (ADR-007 §3).
-7. CI GitHub (workflow Go, puis Android) ; v0.2+ : libsignal, chiffrement du champ
+7. Repli censure : ponts obfs4/snowflake via IPtProxy dans le torrc (ADR-007 §3).
+8. CI GitHub (workflow Go, puis Android) ; libsignal, chiffrement du champ
    `to`, purge TTL, push P2P direct.
 
 ## 4. Structure du projet
@@ -498,3 +529,4 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   créer dans `/home/z/my-project/nyx-admin/` (clone du privé) ou hors dépôt.
 - L'audit §9.1 (SEC-*) complète cette règle : aucun secret dans le dépôt public ;
   `docs/APPLI_ADMIN.md` et tout doc d'endpoints privilégiés vivent au privé.
+| 2026-10-12 | 12 | **Demande utilisateur : « implémente l'API admin + contact par alias + partage adresse onion + menu paramètres + édition de profil (avatar, visibilité par champ) + dialogue fermeture (réduire vs tuer proprement) + définis la licence »** → **API admin serveur complète** (adminapi : 2 barrières, anti-replay, 12 endpoints, checkpoints RFC 6962 signés, audit JSONL, onion dédié 9091, défaut sûr) + **type `profile` v1.2** (spec §7 d'abord ; invariant anti-fuite serveur ; index dernier-gagne ; GET /client/profile) + **client v0.2.0** (profil par champ avec avatar, contact par alias, Mon adresse partageable, Paramètres thème/fermeture, dialogue réduire vs quitter proprement) + **AGPL-3.0-only** (ADR-011, LICENSE public+privé, contrôle COH-LIC) ; audit strict 0/0/4, 4 paquets Go + 12 tests JVM verts, APK v0.2.0 signé (SHA ea020098…), release GitHub v0.2.0, sync Drive+GitHub, APPLI_ADMIN.md §8 mis à jour (API livrée). |

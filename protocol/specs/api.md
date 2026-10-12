@@ -1,6 +1,11 @@
 # Spécification — API du nœud serveur Nyx (v1)
 
 Statut : **acté** — implémenté dans `server/internal/api/handlers.go`.
+> v1.1 (session 10) : `GET /client/alias` — résolution de pseudonyme unique.
+> v1.2 (session 12) : `GET /client/profile` — carte de profil publique (wire-format.md §7).
+> Les routes privilégiées (`/admin/*`) sont documentées dans le dépôt PRIVÉ
+> `nyx-admin` (docs/APPLI_ADMIN.md) — règle opérateur : pas d'annonce des
+> endpoints d'administration sur le dépôt public (ADR-008).
 
 Le nœud expose **une seule interface HTTP** sur son service onion (port 80 côté Tor,
 redirigé vers le port HTTP local). Deux familles de routes : **client** (applications
@@ -67,6 +72,26 @@ Résolution d'un **pseudonyme unique** (voir `wire-format.md` §6). Réponse :
   (`type="alias"`, body JSON base64 `{"alias":"…","action":"claim"}`) — aucun
   endpoint dédié : la réservation passe par le journal comme tout le reste.
 - **Pas de listing global** (anti-énumération) : résolution point à point uniquement.
+
+### `GET /client/profile?author=<onion>` — v1.2 (session 12)
+
+Carte de profil **publique** la plus récente d'un auteur (type `profile` en
+diffusion — wire-format.md §7). Réponse :
+
+```json
+{
+  "author": "abcd…56.onion",
+  "seq": 43,
+  "ts": 1728739300,
+  "fields": { "display_name": {"value":"Anon","public":true} }
+}
+```
+
+- `404` → aucun profil public publié par cet auteur (corps `{"error":…}`).
+- `400` → paramètre `author` manquant ou adresse onion invalide.
+- Consultation à la demande explicite de l'utilisateur uniquement (anti-énumération).
+- **Note** : le nœud peut refuser les routes `client/*` avec `503` lorsqu'il est
+  placé en maintenance par l'opérateur (le gossip inter-réplicas continue).
 
 ## Routes gossip (nœud ↔ nœud)
 

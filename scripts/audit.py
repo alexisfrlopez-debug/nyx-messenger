@@ -324,6 +324,20 @@ def check_secrets(a: Audit):
     a.ok("SEC")
 
 
+def check_license(a: Audit):
+    """CRIT — la licence est présente et cohérente (ADR-011 : AGPL-3.0-only)."""
+    lic = read(a.root / "LICENSE")
+    if not lic:
+        a.add(CRIT, "COH-LIC", "Fichier LICENSE absent à la racine du dépôt (ADR-011)")
+    elif "GNU AFFERO GENERAL PUBLIC LICENSE" not in lic:
+        a.add(CRIT, "COH-LIC", "LICENSE n'est pas le texte AGPL-3.0 (ADR-011)")
+    for rel in ("README.md", "server/README.md", "android/README.md"):
+        txt = read(a.root / rel) or ""
+        if "AGPL" not in txt:
+            a.add(MAJOR, "COH-LIC", f"{rel} ne mentionne pas la licence AGPL-3.0 (ADR-011)")
+    a.ok("COH-LIC")
+
+
 def check_optim(a: Audit):
     """MINOR — inventaire qualité : TODO/FIXME du code de production uniquement, veilles R8."""
     todos = []
@@ -386,7 +400,7 @@ def main():
 
     root = Path(args.root).resolve()
     a = Audit(root, args.strict)
-    for check in (check_autonomy, check_coherence, check_secrets, check_dead_code, check_redundancy, check_optim):
+    for check in (check_autonomy, check_coherence, check_secrets, check_license, check_dead_code, check_redundancy, check_optim):
         try:
             check(a)
         except Exception as e:  # un check qui plante ne doit pas tuer l'audit

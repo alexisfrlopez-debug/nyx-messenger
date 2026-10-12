@@ -5,6 +5,14 @@ clé ed25519 — l'adresse onion est donc son identité), maintient un **journal
 d'événements signés** (JSONL append-only), et se réplique par **gossip chiffré NaCl**
 avec les pairs.
 
+## Administration (v0.2)
+
+L'API d'administration (`/admin/*`) est servie sur un **onion DÉDIÉ** (port
+9091), activée dès qu'une clé admin est déclarée dans `config.json`
+(`admin.authorized_keys` — voir `config.example.json`). Spécification et
+console : dépôt PRIVÉ `nyx-admin` (docs/APPLI_ADMIN.md — ADR-008). Sans clé
+configurée, aucune surface d'administration n'est publiée.
+
 ## Compiler
 
 ```bash
@@ -59,3 +67,5 @@ Déclarer les pairs dans `<data-dir>/config.json` (copier `config.example.json`)
 - `identity.json` et `events.jsonl` : permissions 0600, répertoire 0700.
 - Le nœud n'accepte de connexions que sur 127.0.0.1 (tout le reste passe par Tor).
 - Un événement reçu est **toujours** re-validé (signature + séquence) avant insertion.
+
+Licence : AGPL-3.0-only (voir [../LICENSE](../LICENSE), ADR-011).

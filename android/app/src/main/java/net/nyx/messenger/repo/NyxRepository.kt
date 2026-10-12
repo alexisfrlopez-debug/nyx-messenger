@@ -198,6 +198,79 @@ class NyxRepository(
         contactDao.upsert(ContactEntity(onion.lowercase(), alias.ifBlank { onion.take(10) + "…" }, System.currentTimeMillis()))
     }
 
+    /* ---------------- profil (v0.2.0 — wire-format.md §7) ---------------- */
+
+    /**
+     * Publie la carte PUBLIQUE du profil (seule la partie publique part —
+     * invariant §7.2 : un champ privé ne quitte jamais l'appareil). Dépose un
+     * événement `profile` en diffusion (to vide) signé, type standard du journal.
+     */
+    suspend fun publishProfile(store: net.nyx.messenger.profile.ProfileStore): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val (bodyCard, err) = store.publicCard()
+                err?.let { error(it) }
+                val card = bodyCard ?: return@runCatching // rien de public : no-op
+                val relay = client ?: error("aucun réplica configuré")
+                val me = identity.onionAddress ?: error("identité absente")
+                val priv = identity.secretKey()
+
+                val body = B64.encode(
+                    net.nyx.messenger.profile.ProfileCodec.encode(card).toByteArray(Charsets.UTF_8)
+                )
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "profile", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, ttl = 0,
+                    to = null, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                relay.postEvent(ev.copy(sig = cipher.signEvent(canonical, priv))).getOrThrow()
+            }
+        }
+
+    /**
+     * Carte publique d'un contact (GET /client/profile — dernier seq gagne,
+     * §7.3). null si le contact n'a pas de profil public ou réseau indisponible.
+     */
+    suspend fun contactProfile(onion: String): Result<net.nyx.messenger.net.ProfileResponse?> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val relay = client ?: error("aucun réplica configuré")
+                relay.profile(onion.lowercase())
+            }
+        }
+
+    /* ---------------- contacts par alias (v0.2.0) ---------------- */
+
+    /** Résultat d'un ajout de contact par pseudonyme unique. */
+    sealed class AliasAddResult {
+        /** Contact ajouté (alias résolu → [onion]). */
+        data class Added(val onion: String, val alias: String) : AliasAddResult()
+        /** Alias libre sur le réplica : personne ne le détenteur. */
+        data object Free : AliasAddResult()
+    }
+
+    /**
+     * Ajoute un contact à partir de son ALIAS UNIQUE (invitations « @pseudo ») :
+     * résolution via GET /client/alias (wire-format.md §6.4) puis enregistrement
+     * local de l'adresse onion résolue. Aucun listing global : résolution
+     * point à point uniquement.
+     */
+    suspend fun addContactByAlias(alias: String): Result<AliasAddResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            val name = net.nyx.messenger.crypto.AliasValidator.normalize(alias)
+            check(net.nyx.messenger.crypto.AliasValidator.isValid(name)) { "format d'alias invalide" }
+            val relay = client ?: error("aucun réplica configuré")
+            val res = relay.resolveAlias(name)
+            if (!res.taken) return@runCatching AliasAddResult.Free
+            val onion = res.by ?: error("résolution incomplète (alias pris sans détenteur)")
+            OnionCodec.onionToPubKey(onion) // cohérence (l'adresse est la clé publique)
+            contactDao.upsert(ContactEntity(onion.lowercase(), name, System.currentTimeMillis()))
+            AliasAddResult.Added(onion, name)
+        }
+    }
+
     companion object {
         const val STATE_PENDING = 0
         const val STATE_SENT = 1

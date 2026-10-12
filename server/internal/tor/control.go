@@ -113,11 +113,18 @@ func (c *Control) Authenticate(cookieFile, password string) error {
 // (64 octets, encodage base64 standard). Port=80 (onion) → 127.0.0.1:targetPort.
 // Retourne le ServiceID (adresse sans « .onion »).
 func (c *Control) PublishOnion(ed25519PrivB64 string, targetPort int) (string, error) {
+	return c.PublishOnionPorts(ed25519PrivB64, 80, targetPort)
+}
+
+// PublishOnionPorts — variante à ports explicites : Port=<virtPort> (côté
+// client Tor) → 127.0.0.1:<targetPort>. Utilisée pour l'onion d'ADMIN
+// (9091 → 9091, distinct de l'onion client 80 → httpPort — APPLI_ADMIN.md §2).
+func (c *Control) PublishOnionPorts(ed25519PrivB64 string, virtPort, targetPort int) (string, error) {
 	if strings.TrimSpace(ed25519PrivB64) == "" {
 		return "", errors.New("clé privée onion vide")
 	}
-	cmd := fmt.Sprintf("ADD_ONION ED25519-V3:%s FLAGS=DiscardPK Port=80,127.0.0.1:%d",
-		ed25519PrivB64, targetPort)
+	cmd := fmt.Sprintf("ADD_ONION ED25519-V3:%s FLAGS=DiscardPK Port=%d,127.0.0.1:%d",
+		ed25519PrivB64, virtPort, targetPort)
 	resp, err := c.cmd(cmd)
 	if err != nil {
 		return "", err

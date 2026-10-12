@@ -4,21 +4,25 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.security.AppLock
 import net.nyx.messenger.settings.SettingsManager
 import net.nyx.messenger.tor.TorManager
+import net.nyx.messenger.ExitDialog
 import net.nyx.messenger.ui.NyxNavHost
 import net.nyx.messenger.ui.theme.NyxTheme
 
 /**
  * Activité unique (single-activity) — navigation Compose :
- * onboarding → liste des conversations → chat.
+ * onboarding → liste des conversations → chat (+ adresse / profil / paramètres).
  *
  * Démarrage du Tor embarqué (ADR-007) dès que l'identité existe : le démon tor
  * bootstrape pendant que l'utilisateur navigue. La notification persistante est
@@ -27,6 +31,12 @@ import net.nyx.messenger.ui.theme.NyxTheme
  * Note (v0.1.2) : FragmentActivity (hérite de ComponentActivity) — requise par
  * BiometricPrompt pour le verrou biométrique opt-in (ADR-010 §3). Le passage en
  * arrière-plan re-verrouille ([AppLock.onBackgrounded]).
+ *
+ * v0.2.0 (session 12) :
+ *  - thème piloté par le réglage utilisateur (système/clair/sombre) ;
+ *  - fermeture : le bouton retour ouvre le dialogue « Réduire (Tor actif) /
+ *    Quitter (tout arrêter proprement) » — [ExitController] — sauf si
+ *    l'utilisateur a choisi un comportement permanent dans Paramètres.
  */
 class MainActivity : FragmentActivity() {
 
@@ -45,13 +55,29 @@ class MainActivity : FragmentActivity() {
         AppLock.init(
             ServiceLocator.identity.exists && SettingsManager.get(this).biometricLock
         )
+
+        // Fermeture (v0.2.0) : interception du retour système — le dialogue
+        // « réduire ou quitter » n'a de sens qu'une fois l'identité créée
+        // (sans identité, aucun service Tor ne tourne : retour standard).
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val identityExists = ServiceLocator.initialized && ServiceLocator.identity.exists
+                if (!identityExists || !ExitController.handleBack(this@MainActivity)) {
+                    finish()
+                }
+            }
+        })
+
         setContent {
-            NyxTheme {
+            val settings = SettingsManager.get(this)
+            val themeMode by settings.themeMode.collectAsState()
+            NyxTheme(mode = themeMode) {
                 NyxNavHost(
                     // Lien d'invitation entrant : nyx://add?o=<onion>&k=<alias>
                     initialAddRequest = intent?.data?.let { uri ->
                         if (uri.scheme == "nyx" && uri.host == "add") uri.getQueryParameter("o") else null
-                    }
+                    },
+                    exitDialog = { ExitDialog(this@MainActivity) }
                 )
             }
         }

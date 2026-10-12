@@ -10,12 +10,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -31,29 +37,39 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import net.nyx.messenger.R
+import net.nyx.messenger.crypto.AliasValidator
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.tor.TorManager
 
 /**
- * Liste des conversations + ajout de contact (adresse onion collée ou lien nyx://add).
+ * Liste des conversations + ajout de contact (v0.2.0) :
+ *  - par ALIAS UNIQUE (invitations « @pseudo » — résolution GET /client/alias) ;
+ *  - par adresse onion collée (56 caractères) ou lien nyx://add.
  * Une bannière reflète l'état du Tor embarqué (ADR-007) — jamais de trafic hors Tor.
+ * Le menu (⋮) ouvre : Mon adresse Nyx · Mon profil · Paramètres.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationListScreen(
     pendingAdd: String? = null,
-    onOpenConversation: (String) -> Unit
+    onOpenConversation: (String) -> Unit,
+    onOpenMyOnion: () -> Unit = {},
+    onOpenMyProfile: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     val db = ServiceLocator.database
     val scope = rememberCoroutineScope()
     val contacts by db.contactDao().all().collectAsState(initial = emptyList())
 
     var showAdd by remember { mutableStateOf(pendingAdd != null) }
-    var onionInput by remember { mutableStateOf(pendingAdd ?: "") }
+    var input by remember { mutableStateOf(pendingAdd ?: "") }
     var aliasInput by remember { mutableStateOf("") }
     var addError by remember { mutableStateOf<String?>(null) }
+    var addInfo by remember { mutableStateOf<String?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
 
     val repo = remember { ServiceLocator.repository }
+    val context = LocalContext.current
 
     val torState by TorManager.get(LocalContext.current).state.collectAsState()
 
@@ -65,19 +81,43 @@ fun ConversationListScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.conversations)) }) }
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.conversations)) },
+                actions = {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.menu_more))
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.menu_my_onion)) },
+                            onClick = { menuOpen = false; onOpenMyOnion() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.menu_my_profile)) },
+                            onClick = { menuOpen = false; onOpenMyProfile() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.menu_settings)) },
+                            onClick = { menuOpen = false; onOpenSettings() }
+                        )
+                    }
+                }
+            )
+        }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             TorBanner(torState)
             if (showAdd) {
+                // Un seul champ : alias (@pseudo) OU adresse onion — détection auto.
                 OutlinedTextField(
-                    value = onionInput, onValueChange = { onionInput = it },
+                    value = input, onValueChange = { input = it },
                     label = { Text(stringResource(R.string.add_contact_hint)) },
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = aliasInput, onValueChange = { aliasInput = it },
-                    label = { Text("Alias (local)") },
+                    label = { Text(stringResource(R.string.add_contact_local_alias)) },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                 )
                 Row(
@@ -86,16 +126,44 @@ fun ConversationListScreen(
                     modifier = Modifier.padding(top = 8.dp)
                 ) {
                     Button(onClick = {
+                        addError = null
+                        addInfo = null
+                        val value = input.trim()
+                        if (value.isEmpty()) return@Button
                         scope.launch {
-                            repo.addContact(onionInput, aliasInput)
-                                .onSuccess { showAdd = false; onionInput = ""; aliasInput = "" }
-                                .onFailure { addError = it.message }
+                            if (value.contains(".onion")) {
+                                // Adresse directe
+                                repo.addContact(value, aliasInput)
+                                    .onSuccess {
+                                        showAdd = false; input = ""; aliasInput = ""
+                                    }
+                                    .onFailure { addError = it.message }
+                            } else {
+                                // Alias unique : résolution puis ajout
+                                repo.addContactByAlias(value).fold(
+                                    onSuccess = { res ->
+                                        when (res) {
+                                            is net.nyx.messenger.repo.NyxRepository.AliasAddResult.Added -> {
+                                                showAdd = false; input = ""; aliasInput = ""
+                                                addInfo = context.getString(R.string.add_contact_added_alias, res.alias)
+                                            }
+                                            is net.nyx.messenger.repo.NyxRepository.AliasAddResult.Free ->
+                                                addError = context.getString(R.string.add_contact_alias_free, AliasValidator.normalize(value))
+                                        }
+                                    },
+                                    onFailure = { addError = it.message }
+                                )
+                            }
                         }
                     }) { Text(stringResource(R.string.add)) }
                     addError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    addInfo?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                 }
             } else {
                 Button(onClick = { showAdd = true }) { Text(stringResource(R.string.add_contact)) }
+                addInfo?.let {
+                    Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                }
             }
 
             LazyColumn(Modifier.fillMaxWidth().padding(top = 16.dp)) {

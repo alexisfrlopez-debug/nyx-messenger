@@ -104,3 +104,5 @@ scripts/sync.sh             # synchro systématique : GitHub push + Drive (/livr
 - Aucune string de clé en clair dans les logs ; `error("…")` pour les invariants cassés.
 - Toute évolution du format filaire commence dans `protocol/specs/` (dépôt racine).
 - Décisions d'architecture → nouvel ADR dans `docs/adr/` (dernier : ADR-007, Tor embarqué).
+
+Licence : AGPL-3.0-only (voir [../LICENSE](../LICENSE), ADR-011).

@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +46,7 @@ import net.nyx.messenger.repo.NyxRepository
 /**
  * Écran de chat — l'envoi et la réception passent par [NyxRepository]
  * (chiffrement E2E + dépôt via Tor). Poll inbox toutes les 10 s (v0.1).
+ * v0.2.0 : accès au profil public du contact (icône — GET /client/profile).
  */
 class ChatViewModel(peerOnion: String) : ViewModel() {
     private val db = ServiceLocator.database
@@ -74,7 +76,7 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(peerOnion: String) {
+fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     val vm: ChatViewModel = viewModel(key = peerOnion, factory = viewModelFactory {
         ChatViewModel(peerOnion)
     })
@@ -88,7 +90,14 @@ fun ChatScreen(peerOnion: String) {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(peerOnion.take(20) + "…") })
+            TopAppBar(
+                title = { Text(peerOnion.take(20) + "…") },
+                actions = {
+                    IconButton(onClick = { onOpenProfile(peerOnion) }) {
+                        Icon(Icons.Filled.Person, contentDescription = stringResource(R.string.contact_profile_title))
+                    }
+                }
+            )
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {

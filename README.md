@@ -82,5 +82,11 @@ go build -o nyx-server ./cmd/nyx-server
 
 ## Licences et contributions
 
-Licence à définir (AGPL-3.0 recommandée pour un projet d'infrastructure privée — voir RESTART.md).
+**Licence : AGPL-3.0-only** — texte intégral dans [LICENSE](LICENSE), décision
+dans [docs/adr/ADR-011-licence-agpl.md](docs/adr/ADR-011-licence-agpl.md).
+Copyright « The Nyx Project Contributors » (aucune information personnelle —
+ADR-010). Le protocole (`protocol/specs/`) reste librement implémentable : une
+spec de format n'est pas du logiciel couvert ; seules les réutilisations du
+CODE de ce dépôt sont copyleftées (clause réseau §13 : héberger un fork
+modifié du serveur oblige à offrir les sources aux utilisateurs du service).
 Projet en développement actif — suivre le journal des sessions dans RESTART.md.

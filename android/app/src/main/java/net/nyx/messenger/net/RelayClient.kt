@@ -36,6 +36,19 @@ data class InboxResponse(val events: List<WireEvent> = emptyList(), val cursor: 
 @Serializable
 data class AliasResolve(val alias: String, val taken: Boolean, val by: String? = null)
 
+/** Un champ public d'une carte de profil (wire-format.md §7). */
+@Serializable
+data class ProfileFieldDto(val value: String = "", val public: Boolean = true)
+
+/** Réponse GET /client/profile — carte publique d'un auteur (v0.2.0). */
+@Serializable
+data class ProfileResponse(
+    val author: String,
+    val seq: Long = 0,
+    val ts: Long = 0,
+    val fields: Map<String, ProfileFieldDto> = emptyMap()
+)
+
 class RelayClient private constructor(
     replicaOnion: String,
     socksHost: String = "127.0.0.1",
@@ -88,6 +101,19 @@ class RelayClient private constructor(
         client.newCall(req).execute().use { resp ->
             check(resp.code == 200) { "GET /client/alias → HTTP ${resp.code}" }
             json.decodeFromString(AliasResolve.serializer(), resp.body!!.string())
+        }
+    }
+
+    /**
+     * GET /client/profile?author=… — carte publique d'un auteur (v0.2.0).
+     * null si l'auteur n'a pas de profil public (404 — cas normal).
+     */
+    suspend fun profile(author: String): ProfileResponse? = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$base/client/profile?author=$author").build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.code == 404) return@use null
+            check(resp.code == 200) { "GET /client/profile → HTTP ${resp.code}" }
+            json.decodeFromString(ProfileResponse.serializer(), resp.body!!.string())
         }
     }
 

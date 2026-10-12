@@ -101,3 +101,49 @@ func (i *Identity) GossipPrivKey() ([]byte, error) {
 	}
 	return b, nil
 }
+
+// ---- identité onion d'ADMIN (séparée de l'identité client — APPLI_ADMIN.md §2) ----
+
+// AdminIdentity — paire ed25519 de l'onion d'administration, persistée dans
+// <data-dir>/admin_identity.json (0600). Charger l'identité ADMIN avec la même
+// clé après redémarrage est essentiel : la console configure son client-auth
+// pour une adresse onion précise.
+type AdminIdentity struct {
+	OnionPriv string `json:"onion_priv"` // base64 (64 octets ed25519)
+	Onion     string `json:"onion"`      // "xxxx.onion"
+}
+
+// LoadOrCreateAdmin — charge ou génère l'identité onion d'admin.
+func LoadOrCreateAdmin(dataDir string) (*AdminIdentity, error) {
+	p := filepath.Join(dataDir, "admin_identity.json")
+	if b, err := os.ReadFile(p); err == nil {
+		var a AdminIdentity
+		if err := json.Unmarshal(b, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	onion, err := journal.PubKeyToOnion(pub)
+	if err != nil {
+		return nil, err
+	}
+	a := &AdminIdentity{
+		OnionPriv: base64.StdEncoding.EncodeToString(priv),
+		Onion:     onion,
+	}
+	b, err := json.MarshalIndent(a, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(p, append(b, '\n'), 0o600); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// AdminPrivKeyB64 — clé privée ed25519 base64 prête pour ADD_ONION.
+func (a *AdminIdentity) AdminPrivKeyB64() string { return a.OnionPriv }

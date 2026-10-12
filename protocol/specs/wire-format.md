@@ -3,6 +3,8 @@
 Statut : **acté** — implémenté dans `server/internal/journal/event.go`.
 > v1.1 (2026-10-12, session 10) : ajout du type **`alias`** (réservation de pseudonyme
 > unique, support des invitations) — voir §6.
+> v1.2 (2026-10-12, session 12) : ajout du type **`profile`** (carte de profil à
+> visibilité par champ) — voir §7.
 
 ## Principe
 
@@ -15,7 +17,7 @@ côté serveurs en v0.2).
 
 ```json
 {
-  "type":  "msg",                     // "msg" | "contact" | "prekey" | "meta" | "alias" (v1.1)
+  "type":  "msg",                     // "msg" | "contact" | "prekey" | "meta" | "alias" (v1.1) | "profile" (v1.2)
   "author": "abcd...56.onion",        // adresse onion v3 de l'auteur (= sa clé publique)
   "seq": 42,                          // séquence par auteur, strictement croissante, sans trou
   "ts": 1728739200,                   // horodatage unix en secondes (déclaré par l'auteur)
@@ -64,6 +66,7 @@ faire passer un événement pour un autre auteur.
 | `prekey` | JSON de pré-clés Signal (bundle), chiffré ou public selon la clé | Établissement de session (v0.2) |
 | `meta` | Réservé (purge TTL, routage) | Phase 2 |
 | `alias` **(v1.1)** | JSON NON chiffré `{"alias":"…","action":"claim"}` (base64) | Réservation d'un pseudonyme unique — §6 |
+| `profile` **(v1.2)** | JSON NON chiffré `{"fields":{…}}` (base64) si diffusion ; chiffré si adressé | Carte de profil à visibilité par champ — §7 |
 
 ## 6. Type `alias` — pseudonyme unique (v1.1, session 10)
 
@@ -109,6 +112,68 @@ ne doivent résoudre qu'à la demande explicite de l'utilisateur.
 - Pas d'expiration ni de libération (`release` prévu en révision future).
 - Pas de limite du nombre d'alias par auteur (recommandation réplicas : refuser
   au-delà de N par auteur — mise en œuvre v0.2 si abus, cf. ADR-010 PoW).
+
+## 7. Type `profile` — carte de profil à visibilité par champ (v1.2, session 12)
+
+### 7.1 Objet
+
+Publier une **carte de profil** associée à l'adresse onion : nom affiché, bio,
+site web, localisation, avatar. Chaque champ est **public** (diffusé dans le
+journal) ou **privé** (ne quitte JAMAIS l'appareil en v1.2 — stockage local
+uniquement ; un partage E2E champ par champ est envisagé en révision future).
+Cette granularité répond à la demande de l'opérateur (session 12) tout en
+respectant ADR-010 : la publication est un choix explicite par champ, aucun
+champ n'est public par défaut, et rien n'identifie l'utilisateur en dehors de
+ces choix.
+
+### 7.2 Format
+
+- Événement standard (canonique NYX1 inchangé) : `type = "profile"`.
+- **Diffusion** (`to = ""`) : `body` = base64 du JSON (NON chiffré — contenu
+  public par définition) :
+  ```json
+  {"fields":{"display_name":{"value":"Anon","public":true},"avatar":{"value":"<base64 image>","public":true}}}
+  ```
+- **Adressé** (`to = <contact>`) : réservé au futur partage E2E — en v1.2 le
+  serveur le traite comme un corps opaque (comme `msg`) ; seul le cas diffusion
+  est validé sémantiquement et indexé.
+- Clés de champs **fermées** (rejet 400 sinon) :
+
+  | Clé | Limite |
+  |---|---|
+  | `display_name` | ≤ 64 caractères |
+  | `bio` | ≤ 280 caractères |
+  | `website` | ≤ 128 caractères |
+  | `location` | ≤ 64 caractères |
+  | `avatar` | base64 image ≤ 65 536 caractères (≈ 48 Ko binaires) |
+
+- Un champ diffusé DOIT porter `"public":true`. **Invariant serveur** : un
+  événement `profile` en diffusion contenant un champ `public:false` est rejeté
+  (400) — un champ privé ne doit jamais apparaître dans le journal public.
+- Un événement `profile` en diffusion avec `fields` vide est valide (efface le
+  profil public).
+
+### 7.3 Sémantique « dernier gagne »
+
+Contrairement à `alias` (règle min-id), le profil est **remplaçable** : la carte
+effective d'un auteur est celle de son événement `profile` au **seq le plus
+élevé** (ordre du journal). Les réplicas convergent naturellement au replay.
+
+### 7.4 Résolution
+
+Voir `api.md` §`GET /client/profile?author=` : la carte publique la plus
+récente de l'auteur. Les clients ne doivent consulter des profils qu'à la
+demande explicite de l'utilisateur (pas de moissonnage — anti-énumération,
+même logique que §6.4).
+
+### 7.5 Limites v1.2
+
+- Les champs privés restent locaux (aucun canal de partage E2E encore défini —
+  révision future du présent §7).
+- Pas d'historique de profils exposé (seule la carte courante est résolue) ;
+  le journal conserve néanmoins les versions successives (append-only).
+- `avatar` : le client est responsable du redimensionnement/recodage (v1.2 :
+  256×256 JPEG côté application) ; le serveur n'applique que la limite de taille.
 
 ## Chiffrement du corps (v0.1)
 
