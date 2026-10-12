@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 5).
+> Dernière mise à jour : **2026-10-12** (session 6).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.
@@ -31,7 +31,20 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 5 — 2026-10-12)
+## 3. État actuel (session 6 — 2026-10-12)
+
+### Fait ✅ (session 6)
+- **Synchro Drive + GitHub DÉBLOQUÉE** : l'utilisateur a fourni un **dossier dédié
+  « Tokens » dans le Drive** (voir §6) contenant tous les credentials ; accès API
+  Drive vérifié (refresh OAuth OK) et PAT GitHub vérifiée.
+- **Dossier `/livrables` créé sur le Drive** à la racine du dossier projet
+  (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`) — conformément à la règle §9.4.
+- **Instructions mises à jour (ce fichier)** : le dossier dédié « Tokens » est
+  désormais référencé partout (§6, §9.2, §9.3, §9.5) — c'est LA source de
+  restauration des credentials d'une session neuve.
+- Commits session 5 poussés vers GitHub (étaient en attente de credentials) +
+  livraison de l'APK v0.1.0 dans `/livrables` du Drive + sauvegarde keystore
+  dans « Tokens » (règle §9.5).
 
 ### Fait ✅ (session 5)
 - **Règles permanentes §9 instaurées à la demande utilisateur** : audit systématique
@@ -66,9 +79,8 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
   (`tools/android-sdk`), wrapper Gradle 8.9 (déjà committé).
 - `scripts/gdrive.py` réécrit (stdlib only : resolve/upload/list + refresh OAuth) ;
   `scripts/sync.sh` (commit+push GitHub, upload livrables+docs+archive vers Drive).
-- **Credentials Drive/PAT : à récupérer du dossier « accès »** (§6) — la synchro
-  est branchée mais en attente des fichiers (`client_secret_*.json`,
-  `oauth_token_relais_*.json`, `token_git.txt`).
+- ~~Credentials Drive/PAT en attente~~ **→ résolu en session 6** (dossier dédié
+  « Tokens », §6).
 
 ### Sessions précédentes (rappel)
 - Session 4 : env. build installé, premiers builds verts (debug 39,9 Mo / release
@@ -153,20 +165,32 @@ cd android && ./gradlew :app:assembleDebug
    - aucun secret dans le dépôt (identités, clés, tokens) — `.gitignore` calibré §9.5 ;
    - terminer la session en mettant à jour ce fichier (§3 État + §8 Journal).
 
-## 6. Accès et sauvegarde
+## 6. Accès et sauvegarde — dossier dédié « Tokens »
+
+> **LE DOSSIER DÉDIÉ DE L'AGENT SUR LE DRIVE EST « Tokens »** (nommé ainsi par
+> l'utilisateur, session 6). Il est la source unique des credentials : toute
+> session neuve commence par en restaurer le contenu vers
+> `/home/z/my-project/.credentials/tokens/`.
 
 | Ressource | Référence |
 |---|---|
-| Répertoire de travail (sauvegarde systématique) | Dossier Drive « travail » (lien fourni par l'utilisateur dans la conversation d'origine) |
-| Dossier « accès » | Contient : `client_secret_*.json`, `oauth_token_relais_*.json` (Drive, scope complet, cycle ~7 j → ré-autorisation à prévoir), `physichong-*.json` (compte de service), `token_git.txt` (PAT GitHub fine-grained, compte `alexisfrlopez-debug`) |
-| Module de synchro Drive | `scripts/gdrive.py` (session 1 ; hors dépôt — voir note) + credentials dans `.credentials/` du workspace (JAMAIS dans le dépôt) |
-| GitHub | Dépôt : **`github.com/alexisfrlopez-debug/nyx-messenger`** (créé session 1) ; `token_git.txt` = PAT fine-grained du compte `alexisfrlopez-debug` (création/push OK) |
+| Dossier Drive projet « Messagerie » | id `1xR8aME_sCa-8Q3OWBXjpO5pdCtwU4JmA` (RESTART.md, GUIDE_DEMARRAGE.md, README.md, archive tar.gz, sous-dossiers) |
+| **Dossier dédié « Tokens » (credentials)** | id **`1IUYrT_BeGEbJWW_88QQ47Sqaba1ig8q1`** — contenu : `client_secret_15826935491-*.json` (OAuth client) · `oauth_token_relais_2026-10-07.json` (refresh_token Drive, cycle ~7 j → ré-autorisation à prévoir) · `physichong-4b3b7222b48c.json` (compte de service) · `token_git.txt` (PAT GitHub fine-grained, compte `alexisfrlopez-debug`) · `nyx-release.jks` + `keystore.properties` (keystore release — règle §9.5) |
+| Dossier Drive `/livrables` | id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9` — APK signés + rapports d'audit + empreintes SHA-256 (règle §9.4) |
+| Module de synchro Drive | `scripts/gdrive.py` (versionné dans le dépôt, stdlib only) ; credentials dans `.credentials/` du workspace (JAMAIS dans le dépôt) |
+| GitHub | Dépôt : **`github.com/alexisfrlopez-debug/nyx-messenger`** (créé session 1) ; `token_git.txt` = PAT fine-grained du compte `alexisfrlopez-debug` |
 
-Note : `scripts/gdrive.py` et `.credentials/` vivent dans le **workspace de la session**
-(`/home/z/my-project/`), pas dans le dépôt Nyx. Une nouvelle session doit les récupérer
-depuis le dossier Drive « accès » (tout y est : token OAuth + client secret).
-Ré-autorisation OAuth : le refresh_token expire ~7 jours (note dans oauth_token_relais).
-Si expiré → demander à l'utilisateur une nouvelle autorisation.
+**Procédure de restauration d'une session neuve** (workspace vierge) :
+1. Cloner le dépôt public GitHub (code, docs, scripts, wrapper Gradle).
+2. Télécharger le contenu du dossier « Tokens » → `.credentials/tokens/`
+   (4 credentials + keystore) — tout y est, rien à redemander à l'utilisateur.
+3. Reconstruire l'env. de build si besoin (JDK 21 + SDK android-35, §7) —
+   ou vérifier qu'ils ont survécu dans `tools/`.
+4. Lancer le cycle : audit → build → livrables → synchro (§9).
+
+Ré-autorisation OAuth : le refresh_token expire ~7 jours (note dans
+oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autorisation
+(les autres credentials ne périment pas).
 
 ## 7. Environnement de la session 1 (référence)
 
@@ -189,6 +213,7 @@ Si expiré → demander à l'utilisateur une nouvelle autorisation.
 | 2026-10-12 | 3 | **Demande utilisateur : « que l'appli installe son propre service Tor, autonomie totale »** → ADR-007 : Tor embarqué via tor-android (binaire `libtor.so` exécuté par notre `NyxTorService` au 1er plan, torrc généré, ports dynamiques) ; nouveau code : NyxTorConfig, TorControlClient (miroir Go), NyxTorService, TorManager réécrit (bootstrap %, publication auto ADD_ONION de l'identité), OnionServiceManager réel ; câblage MainActivity/Onboarding/bannière Tor/manifest/strings ; Gradle (Guardian maven, useLegacyPackaging). Orbot supprimé comme prérequis (repli censure documenté). Code non compilé ici (pas de SDK) — premier build device = TODO 1. Push GitHub + Drive v0.3. |
 | 2026-10-12 | 4 | **Demande utilisateur : « installe tout ce qu'il faut pour compiler toi-même »** → environnement Android complet installé (JDK 21 Temurin, SDK 35, build-tools 34, Gradle 8.9, wrapper committé) ; **premiers builds verts : assembleDebug 39,9 Mo + assembleRelease (R8) 21,2 Mo** ; tor-android (maven Guardian injoignable) remplacé par **tor-binary 0.4.6.5 (Maven Central)** — même architecture, binaire `libTor.so` (ADR-007 §5) ; 7 corrections de code révélées par la compilation (package lazysodium v5, MessageCipher sur API Native byte[] avec sealOpen 5 args + ordre conversions, **bug crypto : pk 32 octets pas 64**, StateFlow kotlinx, @JvmField clash setter, jna @aar + exclusion, sqlcipher 4.5.4, R8 dontwarn awt) ; packaging 4 ABI vérifié dans l'APK. Reste : runtime sur device (TODO 1). Push GitHub + Drive v0.4. |
 | 2026-10-12 | 5 | **Demande utilisateur : « audit systématique avant chaque recompilation ; APK entièrement autonomes (1 clic) ; synchro Drive+GitHub systématique ; livrables dans /livrables du Drive ; ajouter tout ça au fichier d'instructions »** → §9 instauré ; scripts/audit.py (6 catégories, strict, rapport MD) + build-apk.sh (audit bloquant → build release signé → 13 contrôles autonomie → livrables/) + sync.sh (GitHub+Drive) + gdrive.py réécrit ; premier cycle audit→corrections (singleton repository, mort : socksProxy/Replicas/rng/bloc onboarding, verifySignature branchée, bouton Copier adresse, strings, .gitignore durci) ; signature release ajoutée (keystore hors dépôt) — l'APK release n'était pas signé ; APK v0.1.0 21 Mo vérifié et livré. Environnement reconstruit (reset workspace). Synchro en attente des credentials du dossier « accès ». |
+| 2026-10-12 | 6 | **Demande utilisateur : « tu as un dossier dédié dans le drive, indique-le dans les instructions »** → dossier **« Tokens »** identifié sur le Drive (id `1IUYrT_BeGEbJWW_88QQ47Sqaba1ig8q1`) : client_secret OAuth, oauth_token_relais, compte de service, PAT GitHub. Credentials restaurés, **accès API Drive vérifié (refresh OK) et PAT GitHub validée** ; **dossier `/livrables` créé** (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`) ; ce fichier mis à jour (§3, §6, §9) ; commits session 5 poussés vers GitHub ; APK v0.1.0 + rapport d'audit + SHA256 déposés dans /livrables ; keystore + keystore.properties sauvegardés dans « Tokens » (§9.5) ; archive session 6 uploadée. Synchro Drive+GitHub pleinement opérationnelle. |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 
@@ -221,8 +246,8 @@ Tout APK produit doit satisfaire, **vérifié à chaque build par `scripts/build
    x86, x86_64) ; jamais de dépendance à Orbot ni à un service externe (ADR-007) ;
 2. **Signature release valide** — `apksigner verify` OK (installation directe) ;
    keystore hors dépôt (`/home/z/my-project/keystore/nyx-release.jks`, référencé par
-   `android/keystore.properties` git-ignoré) — **sauvegarder le keystore + ses
-   mots de passe dans le dossier Drive « accès »** : sans lui, aucune mise à jour
+   `android/keystore.properties` git-ignoré) — **keystore + mots de passe sauvegardés
+   dans le dossier Drive dédié « Tokens »** (§6) : sans lui, aucune mise à jour
    signée de façon identique n'est possible ;
 3. **APK universel unique** — pas de splits : un seul fichier à installer ;
 4. **Natives critiques présentes** — libsodium.so, libsqlcipher.so, libjnidispatch.so
@@ -244,20 +269,23 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
 - **GitHub** : commit (message explicite) + push sur
   `github.com/alexisfrlopez-debug/nyx-messenger` — PAT dans `.credentials/token_git.txt`.
 - **Drive** : `scripts/gdrive.py` (stdlib only) — credentials dans
-  `/home/z/my-project/.credentials/` (`client_secret_*.json` + `oauth_token_relais_*.json`,
+  `/home/z/my-project/.credentials/` (restaurés du **dossier dédié « Tokens »**, §6 ;
   refresh ~7 j → ré-autorisation utilisateur si expiré). Uploads :
-  `RESTART.md` + `README.md` + `GUIDE_DEMARRAGE.md` (racine du dossier « travail »),
-  archive source tar.gz de l'état de session, et tous les livrables.
+  `RESTART.md` + `README.md` + `GUIDE_DEMARRAGE.md` (racine du dossier projet
+  « Messagerie »), archive source tar.gz de l'état de session, et tous les livrables
+  dans `/livrables` (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`).
 - Si les credentials manquent : **SKIP explicite** (jamais d'échec silencieux) et
   consigner ce qui reste en attente de synchro.
 - À la reprise d'un workspace vierge : tout restaurer depuis le dépôt GitHub (public)
-  + le dossier Drive « travail » (docs + archive) + le dossier « accès » (credentials).
+  + le dossier Drive projet « Messagerie » (docs + archive) + le dossier dédié
+  **« Tokens »** (credentials + keystore) — procédure §6.
 
 ### 9.4 Livrables dans /livrables
 
 - Local : `livrables/` à la racine du dépôt (git-ignoré) — dépôt de sortie du pipeline.
-- Drive : dossier **`/livrables`** à la racine du dossier « travail » (créé au besoin
-  par `sync.sh`). Chaque APK y est accompagné de son rapport d'audit (`audit-report.txt`)
+- Drive : dossier **`/livrables`** à la racine du dossier projet « Messagerie »
+  — **id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`** (créé session 6 ; `sync.sh` y dépose
+  au besoin). Chaque APK y est accompagné de son rapport d'audit (`audit-report.txt`)
   et des empreintes (`SHA256SUMS-latest.txt`).
 - Nommage : `nyx-v<versionName>-<AAAAMMJJ-HHMMSS>-release.apk`.
 
@@ -267,5 +295,5 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   `*/local.properties`, tout `*.jks`/`*.keystore` — le `.gitignore` les couvre et
   l'audit (SEC-*) échoue sinon.
 - Le keystore release ET ses mots de passe doivent exister à deux endroits : workspace
-  courant + dossier Drive « accès ». En cas de perte : nouvelle clé = nouvelle
-  signature = désinstallation obligatoire pour les utilisateurs.
+  courant + dossier Drive dédié **« Tokens »** (§6). En cas de perte : nouvelle clé =
+  nouvelle signature = désinstallation obligatoire pour les utilisateurs.

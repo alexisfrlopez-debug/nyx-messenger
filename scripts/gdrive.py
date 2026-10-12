@@ -3,12 +3,13 @@
 """
 Nyx — Module de synchro Google Drive (stdlib uniquement, règle permanente RESTART.md §9).
 
-Credentials attendus dans /home/z/my-project/.credentials/ (HORS dépôt, git-ignoré) :
+Credentials attendus dans /home/z/my-project/.credentials/ OU .credentials/tokens/
+(HORS dépôt, git-ignoré — restaurés du dossier Drive dédié « Tokens », RESTART.md §6) :
   - client_secret_*.json        (client_id + client_secret, format console Google)
   - oauth_token_relais_*.json   (refresh_token, accès Drive)
 
 Usage :
-  gdrive.py find <chemin/a/b>            → ID du dossier (créé au besoin) ; chemin racine = dossier « travail »
+  gdrive.py find <chemin/a/b>            → ID du dossier (créé au besoin) ; chemin racine = dossier projet « Messagerie »
   gdrive.py upload <fichier> <chemin/>   → téléverse (remplace par nom)
   gdrive.py list <chemin/>               → contenu
   gdrive.py --status                     → credentials présents ? token valide ?
@@ -23,6 +24,10 @@ from pathlib import Path
 CREDS_DIR = Path("/home/z/my-project/.credentials")
 API = "https://www.googleapis.com/drive/v3"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+# Racine ANCRÉE : dossier projet « Messagerie » (ne JAMAIS résoudre depuis la racine
+# de Mon Drive — d'autres projets y ont des dossiers homonymes, ex. « livrables »).
+ROOT_FOLDER_ID = "1xR8aME_sCa-8Q3OWBXjpO5pdCtwU4JmA"
+FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
 class Drive:
@@ -33,18 +38,22 @@ class Drive:
 
     @staticmethod
     def _load_creds():
-        if not CREDS_DIR.exists():
-            return None, None, None
+        # Cherche dans .credentials/ puis .credentials/tokens/ (procédure §6)
+        search_dirs = [CREDS_DIR, CREDS_DIR / "tokens"]
         cs, rt = None, None
-        for f in sorted(CREDS_DIR.glob("client_secret*.json")):
-            data = json.loads(f.read_text())
-            key = next(iter(data))  # "installed" ou "web"
-            cs = data[key]
-            break
-        for f in sorted(CREDS_DIR.glob("oauth_token*.json")):
-            data = json.loads(f.read_text())
-            rt = data.get("refresh_token") or data.get("refreshToken")
-            break
+        for base in search_dirs:
+            if cs is None:
+                for f in sorted(base.glob("client_secret*.json")) if base.exists() else []:
+                    data = json.loads(f.read_text())
+                    key = next(iter(data))  # "installed" ou "web"
+                    cs = data[key]
+                    break
+        for base in search_dirs:
+            if rt is None:
+                for f in sorted(base.glob("oauth_token*.json")) if base.exists() else []:
+                    data = json.loads(f.read_text())
+                    rt = data.get("refresh_token") or data.get("refreshToken")
+                    break
         if not (cs and rt):
             return None, None, None
         return cs["client_id"], cs["client_secret"], rt
@@ -81,17 +90,17 @@ class Drive:
     # ---------------------------------------------------------------- API haut niveau
 
     def resolve(self, path: str, create: bool = True) -> str:
-        """Résout un chemin « a/b/c » depuis la racine de Mon Drive (création au besoin)."""
-        parent = "root"
+        """Résout un chemin « a/b/c » depuis le dossier projet « Messagerie » (ancré, création au besoin)."""
+        parent = ROOT_FOLDER_ID  # ancre : jamais « root »
         for part in [p for p in path.strip("/").split("/") if p]:
-            q = (f"name = '{part}' and mimeType = 'application/vnd.google-apps.folder' "
+            q = (f"name = '{part}' and mimeType = '{FOLDER_MIME}' "
                  f"and '{parent}' in parents and trashed = false")
             res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,name)&pageSize=5")
             files = res.get("files", [])
             if files:
                 parent = files[0]["id"]
             elif create:
-                body = json.dumps({"name": part, "mimeType": "application/vnd.google-apps.folder",
+                body = json.dumps({"name": part, "mimeType": FOLDER_MIME,
                                    "parents": [parent]}).encode()
                 parent = self._req("POST", f"{API}/files", body,
                                    {"Content-Type": "application/json"})["id"]
@@ -130,7 +139,8 @@ def main():
         d = Drive()
         if not d.ok:
             print("STATUS: absents — mettre client_secret_*.json + oauth_token_relais_*.json dans "
-                  "/home/z/my-project/.credentials/ (dossier Drive « accès »)")
+                  "/home/z/my-project/.credentials/ ou .credentials/tokens/ "
+                  "(restaurer du dossier Drive dédié « Tokens », RESTART.md §6)")
             sys.exit(1)
         try:
             d._access_token()

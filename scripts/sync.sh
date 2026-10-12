@@ -2,7 +2,8 @@
 # =============================================================================
 # Nyx — Synchro systématique (règle permanente, RESTART.md §9)
 #   1. Git : commit (message passé en argument ou auto) + push GitHub
-#   2. Drive : archive projet + livrables → /livrables + docs racine « travail »
+#   2. Drive : archive projet + livrables → /livrables + docs racine dossier projet
+#      « Messagerie » (ancré sur son ID — voir scripts/gdrive.py ROOT_FOLDER_ID)
 #
 # Idempotent, tolérant aux absences (credentials manquants → SKIP explicite,
 # jamais d'échec silencieux). Usage : scripts/sync.sh ["message de commit"]
@@ -17,15 +18,16 @@ echo "${YLW}═══ SYNCHRO NYX ═══${NC}"
 
 # ---------- 1. GitHub ----------
 echo "── GitHub ──"
-MSG="${1:-chore(nyx): audit + build pipeline + sync — session 5}"
+MSG="${1:-chore(nyx): synchro session — audit + build + livraison}"
 if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git status --porcelain)" ]; then
   git add -A
   git commit -m "$MSG" | head -2 || true
 else
   echo "  aucun changement à committer"
 fi
-if [ -f "$CREDS/token_git.txt" ]; then
-  PAT=$(cat "$CREDS/token_git.txt" | tr -d '[:space:]')
+if [ -f "$CREDS/token_git.txt" ] || [ -f "$CREDS/tokens/token_git.txt" ]; then
+  GIT_TOKEN_FILE="$CREDS/token_git.txt"; [ -f "$GIT_TOKEN_FILE" ] || GIT_TOKEN_FILE="$CREDS/tokens/token_git.txt"
+  PAT=$(tr -d '[:space:]' < "$GIT_TOKEN_FILE")
   ORIGIN_URL="https://alexisfrlopez-debug:${PAT}@github.com/alexisfrlopez-debug/nyx-messenger.git"
   if git push "$ORIGIN_URL" HEAD 2>&1 | rg -v "remote:" | head -3; then
     echo "${GRN}  ✓ push GitHub${NC}"
@@ -33,7 +35,7 @@ if [ -f "$CREDS/token_git.txt" ]; then
     echo "${RED}  ✗ push GitHub (PAT invalide ou réseau)${NC}"
   fi
 else
-  echo "${YLW}  ⏳ SKIP push — $CREDS/token_git.txt absent (PAT à récupérer du dossier Drive « accès »)${NC}"
+  echo "${YLW}  ⏳ SKIP push — token_git.txt absent (PAT à restaurer du dossier Drive dédié « Tokens », RESTART.md §6)${NC}"
 fi
 
 # ---------- 2. Drive ----------
@@ -48,15 +50,16 @@ if [ -d "$CREDS" ] && python3 scripts/gdrive.py --status >/dev/null 2>&1; then
         || echo "${RED}  ✗ upload $f${NC}"
     done
   fi
-  # b) docs principaux → racine du dossier « travail » (RESTART.md, README.md…)
+  # b) docs principaux → racine du dossier projet « Messagerie » (RESTART.md, README.md…)
   for f in RESTART.md README.md GUIDE_DEMARRAGE.md; do
     [ -f "$f" ] || continue
     python3 scripts/gdrive.py upload "$f" "" >/dev/null 2>&1 \
       && echo "${GRN}  ✓ Drive racine ← $f${NC}" \
       || echo "${RED}  ✗ upload $f${NC}"
   done
-  # c) archive complète du projet (état session)
-  ARCHIVE="/tmp/nyx-source-$(date +%Y%m%d).tar.gz"
+  # c) archive complète du projet (état session) — hors /tmp (règle workspace)
+  mkdir -p "$ROOT/../archives"
+  ARCHIVE="$ROOT/../archives/nyx-projet-$(date +%Y%m%d-%H%M%S).tar.gz"
   tar --exclude='android/app/build' --exclude='android/.gradle' --exclude='.git' \
       --exclude='livrables' --exclude='reports' --exclude='local.properties' \
       --exclude='keystore.properties' \
@@ -65,7 +68,7 @@ if [ -d "$CREDS" ] && python3 scripts/gdrive.py --status >/dev/null 2>&1; then
     && echo "${GRN}  ✓ Drive ← archive source ($(basename "$ARCHIVE"))${NC}" \
     || echo "${RED}  ✗ archive source${NC}"
 else
-  echo "${YLW}  ⏳ SKIP Drive — credentials absents ou invalides (dossier « accès » : client_secret + oauth_token)${NC}"
+  echo "${YLW}  ⏳ SKIP Drive — credentials absents ou invalides (restaurer du dossier Drive dédié « Tokens » : client_secret + oauth_token, RESTART.md §6)${NC}"
   echo "     → les livrables restent dans $ROOT/livrables/ en attente de synchro"
 fi
 
