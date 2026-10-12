@@ -198,11 +198,16 @@ en v0.2 après validation du MVP.
 
 ## 3. OPTION 2 — Lancer l'application Android
 
+> **Mise à jour ADR-007 (Tor embarqué)** : l'application embarque désormais SON propre
+> démon Tor — **Orbot n'est plus nécessaire**. Tout ce qui suit reflète ce mode autonome
+> (l'ancien mode Orbot reste documenté comme repli « censure » dans `docs/adr/007`).
+
 ### 3.1 Construire l'APK
 
 Avec **Android Studio** (recommandé) : `File → Open` → sélectionner le dossier
 `android/` du dépôt → laisser Gradle se synchroniser (première fois : plusieurs
-minutes) → `Build → Build Bundle(s)/APK(s) → Build APK(s)`.
+minutes ; la dépendance `tor-android` vient du dépôt Maven du Guardian Project) →
+`Build → Build Bundle(s)/APK(s) → Build APK(s)`.
 
 En ligne de commande (SDK 35 + JDK 17+ installés) :
 
@@ -213,16 +218,22 @@ cd android
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### 3.2 Orbot : le Tor du téléphone
+### 3.2 Ce qui se passe au premier lancement (autonomie complète)
 
-1. Installer **Orbot** (Play Store ou F-Droid).
-2. Lancer Orbot et appuyer sur le bouton onion jusqu'à « connecté ».
-3. C'est tout : Nyx parle à Tor via **SOCKS `127.0.0.1:9050`** fourni par Orbot.
-   Le « mode VPN » d'Orbot n'est pas requis (le client Nyx force déjà tout son trafic
-   dans le tunnel SOCKS) — l'activer ne gêne pas.
+1. L'app crée l'identité (paire ed25519 → adresse onion, scellée dans le Keystore).
+2. **Elle démarre son propre démon Tor** (`NyxTorService`, service au premier plan,
+   notification persistante) : binaire `libtor.so` exécuté avec un torrc généré
+   (ports choisis automatiquement, cookie d'authentification, données privées).
+3. La bannière en haut de l'écran Conversations affiche la progression
+   (« Tor embarqué : démarrage… 42 % ») jusqu'au bootstrap complet.
+4. L'app **publie son propre service onion** (`ADD_ONION ED25519-V3` — même mécanisme
+   que le serveur Go) : l'adresse de l'utilisateur devient réellement joignable
+   (prête pour le P2P direct de la v0.2+).
+5. Aucun trafic ne sort hors de ce Tor : si Tor échoue, le réseau Nyx est simplement
+   indisponible (« offline by design »).
 
-⚠️ **Sans Orbot démarré, Nyx échoue volontairement** : aucune requête ne doit sortir
-hors Tor (« offline by design »).
+Diagnostic device : `adb logcat -s nyx-tor` (logs du démon), et
+`files/tor/tor.log` via Device Explorer.
 
 ### 3.3 Relier l'app à ton réplica de dev
 
@@ -240,26 +251,27 @@ hors Tor (« offline by design »).
 
    (`gossip_pub` = champ `gossip_pub` renvoyé par `/identity` — il sert au canal
    chiffré serveur↔serveur ; le client lui-même n'en a pas besoin pour déposer/lire.)
-3. Recompilé + installé : l'app passe par Orbot → circuit Tor → onion du nœud 1 → API
-   (`/client/event`, `/client/inbox`). Le téléphone n'a besoin d'aucun port ouvert.
+3. Recompilé + installé : l'app passe par SON Tor embarqué → circuit Tor → onion du
+   nœud 1 → API (`/client/event`, `/client/inbox`). Ni le PC ni le téléphone n'ont
+   besoin d'un port ouvert, et **aucune app externe n'est requise sur le téléphone**.
 
-> 📱 **Émulateur ou téléphone ?** Les deux marchent ; sur l'émulateur il faut installer
-> Orbot *dans* l'émulateur (image Play Store ou APK F-Droid). Un téléphone physique
-> évite les surprises de réseau de l'émulateur.
+> 📱 **Émulateur ou téléphone ?** Les deux marchent (le démon tor tourne dans l'app,
+> ABI x86_64 incluse). Un téléphone physique (arm64) reste le plus représentatif.
 
-### 3.4 État v0.1 de l'app (honrête et important)
+### 3.4 État v0.2 de l'app (honnête et important)
 
 | Fonctionnel | À faire (voir `android/README.md`) |
 |---|---|
+| Tor embarqué complet (service, control port, publication onion) | **Premier run device à valider** |
 | Identité ed25519 + adresse onion (Keystore + IdentityManager) | `verifySignature` (crypto_sign_verify_detached) |
-| Chiffrement des messages (sealed box libsodium) | Implémentation `OnionServiceManager` (publication via Orbot) |
-| UI onboarding / liste / chat (Compose) | Écran d'ajout de réplica + persistance |
-| Room + SQLCipher (stockage local chiffré) | Compteur de séquence par auteur (fichier scellé) |
-| RelayClient SOCKS5 (tout le trafic dans Tor) | Tests instrumentés crypto sur device |
+| Chiffrement des messages (sealed box libsodium) | Compteur de séquence persisté |
+| UI onboarding / bannière Tor / liste / chat (Compose) | Écran d'ajout de réplica + persistance |
+| Room + SQLCipher (stockage local chiffré) | Tests instrumentés crypto sur device |
+| RelayClient SOCKS5 (tout le trafic dans Tor) | Ponts obfs4/snowflake (repli censure, v0.3) |
 
-Le squelette compile à partir des sources de la session 1 mais **n'a pas encore été
-compilé sur une machine avec le SDK Android** — le premier build peut révéler des
-ajustements (versions de plugins, ABI natives). C'est le travail prévu de l'option 2.
+Le squelette n'a pas encore été compilé sur une machine avec le SDK Android — le
+premier build peut révéler des ajustements (versions, ABI natives, extraction du
+binaire tor). C'est le travail prévu de l'option 2.
 
 ---
 
@@ -278,7 +290,9 @@ ajustements (versions de plugins, ABI natives). C'est le travail prévu de l'opt
 | `AVERTISSEMENT: ServiceID tor ≠ identité calculée` | ne doit jamais arriver | signaler : la clé identity.json est corrompue ou Tor anormal |
 | Gradle : dépendances introuvables | cache/plugin | `./gradlew build --refresh-dependencies` ; vérifier SDK 35 |
 | Android : crash natif lazysodium/JNA | ABI/ empaquetage | vérifier `jna` en `@aar` (déjà dans `libs.versions.toml`) ; tester sur arm64 |
-| Android : tout échoue au réseau | Orbot pas démarré | lancer Orbot et attendre « connecté » |
+| Android : tout échoue au réseau | Tor embarqué pas encore bootstrappé ou en échec | bannière d'état (Conversations) ; `adb logcat -s nyx-tor` ; vérifier que `libtor.so` est extrait (`useLegacyPackaging`, ADR-007) |
+| Android : « binaire tor absent ou non exécutable » | extraction jniLibs désactivée | garder `packaging { jniLibs { useLegacyPackaging = true } }` dans `app/build.gradle.kts` |
+| Gradle : `tor-android` introuvable | dépôt Guardian non joignable / version retirée | vérifier `settings.gradle.kts` et les versions sur `maven.guardianproject.net` ; ajuster `torAndroid` dans `libs.versions.toml` |
 
 ---
 

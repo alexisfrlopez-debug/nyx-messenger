@@ -49,10 +49,11 @@ cd android
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Important : le debug build exige qu'**Orbot** soit installé et démarré (le client échoue
-volontairement sans Tor). Pour tester en boucle fermée : lancer `scripts/dev-server.sh`
-sur une machine joignable et ajouter son onion dans les réplicas par défaut de l'app
-(`net/Replicas.kt`).
+Important : depuis l'ADR-007, l'app embarque **son propre Tor** (`libtor.so` de la
+bibliothèque tor-android, exécuté par `NyxTorService` avec un torrc généré) — aucune
+application externe n'est requise sur le device. Pour tester en boucle fermée : lancer
+`scripts/dev-server.sh` sur une machine joignable et ajouter son onion dans les
+réplicas par défaut de l'app (`net/Replicas.kt`). Diagnostic : `adb logcat -s nyx-tor`.
 
 ## 5. Où mettre quoi
 

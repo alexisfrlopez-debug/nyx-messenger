@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 2).
+> Dernière mise à jour : **2026-10-12** (session 3).
 
 ---
 
@@ -22,63 +22,71 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 1 | Réplication serveurs | Journal d'événements signés + gossip NaCl (PAS de Raft/quorum pour la messagerie) | ADR-001 |
 | 2 | Chiffrement | Signal Protocol E2E (v0.2) + libsodium (canaux/stockage) ; sealed box en v0.1 | ADR-002 |
 | 3 | Identité | Adresse onion = identité (ed25519) ; invitations à la phase 2 | ADR-003 |
-| 4 | Client | Kotlin natif + Jetpack Compose (Orbot v0.1, IPtProxy v0.2) | ADR-004 |
+| 4 | Client | Kotlin natif + Jetpack Compose ; **Tor embarqué dans l'app (tor-android) depuis la v0.2 — Orbot n'est plus requis** (repli censure documenté) | ADR-004, **ADR-007** |
 | 5 | Serveur | Go ≥ 1.22, binaire statique, stdlib + x/crypto | ADR-005 |
 | 6 | Phases 2/3 | Market : quorum `tx` dédié, escrow 2-of-3, réputation escrow ; fiat = réglementaire d'abord | ADR-006 |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 2 — 2026-10-12)
+## 3. État actuel (session 3 — 2026-10-12)
 
 ### Fait ✅
-- **GUIDE_DEMARRAGE.md** (racine) : guide pas à pas complet — **option 1** (serveurs :
-  Tor + 3 réplicas + test de réplication) et **option 2** (Android + Orbot + connexion
-  au réplica de dev), avec dépannage.
-- **scripts/dev-server.sh réécrit (v2)** : détection du Tor correcte (control port 9051,
-  pas seulement SOCKS 9050), cookie passé explicitement (`--cookie-file
-  scripts/tor_data/control.authcookie` — l'auto-détection Go ne couvre que /run/tor,
-  **bug de premier lancement corrigé**), câblage automatique des pairs (lecture des
-  identity.json, écriture des config.json, redémarrage), relance idempotente,
-  sous-commande `stop`, gossip 15 s en dev, diagnostic enrichi.
-- **server/cmd/nyx-devtool** : client minimal de test — `keygen` (identité cliente
-  ed25519 → onion), `show`, `event` (événement signé sur stdout, seq auto-incrémentée,
-  --to pour les messages privés), `verify` (Validate complète). Smoke testé : signature
-  valide acceptée, body falsifié rejeté.
-- Architecture complète rédigée : `docs/00-architecture.md`, `01-modele-securite.md`,
-  `02-protocole-replication.md`, `03-protocole-messagerie.md`, `04-roadmap.md`,
-  `05-setup-dev.md` + 6 ADR (session 1).
-- Spécifications filaires : `protocol/specs/wire-format.md`, `protocol/specs/api.md`.
-- **Nœud serveur Go compilé et testé** (`server/`) : client control port Tor minimal
-  (ADD_ONION ED25519-V3), journal signé ed25519 (seq stricte, pending, JSONL), onion v3
-  codec aller-retour, gossip NaCl via SOCKS5, API client+gossip, tests verts.
-- **Squelette Android complet** (`android/`) : Gradle version-catalog, Compose,
-  Room+SQLCipher, lazysodium, OkHttp SOCKS5, TorManager (Orbot), UI onboarding/liste/chat.
-  **Toujours non compilé** (pas de SDK Android dans l'environnement) — TODO dans
-  `android/README.md`.
-- Scripts : `scripts/bootstrap.sh` (env sans root), `scripts/dev-server.sh` (v2),
-  `scripts/torrc-dev`.
-- Git : branche `main`, dépôt GitHub `https://github.com/alexisfrlopez-debug/nyx-messenger`
-  — à jour session 2 (guide + devtool + scripts v2).
+- **ADR-007 : Tor embarqué dans l'app** — demande utilisateur « que l'appli installe
+  son propre service Tor pour qu'elle soit entièrement autonome ». Choix :
+  binaire `libtor.so` de la bibliothèque **tor-android** (Guardian Project) exécuté par
+  NOTRE service au premier plan avec un torrc généré (ports sondés dynamiquement,
+  cookie, `__OwningControllerProcess`) — plutôt que le TorService de la lib (contrôle
+  total, symétrie parfaite avec le serveur Go). Orbot n'est plus requis (repli
+  censure/ponts documenté, hors périmètre immédiat).
+- Code Android Tor embarqué complet :
+  `tor/NyxTorConfig.kt` (torrc, ports libres 9050→+40, répertoires privés),
+  `tor/TorControlClient.kt` (control port minimal : AUTHENTICATE cookie, GETINFO
+  status/bootstrap-phase, ADD_ONION ED25519-V3, DEL_ONION — miroir du Go),
+  `tor/NyxTorService.kt` (service 1er plan dataSync, exec du binaire, drain des logs,
+  notification persistante), `tor/TorManager.kt` réécrit (états Checking/Starting %/
+  Ready/Failed, publication auto de l'onion dès le bootstrap, vérification clé↔adresse
+  miroir du serveur, port SOCKS dynamique exposé via `TorManager.activeSocksPort`),
+  `tor/OnionServiceManager.kt` réel (façade publish/unpublish).
+- Câblage app : `MainActivity` (permission POST_NOTIFICATIONS 13+, démarrage Tor si
+  identité), `OnboardingScreen` (démarrage Tor après création d'identité),
+  `ConversationListScreen` (bannière d'état Tor avec progression %),
+  `NyxRepository` (SOCKS port dynamique via `TorManager.activeSocksPort`),
+  `AndroidManifest` (FOREGROUND_SERVICE_DATA_SYNC + service déclaré),
+  strings FR (tor_starting/ready/failed).
+- Gradle : dépôt Maven Guardian Project ajouté (`settings.gradle.kts`), dépendance
+  `org.torproject.jni:tor-android:0.4.7.14` (`libs.versions.toml`, version à confirmer
+  au premier build — liste des versions sur maven.guardianproject.net),
+  `packaging { jniLibs { useLegacyPackaging = true } }` (obligatoire : le binaire tor
+  doit être extrait sur disque pour être exécutable — W^X Android 10+).
+- Guide de lancement (session 2) : `GUIDE_DEMARRAGE.md` — **option 1** (serveurs :
+  Tor + 3 réplicas + test de réplication) et **option 2** (Android, désormais Tor
+  embarqué sans Orbot), avec dépannage.
+- scripts/dev-server.sh v2 (session 2) : cookie Tor explicite, câblage automatique des
+  pairs, relance idempotente, sous-commande stop, gossip 15 s en dev.
+- server/cmd/nyx-devtool (session 2) : keygen/show/event/verify — client minimal de test.
+- Architecture : docs 00..05 + ADR-001..**007** ; specs filaires protocol/specs/.
+- Nœud serveur Go compilé et testé (journal signé, onion v3, gossip NaCl, API) — tests verts.
+- Git : dépôt `https://github.com/alexisfrlopez-debug/nyx-messenger` — à jour session 3.
 
-### Validations session 2
-- `go vet` + `go test ./...` verts ; build des deux binaires OK.
-- devtool : cycle keygen→event→verify vérifié (y compris rejet d'un body falsifié).
-- dev-server.sh : mécanique validée avec un Tor factice (TCP) — phases, câblage des
-  pairs (config.json contient exactement les N-1 autres, sans soi-même), persistence
-  d'identité au redémarrage, health checks, stop. **La réplication gossip avec Tor réel
-  reste à tester sur machine disposant de Tor** (l'environnement de la session tue les
-  démons longs et n'a pas Tor — voir §7).
+### Validations
+- Session 2 : go vet + go test verts ; devtool smoke testé (signature OK, falsification rejetée) ;
+  dev-server.sh validé avec Tor factice (câblage pairs exact, identités stables). La
+  réplication avec Tor réel reste à faire sur machine utilisateur (le sandbox tue les démons).
+- Session 3 : code Android non compilé ici (pas de SDK) — **premier build + run device =
+  prochaine étape critique** (voir TODO 1).
 
 ### À faire (ordre suggéré) 🔜
-1. **Test 3 réplicas sur machine avec Tor** — suivre GUIDE_DEMARRAGE.md §2 (une
-   commande + test devtool). C'est l'option 1 du guide.
-2. **Android sur device** — GUIDE_DEMARRAGE.md §3 : premier build (ajustements probables),
-   Orbot, réplica de dev dans Replicas.kt, puis TODO de android/README.md
-   (verifySignature, OnionServiceManager, écran d'ajout de réplica).
-3. **CI GitHub** (facultatif) : workflow Go (build + tests) ; plus tard build Android.
-4. v0.2 (voir roadmap `docs/04-roadmap.md`) : libsignal, chiffrement du champ `to`,
-   IPtProxy, purge TTL serveur, push P2P direct, sauvegarde BIP39, déploiement d'un
-   réplica de prod (systemd + torrc durci).
+1. **Android : premier build + run device du Tor embarqué** — suivre GUIDE_DEMARRAGE.md
+   §3 : build, install, vérifier bootstrap (bannière %), publication onion (logcat
+   `nyx-tor`), connexions au réplica de dev. Ajuster si besoin (version tor-android,
+   extraction du binaire, notification).
+2. **Test 3 réplicas sur machine avec Tor** — GUIDE_DEMARRAGE.md §2 (option 1).
+3. TODO app restants (android/README.md) : verifySignature (lazysodium), écran d'ajout
+   de réplica, compteur de séquence persisté, tests instrumentés.
+4. Repli censure : ponts obfs4/snowflake via IPtProxy injectés dans le torrc (ADR-007 §3).
+5. CI GitHub (workflow Go, plus tard Android) ; v0.2+ : libsignal, chiffrement du champ
+   `to`, purge TTL, push P2P direct (l'onion de l'utilisateur est déjà publié), déploiement
+   réplica prod (systemd + torrc durci).
 
 ## 4. Structure du projet
 
@@ -164,3 +172,4 @@ Si expiré → demander à l'utilisateur une nouvelle autorisation.
 |---|---|---|
 | 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts. **Dépôt GitHub `nyx-messenger` créé + push initial. Sauvegarde Drive complète (RESTART.md + README.md + archive tar.gz).** |
 | 2026-10-12 | 2 | **Demande utilisateur : « comment lancer tout ça, options 1 et 2 »** → rédaction de GUIDE_DEMARRAGE.md (option 1 serveurs / option 2 Android + dépannage) ; scripts/dev-server.sh v2 (cookie Tor explicite — bug de premier lancement corrigé, câblage auto des pairs, stop, idempotent) ; ajout server/cmd/nyx-devtool (keygen/show/event/verify, smoke testé). Mécanique validée avec Tor factice (réplication Tor réel à faire sur machine de l'utilisateur). Push GitHub + sauvegarde Drive. |
+| 2026-10-12 | 3 | **Demande utilisateur : « que l'appli installe son propre service Tor, autonomie totale »** → ADR-007 : Tor embarqué via tor-android (binaire `libtor.so` exécuté par notre `NyxTorService` au 1er plan, torrc généré, ports dynamiques) ; nouveau code : NyxTorConfig, TorControlClient (miroir Go), NyxTorService, TorManager réécrit (bootstrap %, publication auto ADD_ONION de l'identité), OnionServiceManager réel ; câblage MainActivity/Onboarding/bannière Tor/manifest/strings ; Gradle (Guardian maven, useLegacyPackaging). Orbot supprimé comme prérequis (repli censure documenté). Code non compilé ici (pas de SDK) — premier build device = TODO 1. Push GitHub + Drive v0.3. |

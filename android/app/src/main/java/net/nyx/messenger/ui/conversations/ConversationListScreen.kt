@@ -25,15 +25,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.repo.NyxRepository
+import net.nyx.messenger.tor.TorManager
 
 /**
  * Liste des conversations + ajout de contact (adresse onion collée ou lien nyx://add).
+ * Une bannière reflète l'état du Tor embarqué (ADR-007) — jamais de trafic hors Tor.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,10 +60,13 @@ fun ConversationListScreen(
         )
     }
 
+    val torState by TorManager.get(LocalContext.current).state.collectAsState()
+
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.conversations)) }) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+            TorBanner(torState)
             if (showAdd) {
                 OutlinedTextField(
                     value = onionInput, onValueChange = { onionInput = it },
@@ -107,5 +113,28 @@ fun ConversationListScreen(
                 }
             }
         }
+    }
+}
+
+/** Bannière d'état du Tor embarqué (ADR-007) — visible en haut de la liste. */
+@Composable
+private fun TorBanner(state: TorManager.TorState) {
+    val (text, color) = when (state) {
+        is TorManager.TorState.Starting ->
+            stringResource(R.string.tor_starting, state.percent) to MaterialTheme.colorScheme.tertiary
+        TorManager.TorState.Ready ->
+            stringResource(R.string.tor_ready) to MaterialTheme.colorScheme.primary
+        is TorManager.TorState.Failed ->
+            stringResource(R.string.tor_failed) to MaterialTheme.colorScheme.error
+        TorManager.TorState.Checking ->
+            stringResource(R.string.tor_offline) to MaterialTheme.colorScheme.secondary
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text,
+            color = color,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
     }
 }

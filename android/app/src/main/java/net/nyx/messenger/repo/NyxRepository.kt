@@ -37,7 +37,10 @@ class NyxRepository(
 
     fun setReplicas(onions: List<String>) {
         replicas = onions
-        client = replicas.firstOrNull()?.let { RelayClient.forReplica(it) }
+        // SOCKS : port du Tor EMBARQUÉ (dynamique — ADR-007), plus Orbot requis.
+        client = replicas.firstOrNull()?.let {
+            RelayClient.forReplica(it, socksPort = net.nyx.messenger.tor.TorManager.activeSocksPort)
+        }
     }
 
     /* ---------------- envoi ---------------- */

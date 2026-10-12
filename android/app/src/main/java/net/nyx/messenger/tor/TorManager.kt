@@ -1,53 +1,204 @@
 package net.nyx.messenger.tor
 
 import android.content.Context
-import android.content.pm.PackageManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Proxy
 
 /**
- * Gestion Tor — v0.1 : s'appuie sur Orbot (démon externe, SOCKS5 local 9050).
- * v0.2 : IPtProxy embarqué (Tor natif dans l'app, sans dépendance externe — ADR-004).
+ * Gestion Tor — v0.2 : Tor EMBARQUÉ, sans Orbot (ADR-007).
  *
- * Invariant de sécurité : AUCUN repli hors Tor. Si Tor est absent, le réseau est
+ * Flux : [start] démarre [NyxTorService] (premier plan) → le service exécute le
+ * démon tor avec le torrc généré → ce manager surveille le control port jusqu'au
+ * bootstrap complet (progression %) → publication automatique du service onion de
+ * l'utilisateur (identité, ADR-003) si un fournisseur de clé a été passé à [start].
+ *
+ * Invariant de sécurité : AUCUN repli hors Tor. Si Tor échoue, le réseau Nyx est
  * simplement indisponible (offline by design).
  */
 class TorManager private constructor(context: Context) {
 
     private val appContext = context.applicationContext
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _state = MutableStateFlow<TorState>(TorState.Checking)
     val state: StateFlow<TorState> = _state
 
+    private var config: NyxTorConfig? = null
+    private var bootstrapJob: Job? = null
+    private var onionServiceId: String? = null
+    private var keyProvider: (() -> ByteArray?)? = null
+
     sealed interface TorState {
+        /** Avant toute tentative. */
         data object Checking : TorState
+        /** Démon lancé, bootstrap en cours ([percent] de 0 à 99). */
+        data class Starting(val percent: Int) : TorState
+        /** Bootstrap terminé, SOCKS utilisable (onion publié si clé fournie). */
         data object Ready : TorState
-        data object Offline : TorState // Orbot absent ou non démarré
+        /** Tor absent ou en échec — réseau Nyx indisponible. */
+        data class Failed(val reason: String) : TorState
     }
 
-    /** Proxy SOCKS5 fourni par Orbot (127.0.0.1:9050). */
-    fun socksProxy(): Proxy = Proxy(
-        Proxy.Type.SOCKS,
-        InetSocketAddress("127.0.0.1", SOCKS_PORT)
-    )
+    /** Proxy SOCKS5 fourni par le Tor embarqué (port dynamique). */
+    fun socksProxy(): Proxy {
+        val port = config?.socksPort ?: DEFAULT_SOCKS_PORT
+        return Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", port))
+    }
 
-    /** Vérifie qu'Orbot est installé (le test de joignabilité réel est fait par RelayClient). */
-    fun refreshState() {
-        val installed = try {
-            appContext.packageManager.getPackageInfo(ORBOT_PACKAGE, 0)
-            true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
+    /** Port SOCKS courant (pour RelayClient/Repository). Voir [activeSocksPort]. */
+    val socksPort: Int get() = config?.socksPort ?: DEFAULT_SOCKS_PORT
+
+    /**
+     * Démarre Tor embarqué. [onionPrivateKeyProvider] : renvoie la clé privée
+     * ed25519 (64 octets) de l'identité si elle existe — le service onion de
+     * l'utilisateur est alors publié dès la fin du bootstrap.
+     */
+    fun start(onionPrivateKeyProvider: (() -> ByteArray?)? = null) {
+        keyProvider = onionPrivateKeyProvider
+        _state.value = TorState.Starting(0)
+        NyxTorService.start(appContext)
+    }
+
+    /** Arrêt propre : démon tor inclus. */
+    fun stop() {
+        bootstrapJob?.cancel()
+        NyxTorService.stop(appContext)
+        _state.value = TorState.Checking
+    }
+
+    /** Publie (ou re-publie) le service onion de l'utilisateur. Auto après bootstrap. */
+    suspend fun publishOwnOnion(localPort: Int? = null): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val cfg = config ?: error("Tor non démarré")
+            val target = localPort ?: cfg.onionLocalPort
+            val key = keyProvider?.invoke() ?: error("identité absente (onboarding ?)")
+            TorControlClient(cfg.controlPort).use { control ->
+                control.authenticate(cfg.cookieFile)
+                val sid = control.publishOnionEd25519V3(key, target)
+                onionServiceId = sid
+                // Cohérence clé ↔ adresse (miroir de l'avertissement du serveur Go) :
+                // la clé privée ed25519 contient la clé publique à [32..64). Si tor et
+                // notre OnionCodec divergent, c'est un invariant cassé (voir error()).
+                val expected = net.nyx.messenger.crypto.OnionCodec.pubKeyToOnion(key.copyOfRange(32, 64))
+                val published = "$sid.onion"
+                check(published.equals(expected, ignoreCase = true)) {
+                    "ServiceID tor ($published) ≠ adresse calculée ($expected)"
+                }
+                published
+            }
+        }.onFailure { _state.value = TorState.Failed("publication onion : ${it.message}") }
+    }
+
+    suspend fun unpublishOwnOnion() {
+        val cfg = config ?: return
+        val sid = onionServiceId ?: return
+        withContext(Dispatchers.IO) {
+            TorControlClient(cfg.controlPort).use { it.unpublish(sid) }
         }
-        _state.value = if (installed) TorState.Ready else TorState.Offline
-        // NOTE v0.2 : vérification active (bootstrap status via control port / SOCKS probe)
+        onionServiceId = null
+    }
+
+    /* ---------- callbacks du service (invoqués depuis NyxTorService) ---------- */
+
+    fun attachConfig(cfg: NyxTorConfig) {
+        config = cfg
+        activeSocksPort = cfg.socksPort
+        _state.value = TorState.Starting(0)
+    }
+
+    fun reportStarted(cfg: NyxTorConfig) {
+        config = cfg
+        watchBootstrap()
+    }
+
+    fun reportFailure(reason: String) {
+        _state.value = TorState.Failed(reason)
+    }
+
+    fun reportStopped() {
+        if (_state.value is TorState.Starting || _state.value == TorState.Ready) {
+            _state.value = TorState.Failed("démon tor arrêté")
+        }
+    }
+
+    /** Surveille le control port jusqu'à la fin du bootstrap, puis publie l'onion. */
+    private fun watchBootstrap() {
+        bootstrapJob?.cancel()
+        bootstrapJob = scope.launch {
+            val cfg = config ?: return@launch
+            val control = TorControlClient(cfg.controlPort)
+            try {
+                // 1. Attente du control port + cookie (le démon vient de démarrer).
+                var authenticated = false
+                for (attempt in 1..BOOTSTRAP_TIMEOUT_S) {
+                    if (!isActive) return@launch
+                    try {
+                        if (!cfg.cookieFile.exists()) { delay(1_000); continue }
+                        control.authenticate(cfg.cookieFile)
+                        authenticated = true
+                        break
+                    } catch (e: Exception) {
+                        delay(1_000)
+                    }
+                }
+                if (!authenticated) {
+                    _state.value = TorState.Failed("control port Tor injoignable (${cfg.controlPort})")
+                    return@launch
+                }
+
+                // 2. Suivi de progression jusqu'au bootstrap complet.
+                while (isActive) {
+                    val phase = control.bootstrapPhase()
+                    TorControlClient.parsePercent(phase)?.let { pct ->
+                        _state.value = TorState.Starting(pct.coerceAtMost(99))
+                    }
+                    if (TorControlClient.isDone(phase)) break
+                    delay(POLL_INTERVAL_MS)
+                }
+
+                // 3. Tor prêt → publication du service onion de l'utilisateur.
+                if (keyProvider != null) {
+                    publishOwnOnion()
+                        .onSuccess { addr ->
+                            android.util.Log.i("nyx-tor", "onion service publié : $addr")
+                        }
+                        .onFailure { e ->
+                            // Ne bloque pas l'état Ready : les réplicas restent joignables,
+                            // seule l'adresse P2P de l'utilisateur manque (v0.2 : direct push).
+                            android.util.Log.w("nyx-tor", "publication onion différée : ${e.message}")
+                        }
+                }
+                _state.value = TorState.Ready
+            } catch (e: Exception) {
+                _state.value = TorState.Failed("bootstrap : ${e.message}")
+            } finally {
+                control.close()
+            }
+        }
     }
 
     companion object {
-        const val ORBOT_PACKAGE = "org.torproject.android"
-        const val SOCKS_PORT = 9050
+        const val DEFAULT_SOCKS_PORT = 9050
+        private const val BOOTSTRAP_TIMEOUT_S = 180
+        private const val POLL_INTERVAL_MS = 1_000L
+
+        /**
+         * Port SOCKS exposé par le Tor embarqué — lu par RelayClient/Repository
+         * (port dynamique choisi au démarrage, cf. NyxTorConfig).
+         */
+        @Volatile var activeSocksPort: Int = DEFAULT_SOCKS_PORT
+            private set
 
         @Volatile private var instance: TorManager? = null
         fun get(context: Context): TorManager =

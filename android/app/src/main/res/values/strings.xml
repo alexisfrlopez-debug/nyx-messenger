@@ -15,7 +15,10 @@
     <string name="add">Ajouter</string>
     <string name="message_hint">Message…</string>
     <string name="send">Envoyer</string>
-    <string name="tor_offline">Tor hors ligne — démarrez Orbot</string>
+    <string name="tor_starting">Tor embarqué : démarrage… %1$d%%</string>
+    <string name="tor_ready">Tor embarqué actif — trafic anonymisé</string>
+    <string name="tor_failed">Tor en échec — réseau indisponible (offline by design)</string>
+    <string name="tor_offline">Tor hors ligne</string>
     <string name="tor_online">Tor actif</string>
     <string name="sending">Envoi via Tor…</string>
     <string name="sent">Envoyé</string>

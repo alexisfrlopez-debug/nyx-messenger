@@ -38,6 +38,11 @@ android {
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Tor embarqué (ADR-007) : le binaire libtor.so doit être EXTRAIT sur le disque
+        // pour être exécutable depuis nativeLibraryDir (interdit de exec depuis l'APK).
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
@@ -73,6 +78,10 @@ dependencies {
 
     // Réseau : OkHttp forcé via SOCKS5 Tor (voir RelayClient)
     implementation(libs.okhttp)
+
+    // Tor embarqué (ADR-007) : démon tor (libtor.so exécutable) — autonomie totale,
+    // sans Orbot. L'app génère son torrc, exécute le binaire et publie son onion service.
+    implementation(libs.tor.android)
 
     // Clés scellées (Keystore)
     implementation(libs.androidx.security.crypto)

@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -32,6 +33,7 @@ import kotlinx.coroutines.withContext
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.repo.NyxRepository
+import net.nyx.messenger.tor.TorManager
 
 /**
  * Onboarding : création de l'identité (paire ed25519 + adresse onion), affichage
@@ -39,6 +41,7 @@ import net.nyx.messenger.repo.NyxRepository
  */
 @Composable
 fun OnboardingScreen(onIdentityCreated: () -> Unit) {
+    val context = LocalContext.current
     var busy by remember { mutableStateOf(false) }
     var onion by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -96,6 +99,10 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
                                 addr
                             }
                             onion = created
+                            // Tor embarqué (ADR-007) : démarre dès que l'identité existe —
+                            // le bootstrap et la publication du service onion de
+                            // l'utilisateur se font pendant qu'il lit son adresse.
+                            TorManager.get(context).start { ServiceLocator.identity.secretKey() }
                         } catch (e: Exception) {
                             error = e.message
                         } finally {
