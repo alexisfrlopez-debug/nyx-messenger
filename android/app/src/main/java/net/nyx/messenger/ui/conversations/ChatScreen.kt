@@ -48,10 +48,7 @@ import net.nyx.messenger.repo.NyxRepository
  */
 class ChatViewModel(peerOnion: String) : ViewModel() {
     private val db = ServiceLocator.database
-    val repo = NyxRepository(
-        ServiceLocator.identity, ServiceLocator.cipher,
-        db.messageDao(), db.contactDao(), db.pollStateDao()
-    )
+    val repo = ServiceLocator.repository
 
     val messages: StateFlow<List<MessageEntity>> =
         db.messageDao().conversation(peerOnion)

@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
-import net.nyx.messenger.repo.NyxRepository
 import net.nyx.messenger.tor.TorManager
 
 /**
@@ -53,12 +52,7 @@ fun ConversationListScreen(
     var aliasInput by remember { mutableStateOf("") }
     var addError by remember { mutableStateOf<String?>(null) }
 
-    val repo = remember {
-        NyxRepository(
-            ServiceLocator.identity, ServiceLocator.cipher,
-            db.messageDao(), db.contactDao(), db.pollStateDao()
-        )
-    }
+    val repo = remember { ServiceLocator.repository }
 
     val torState by TorManager.get(LocalContext.current).state.collectAsState()
 

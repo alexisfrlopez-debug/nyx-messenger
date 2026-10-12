@@ -1,0 +1,3 @@
+# Allowlist audit Nyx — une entrée par ligne, format « chemin/relatif:motif ».
+# Chaque entrée DOIT être justifiée par un commentaire ci-dessus.
+# Exemple : android/app/src/main/java/net/nyx/messenger/net/RelayClient.kt:socksProxyHost

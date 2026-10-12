@@ -45,7 +45,7 @@ process tor → bootstrap (progression dans la bannière de l'écran Conversatio
 | `tor/TorManager` (bootstrap + publication onion) | **Compilé ✓** — à valider sur device |
 | `net/RelayClient` — API client via SOCKS5 dynamique | **Compilé ✓** |
 | `data/db` — Room + SQLCipher (4.5.4) | **Compilé ✓** |
-| `repo/NyxRepository` — envoi/réception/signature | **Compilé ✓**, `verifySignature` à brancher (TODO) |
+| `repo/NyxRepository` — envoi/réception/signature | **Compilé ✓**, `verifySignature` branché (libsodium `cryptoSignVerifyDetached`) — à tester sur device |
 | `ui/` — onboarding (démarrage Tor), bannière Tor, liste, chat | **Compilé ✓** |
 | **Build APK** — debug 39,9 Mo / release R8 21,2 Mo | **VERT ✓ (2026-10-12)** — packaging 4 ABI vérifié |
 
@@ -55,14 +55,26 @@ process tor → bootstrap (progression dans la bannière de l'écran Conversatio
    bootstrap complet, bannière % progressive, publication onion vérifiée
    (logcat `nyx-tor`), test d'un POST sur un réplica de dev (`scripts/dev-server.sh`
    côté PC). Le build est déjà vert — plus rien à compiler, tout est au runtime.
-2. Brancher `crypto_sign_verify_detached` dans `NyxRepository.verifySignature`.
+2. ~~Brancher `crypto_sign_verify_detached`~~ **Fait (session 5)** : `MessageCipher.verifyEvent` + `NyxRepository.verifySignature`.
 3. Persister le compteur de séquence par auteur (fichier scellé).
-4. Écran d'ajout de réplica (adresse onion) + stockage ; alors `Replicas.DEFAULT`
-   n'est plus nécessaire.
+4. Écran d'ajout de réplica (adresse onion) + stockage — v0.1 : ajout via `pendingAdd`/lien `nyx://add` à compléter.
 5. Repli « censure » : ponts (obfs4/snowflake via IPtProxy) injectés dans le torrc —
    la variante Orbot reste documentée dans ADR-007 §3.
 6. v0.3 : libsignal (Signal Protocol), push P2P direct (l'onion de l'utilisateur est
    déjà publié — port cible `NyxTorConfig.onionLocalPort`).
+
+## Build & livraison (règles permanentes — RESTART.md §9)
+
+```bash
+scripts/audit.sh            # audit pré-compilation STRICT (bloquant) — toujours AVANT le build
+scripts/build-apk.sh        # pipeline : audit → build release signé → vérif autonomie → livrables/
+scripts/sync.sh             # synchro systématique : GitHub push + Drive (/livrables + docs + archive)
+```
+
+- Tout APK produit est **autonome** : Tor embarqué (libTor.so ×4 ABI), signature release
+  (keystore local, `android/keystore.properties` git-ignoré), APK universel unique,
+  zéro service tiers — vérifié par le pipeline (13 contrôles).
+- Les livrables atterrissent dans `livrables/` (local) puis `/livrables` du Drive via `sync.sh`.
 
 ## Conventions
 

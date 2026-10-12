@@ -9,6 +9,8 @@
     <string name="your_onion">Votre adresse Nyx</string>
     <string name="copy">Copier</string>
     <string name="copied">Adresse copiée</string>
+    <string name="continuer">Continuer</string>
+    <string name="restore_backup">Restaurer une sauvegarde (v0.2)</string>
     <string name="conversations">Conversations</string>
     <string name="add_contact">Ajouter un contact</string>
     <string name="add_contact_hint">Adresse onion du contact (56 caractères…)</string>
@@ -19,7 +21,6 @@
     <string name="tor_ready">Tor embarqué actif — trafic anonymisé</string>
     <string name="tor_failed">Tor en échec — réseau indisponible (offline by design)</string>
     <string name="tor_offline">Tor hors ligne</string>
-    <string name="tor_online">Tor actif</string>
     <string name="sending">Envoi via Tor…</string>
     <string name="sent">Envoyé</string>
     <string name="failed">Échec (réessaie)</string>

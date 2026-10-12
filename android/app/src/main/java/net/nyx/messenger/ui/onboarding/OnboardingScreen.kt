@@ -1,5 +1,8 @@
 package net.nyx.messenger.ui.onboarding
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -32,7 +35,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
-import net.nyx.messenger.repo.NyxRepository
 import net.nyx.messenger.tor.TorManager
 
 /**
@@ -45,6 +47,7 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var onion by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var copied by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -76,9 +79,20 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("nyx_onion", addr))
+                    copied = true
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(if (copied) R.string.copied else R.string.copy))
+            }
             Spacer(Modifier.height(16.dp))
             Button(onClick = onIdentityCreated, modifier = Modifier.fillMaxWidth()) {
-                Text("Continuer")
+                Text(stringResource(R.string.continuer))
             }
         } ?: run {
             Button(
@@ -88,15 +102,7 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
                     scope.launch {
                         try {
                             val created = withContext(Dispatchers.IO) {
-                                val addr = ServiceLocator.identity.createIfNeeded()
-                                // v0.1 : réplicas configurés par défaut (vide en dev) — voir Replicas
-                                NyxRepository(
-                                    ServiceLocator.identity, ServiceLocator.cipher,
-                                    ServiceLocator.database.messageDao(),
-                                    ServiceLocator.database.contactDao(),
-                                    ServiceLocator.database.pollStateDao()
-                                ).also { repo -> repo.setReplicas(emptyList()) }
-                                addr
+                                ServiceLocator.identity.createIfNeeded()
                             }
                             onion = created
                             // Tor embarqué (ADR-007) : démarre dès que l'identité existe —
@@ -118,7 +124,7 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
             OutlinedButton(
                 onClick = { /* TODO: restauration par phrase secrète (v0.2) */ },
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-            ) { Text("Restaurer une sauvegarde (v0.2)") }
+            ) { Text(stringResource(R.string.restore_backup)) }
             error?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, color = MaterialTheme.colorScheme.error)

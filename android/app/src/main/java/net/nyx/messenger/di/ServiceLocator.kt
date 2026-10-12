@@ -8,6 +8,7 @@ import com.goterl.lazysodium.SodiumAndroid
 import net.nyx.messenger.crypto.IdentityManager
 import net.nyx.messenger.crypto.MessageCipher
 import net.nyx.messenger.data.db.NyxDatabase
+import net.nyx.messenger.repo.NyxRepository
 import net.sqlcipher.database.SQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 
@@ -26,6 +27,8 @@ object ServiceLocator {
         private set
     lateinit var database: NyxDatabase
         private set
+    lateinit var repository: NyxRepository
+        private set
 
     @Volatile var initialized = false; private set
 
@@ -43,6 +46,13 @@ object ServiceLocator {
             database = Room.databaseBuilder(context, NyxDatabase::class.java, NyxDatabase.NAME)
                 .openHelperFactory(SupportFactory(dbPassphrase, null, false))
                 .build()
+
+            // Repository unique partagé par tous les écrans (supprime la construction
+            // redondante dans Onboarding/ConversationList/Chat — audit cycle 1).
+            repository = NyxRepository(
+                identity, cipher,
+                database.messageDao(), database.contactDao(), database.pollStateDao()
+            )
 
             initialized = true
         }

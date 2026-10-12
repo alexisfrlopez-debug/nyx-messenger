@@ -79,6 +79,22 @@ class MessageCipher(sodiumInstance: LazySodiumAndroid) {
         return B64.encode(sig)
     }
 
+    /**
+     * Vérifie une signature détachée ed25519 sur la représentation canonique
+     * (miroir de [signEvent] et de journal.Validate côté serveur Go).
+     * Retourne false sur toute anomalie (taille, encodage, crypto) — jamais d'exception.
+     */
+    fun verifyEvent(canonical: String, sigB64: String, ed25519Pub: ByteArray): Boolean {
+        return try {
+            val msg = canonical.toByteArray(Charsets.UTF_8)
+            val sig = B64.decode(sigB64)
+            if (sig.size != Sign.BYTES || ed25519Pub.size != Sign.ED25519_PUBLICKEYBYTES) return false
+            sign.cryptoSignVerifyDetached(sig, msg, msg.size, ed25519Pub)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     companion object {
         /** Représentation canonique NYX1 — DOIT rester identique au serveur Go. */
         fun canonical(type: String, author: String, seq: Long, ts: Long, ttl: Long, to: String, bodyB64: String): String {

@@ -16,7 +16,6 @@ import net.nyx.messenger.data.db.PollStateEntity
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.net.RelayClient
 import net.nyx.messenger.net.WireEvent
-import java.security.SecureRandom
 
 /**
  * Logique messagerie : envoi (chiffrement → signature → dépôt sur un réplica)
@@ -127,10 +126,9 @@ class NyxRepository(
     }
 
     private fun verifySignature(canonical: String, sigB64: String, pub: ByteArray): Boolean {
-        // TODO v0.1 device : crypto_sign_verify_detached via lazysodium (sign interface)
-        // La validation serveur existe déjà (journal.Validate) ; côté client elle protège
-        // contre un réplica mensonger — à brancher avec le même appel libsodium.
-        return sigB64.isNotBlank()
+        // Vérification ed25519 réelle via libsodium — protège contre un réplica
+        // mensonger (miroir de journal.Validate côté serveur Go).
+        return ServiceLocator.cipher.verifyEvent(canonical, sigB64, pub)
     }
 
     private fun eventIdOf(canonical: String): String {
@@ -155,5 +153,3 @@ class NyxRepository(
         const val STATE_RECEIVED = 3
     }
 }
-
-private val rng = SecureRandom() // réservé v0.2 (nonces X3DH)

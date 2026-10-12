@@ -29,6 +29,14 @@ android/.kotlin/
 *.pem
 *.key
 credentials/
+.credentials/
+keystore.properties
+*.jks
+*.keystore
+
+# --- Outils de session (audit, rapports, livrables locaux) ---
+reports/
+livrables/
 
 # --- Divers ---
 .DS_Store

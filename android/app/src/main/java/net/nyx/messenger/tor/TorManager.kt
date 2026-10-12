@@ -12,8 +12,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.net.InetSocketAddress
-import java.net.Proxy
 
 /**
  * Gestion Tor — v0.2 : Tor EMBARQUÉ, sans Orbot (ADR-007).
@@ -48,12 +46,6 @@ class TorManager private constructor(context: Context) {
         data object Ready : TorState
         /** Tor absent ou en échec — réseau Nyx indisponible. */
         data class Failed(val reason: String) : TorState
-    }
-
-    /** Proxy SOCKS5 fourni par le Tor embarqué (port dynamique). */
-    fun socksProxy(): Proxy {
-        val port = config?.socksPort ?: DEFAULT_SOCKS_PORT
-        return Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", port))
     }
 
     /** Port SOCKS courant (pour RelayClient/Repository). Voir [activeSocksPort]. */
