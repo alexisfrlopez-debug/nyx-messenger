@@ -47,7 +47,29 @@ process tor → bootstrap (progression dans la bannière de l'écran Conversatio
 | `data/db` — Room + SQLCipher (4.5.4) | **Compilé ✓** |
 | `repo/NyxRepository` — envoi/réception/signature | **Compilé ✓**, `verifySignature` branché (libsodium `cryptoSignVerifyDetached`) — à tester sur device |
 | `ui/` — onboarding (démarrage Tor), bannière Tor, liste, chat | **Compilé ✓** |
-| **Build APK** — debug 39,9 Mo / release R8 21,2 Mo | **VERT ✓ (2026-10-12)** — packaging 4 ABI vérifié |
+| **Build APK** — debug 39,9 Mo / release R8 22 Mo | **VERT ✓ (2026-10-12)** — packaging 4 ABI vérifié |
+| **Runtime device** | **Premier crash corrigé ✓ (v0.1.1)** : l'app se lance, création d'identité OK (SHA-3 via Bouncy Castle — voir ci-dessous) ; suite Tor à valider |
+
+## Correctif v0.1.1 — « SHA3-256 MessageDigest not available »
+
+**Symptôme** (premier run device, session 7) : l'app se lance, mais la création
+d'identité plante avec `SHA3-256 MessageDigest not available`.
+
+**Cause** : `OnionCodec.checksum()` utilisait `MessageDigest.getInstance("SHA3-256")`.
+Conscrypt (le provider JCA d'Android) ne fournit SHA-3 qu'à partir d'Android 14 ;
+`minSdk = 26` → crash sur Android 8 à 13, c'est-à-dire la quasi-totalité des appareils.
+
+**Correctif** : SHA-3 (FIPS 202) via **Bouncy Castle** (`bcprov-jdk18on`), calibré
+comme le serveur Go (`golang.org/x/crypto/sha3`) :
+- `SHA3Digest(256)` — le SHA-3 standardisé (padding 0x06), **PAS** `KeccakDigest`
+  (padding 0x01 historique, incompatible avec les checksums onion de Tor) ;
+- dépendance ajoutée au catalogue (`libs.bouncycastle`) — R8 ne retient que les
+  classes référencées (~1 Mo dans l'APK) ;
+- **tests unitaires JVM** (`app/src/test/…/OnionCodecTest.kt`, 4 verts) :
+  vecteurs NIST FIPS 202, vecteur onion validé contre `hashlib.sha3_256` (Python),
+  aller-retour base32, checksum invalide refusé ;
+- `scripts/audit.py` corrigé au passage : le check COH-PKG plantait sur les
+  fichiers sous `src/test/` (racines sources multiples reconnues désormais).
 
 ## TODO prioritaires (prochaine session)
 

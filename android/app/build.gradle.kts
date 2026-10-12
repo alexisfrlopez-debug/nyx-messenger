@@ -25,8 +25,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
     }
 
     signingConfigs {
@@ -105,6 +105,11 @@ dependencies {
     }
     implementation(libs.jna.android) { artifact { type = "aar" } }
 
+    // SHA-3 (FIPS 202) pour les checksums onion v3 — Conscrypt ne fournit
+    // MessageDigest("SHA3-256") qu'à partir d'Android 14 (crash
+    // « SHA3-256 MessageDigest not available » sur Android ≤ 13, cf. OnionCodec).
+    implementation(libs.bouncycastle)
+
     // Réseau : OkHttp forcé via SOCKS5 Tor (voir RelayClient)
     implementation(libs.okhttp)
 
@@ -115,4 +120,7 @@ dependencies {
 
     // Clés scellées (Keystore)
     implementation(libs.androidx.security.crypto)
+
+    // Tests unitaires JVM (pas d'émulateur requis)
+    testImplementation(libs.junit)
 }

@@ -196,12 +196,21 @@ def check_coherence(a: Audit):
     for s in used_str - defined:
         a.add(CRIT, "COH-RES", f"Ressource @string/{s} référencée mais non définie dans strings.xml")
 
-    # 4. Package Kotlin = chemin du fichier
+    # 4. Package Kotlin = chemin du fichier (relatif à SA racine source :
+    #    android/app/src/{main,test}/java — les autres .kt sont ignorés)
+    source_roots = [
+        a.root / "android/app/src/main/java",
+        a.root / "android/app/src/test/java",
+        a.root / "android/app/src/androidTest/java",
+    ]
     for f in iter_files(a.root, ".kt", skip_dirs=("build", ".git", ".gradle", "tools", "data")):
+        root_for_file = next((r for r in source_roots if f.is_relative_to(r)), None)
+        if root_for_file is None:
+            continue  # fichier hors racines sources (ex. archive, livrable)
         txt = read(f) or ""
         m = re.search(r'^package\s+([\w.]+)', txt, re.M)
         if m:
-            expected = f.parent.relative_to(a.root / "android/app/src/main/java")
+            expected = f.parent.relative_to(root_for_file)
             if str(expected).replace("/", ".") != m.group(1):
                 a.add(CRIT, "COH-PKG", f"Package {m.group(1)} ≠ chemin {expected}", f)
 

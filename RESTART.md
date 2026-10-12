@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 6).
+> Dernière mise à jour : **2026-10-12** (session 7).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.
@@ -31,7 +31,24 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 6 — 2026-10-12)
+## 3. État actuel (session 7 — 2026-10-12)
+
+### Fait ✅ (session 7)
+- **Premier run device effectué par l'utilisateur : l'app se lance ✓** — mais crash
+  à la création d'identité : `SHA3-256 MessageDigest not available`.
+- **Cause** : `OnionCodec` utilisait `MessageDigest.getInstance("SHA3-256")` —
+  Conscrypt ne fournit SHA-3 qu'à partir d'Android 14 (minSdk 26 → crash sur
+  Android 8–13). **Correctif** : Bouncy Castle `bcprov-jdk18on` (SHA3Digest FIPS
+  202, PAS Keccak — padding 0x06, comme `golang.org/x/crypto/sha3` côté Go).
+- **4 tests unitaires JVM verts** (`OnionCodecTest` : vecteurs NIST, vecteur
+  onion validé contre hashlib Python, aller-retour base32, checksum invalide
+  refusé) — nouvelle infrastructure `app/src/test/` (junit 4.13.2 au catalogue).
+- **`scripts/audit.py` corrigé** : le check COH-PKG plantait (exception interne
+  → CRIT) sur tout fichier `.kt` hors `src/main/java` ; reconnaît désormais les
+  racines `src/main|test|androidTest/java`.
+- **Cycle complet vert** : audit strict PASSED → `assembleRelease` signé → 13
+  contrôles d'autonomie OK → **APK v0.1.1 livré** (versionCode 2 ; 22 Mo,
+  SHA-256 `411cdb15…`) — installable PAR-DESSUS la v0.1.0 (même signature).
 
 ### Fait ✅ (session 6)
 - **Synchro Drive + GitHub DÉBLOQUÉE** : l'utilisateur a fourni un **dossier dédié
@@ -99,7 +116,10 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 - Runtime Tor réel (serveurs) : à faire sur machine utilisateur.
 
 ### À faire (ordre suggéré) 🔜
-1. **Android : premier run device du Tor embarqué** — l'APK signé est dans `livrables/`.
+1. **Android : run device de la v0.1.1** — installer l'APK (par-dessus v0.1.0 si
+   déjà installé), vérifier : création d'identité OK (correctif SHA-3), bootstrap
+   tor (bannière %), publication onion (logcat `nyx-tor`), connexion au réplica
+   de dev (GUIDE_DEMARRAGE.md §2 option 1 + §3).
 2. **Test 3 réplicas sur machine avec Tor** — GUIDE_DEMARRAGE.md §2 (option 1).
 3. TODO app restants (android/README.md) : persistance compteur de séquence, écran
    d'ajout de réplica, tests instrumentés.
@@ -214,6 +234,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 4 | **Demande utilisateur : « installe tout ce qu'il faut pour compiler toi-même »** → environnement Android complet installé (JDK 21 Temurin, SDK 35, build-tools 34, Gradle 8.9, wrapper committé) ; **premiers builds verts : assembleDebug 39,9 Mo + assembleRelease (R8) 21,2 Mo** ; tor-android (maven Guardian injoignable) remplacé par **tor-binary 0.4.6.5 (Maven Central)** — même architecture, binaire `libTor.so` (ADR-007 §5) ; 7 corrections de code révélées par la compilation (package lazysodium v5, MessageCipher sur API Native byte[] avec sealOpen 5 args + ordre conversions, **bug crypto : pk 32 octets pas 64**, StateFlow kotlinx, @JvmField clash setter, jna @aar + exclusion, sqlcipher 4.5.4, R8 dontwarn awt) ; packaging 4 ABI vérifié dans l'APK. Reste : runtime sur device (TODO 1). Push GitHub + Drive v0.4. |
 | 2026-10-12 | 5 | **Demande utilisateur : « audit systématique avant chaque recompilation ; APK entièrement autonomes (1 clic) ; synchro Drive+GitHub systématique ; livrables dans /livrables du Drive ; ajouter tout ça au fichier d'instructions »** → §9 instauré ; scripts/audit.py (6 catégories, strict, rapport MD) + build-apk.sh (audit bloquant → build release signé → 13 contrôles autonomie → livrables/) + sync.sh (GitHub+Drive) + gdrive.py réécrit ; premier cycle audit→corrections (singleton repository, mort : socksProxy/Replicas/rng/bloc onboarding, verifySignature branchée, bouton Copier adresse, strings, .gitignore durci) ; signature release ajoutée (keystore hors dépôt) — l'APK release n'était pas signé ; APK v0.1.0 21 Mo vérifié et livré. Environnement reconstruit (reset workspace). Synchro en attente des credentials du dossier « accès ». |
 | 2026-10-12 | 6 | **Demande utilisateur : « tu as un dossier dédié dans le drive, indique-le dans les instructions »** → dossier **« Tokens »** identifié sur le Drive (id `1IUYrT_BeGEbJWW_88QQ47Sqaba1ig8q1`) : client_secret OAuth, oauth_token_relais, compte de service, PAT GitHub. Credentials restaurés, **accès API Drive vérifié (refresh OK) et PAT GitHub validée** ; **dossier `/livrables` créé** (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`) ; ce fichier mis à jour (§3, §6, §9) ; commits session 5 poussés vers GitHub ; APK v0.1.0 + rapport d'audit + SHA256 déposés dans /livrables ; keystore + keystore.properties sauvegardés dans « Tokens » (§9.5) ; archive session 6 uploadée. Synchro Drive+GitHub pleinement opérationnelle. |
+| 2026-10-12 | 7 | **Retour utilisateur : l'app se lance mais crash à la création d'identité — « SHA3-256 MessageDigest not available »** → cause : `MessageDigest("SHA3-256")` absent d'Android ≤ 13 (Conscrypt ne fournit SHA-3 qu'à partir d'Android 14 ; minSdk 26) ; **correctif : Bouncy Castle bcprov-jdk18on (SHA3Digest FIPS 202, pas Keccak)** dans OnionCodec ; **4 tests unitaires JVM verts** (NIST + vecteur hashlib Python + aller-retour + checksum invalide) ; audit.py corrigé (COH-PKG plantait sur src/test) ; cycle complet : audit PASSED → release signée → 13 contrôles OK → **APK v0.1.1 (versionCode 2, SHA-256 411cdb15…) livré** dans /livrables ; docs à jour (android/README.md § Correctif v0.1.1). |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 

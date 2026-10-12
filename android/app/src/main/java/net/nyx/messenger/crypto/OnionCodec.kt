@@ -1,7 +1,7 @@
 package net.nyx.messenger.crypto
 
-import java.security.MessageDigest
 import java.util.Base64
+import org.bouncycastle.crypto.digests.SHA3Digest
 
 /**
  * Codage adresse onion v3 ↔ clé publique ed25519 — miroir exact de
@@ -32,11 +32,17 @@ object OnionCodec {
     }
 
     private fun checksum(pub: ByteArray): ByteArray {
-        val md = MessageDigest.getInstance("SHA3-256")
-        md.update(".onion checksum".toByteArray(Charsets.US_ASCII))
-        md.update(pub)
-        md.update(0x03.toByte())
-        return md.digest().copyOfRange(0, 2)
+        // SHA3-256 (FIPS 202) via Bouncy Castle — PAS via java.security.MessageDigest :
+        // Conscrypt ne fournit « SHA3-256 » qu'à partir d'Android 14 (crash
+        // « SHA3-256 MessageDigest not available » sur Android ≤ 13 ; minSdk 26).
+        // NB : SHA3Digest = SHA-3 standard (padding 0x06) — PAS KeccakDigest
+        // (padding 0x01 historique) : Tor utilise le SHA-3 standardisé.
+        val input = ".onion checksum".toByteArray(Charsets.US_ASCII) + pub + byteArrayOf(0x03)
+        val h = SHA3Digest(256)
+        h.update(input, 0, input.size)
+        val full = ByteArray(h.digestSize)
+        h.doFinal(full, 0)
+        return full.copyOfRange(0, 2)
     }
 
     private fun encodeBase32(bytes: ByteArray): String {
