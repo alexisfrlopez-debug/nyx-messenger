@@ -34,9 +34,17 @@ keystore.properties
 *.jks
 *.keystore
 
-# --- Outils de session (audit, rapports, livrables locaux) ---
+# --- Outils de session (audit, rapports) ---
 reports/
-livrables/
+
+# --- Livrables : STRUCTURE versionnée (session 13), BINAIRES exclus ---
+#    Miroir du Drive /livrables : archives/<v>/, documents/, dernieres-livrables/.
+#    Git porte : README + empreintes SHA-256 + rapports d'audit (texte).
+#    Les APK/ZIP voyagent par les Releases GitHub (§9.6) et le Drive (§9.4).
+livrables/**
+!livrables/**/
+!livrables/**/*.md
+!livrables/**/*.txt
 
 # --- Divers ---
 .DS_Store

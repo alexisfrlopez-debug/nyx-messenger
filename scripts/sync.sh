@@ -2,8 +2,9 @@
 # =============================================================================
 # Nyx — Synchro systématique (règle permanente, RESTART.md §9)
 #   1. Git : commit (message passé en argument ou auto) + push GitHub
-#   2. Drive : archive projet + livrables → /livrables + docs racine dossier projet
-#      « Messagerie » (ancré sur son ID — voir scripts/gdrive.py ROOT_FOLDER_ID)
+#   2. Drive : archive projet + livrables → /livrables (ARBORESCENCE miroir :
+#      archives/<v>/, documents/, dernieres-livrables/ — session 13) + docs racine
+#      dossier projet « Messagerie » (résolution par noms — scripts/gdrive.py)
 #
 # Idempotent, tolérant aux absences (credentials manquants → SKIP explicite,
 # jamais d'échec silencieux). Usage : scripts/sync.sh ["message de commit"]
@@ -41,14 +42,16 @@ fi
 # ---------- 2. Drive ----------
 echo "── Drive ──"
 if [ -d "$CREDS" ] && python3 scripts/gdrive.py --status >/dev/null 2>&1; then
-  # a) livrables → /livrables
-  if ls livrables/*.apk >/dev/null 2>&1; then
-    for f in livrables/*; do
-      [ -f "$f" ] || continue
-      python3 scripts/gdrive.py upload "$f" "livrables" >/dev/null \
-        && echo "${GRN}  ✓ Drive/livrables ← $(basename "$f")${NC}" \
-        || echo "${RED}  ✗ upload $f${NC}"
-    done
+  # a) livrables → /livrables (arborescence miroir, uploads immuables :
+  #    un livrable publié ne change jamais → skip si nom+taille identiques)
+  if [ -d livrables ]; then
+    while IFS= read -r f; do
+      rel="${f#livrables/}"
+      sub="livrables/$(dirname "$rel")"   # dirname "." → dossier racine livrables
+      python3 scripts/gdrive.py upload "$f" "$sub" --immutable >/dev/null \
+        && echo "${GRN}  ✓ Drive/$sub ← $rel${NC}" \
+        || echo "${RED}  ✗ upload $rel${NC}"
+    done < <(find livrables -type f)
   fi
   # b) docs principaux → racine du dossier projet « Messagerie » (RESTART.md, README.md…)
   for f in RESTART.md README.md GUIDE_DEMARRAGE.md; do

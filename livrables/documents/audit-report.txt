@@ -1,0 +1,16 @@
+# Audit pré-compilation Nyx — 2026-10-12T18:00:00
+
+**Verdict : ✅ AUDIT PASSED — CRIT: 0 · MAJOR: 0 · MINOR: 4**
+
+| Catégorie | Nombre | Bloquant |
+|---|---|---|
+| CRIT | 0 | toujours |
+| MAJOR | 0 | en --strict |
+| MINOR | 4 | jamais |
+
+## MINOR · OPT-TODO
+
+- TODO/FIXME build.gradle.kts:50 — // TODO v1.0 : signature reproductible (F-Droid), build deterministe — `android/app/build.gradle.kts`
+- TODO/FIXME NyxRepository.kt:33 — /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation. — `android/app/src/main/java/net/nyx/messenger/repo/NyxRepository.kt`
+- TODO/FIXME NyxRepository.kt:86 — // TODO : persister (fichier scellé) pour survivre aux redémarrages — `android/app/src/main/java/net/nyx/messenger/repo/NyxRepository.kt`
+- TODO/FIXME OnboardingScreen.kt:145 — onClick = { /* TODO: restauration par phrase secrète (v0.2) */ }, — `android/app/src/main/java/net/nyx/messenger/ui/onboarding/OnboardingScreen.kt`

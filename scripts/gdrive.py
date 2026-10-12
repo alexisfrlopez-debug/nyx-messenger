@@ -10,8 +10,12 @@ Credentials attendus dans /home/z/my-project/.credentials/ OU .credentials/token
 
 Usage :
   gdrive.py find <chemin/a/b>            → ID du dossier (créé au besoin) ; chemin racine = dossier projet « Messagerie »
-  gdrive.py upload <fichier> <chemin/>   → téléverse (remplace par nom)
-  gdrive.py list <chemin/>               → contenu
+  gdrive.py upload <fichier> <chemin/> [--immutable]
+                                         → téléverse (remplace par nom) ; avec --immutable,
+                                           saute si même nom + même taille (livrables figés)
+  gdrive.py list <chemin/>               → contenu (direct)
+  gdrive.py tree <chemin/>               → contenu récursif (dossiers puis fichiers)
+  gdrive.py move <chemin/fichier> <dossier-dest/> → déplace (addParents/removeParents, dossier dest créé au besoin)
   gdrive.py --status                     → credentials présents ? token valide ?
 """
 import json
@@ -138,14 +142,18 @@ class Drive:
                 raise SystemExit(f"Chemin introuvable : {part} dans {path}")
         return parent
 
-    def upload(self, local: Path, remote_dir: str) -> str:
-        """Téléverse local dans remote_dir (crée ou remplace un fichier du même nom)."""
+    def upload(self, local: Path, remote_dir: str, immutable: bool = False) -> str:
+        """Téléverse local dans remote_dir (crée ou remplace un fichier du même nom).
+        immutable=True : si un fichier du même nom avec la MÊME TAILLE existe déjà,
+        il est considéré identique (les livrables publiés ne changent jamais) — skip."""
         folder = self.resolve(remote_dir)
         name = local.name
         q = (f"name = '{name}' and '{folder}' in parents and trashed = false")
-        res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id)&pageSize=5")
+        res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,size)&pageSize=5")
         existing = res.get("files", [])
         if existing:
+            if immutable and str(local.stat().st_size) == str(existing[0].get("size", "")):
+                return existing[0]["id"]  # déjà présent à l'identique — pas de re-téléversement
             # Mise à jour : PATCH média seul — le multipart n'est pas supporté sur PATCH (v3).
             # Le nom/parent étant inchangés (même nom, même dossier), le contenu suffit.
             ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
@@ -160,12 +168,50 @@ class Drive:
         fid = self._req("POST", url, mp, {"Content-Type": f"multipart/related; boundary={boundary}"})["id"]
         return fid
 
+    def move(self, src_path: str, dest_dir_path: str) -> str:
+        """Déplace un fichier vers un dossier destination.
+        src_path = chemin COMPLET incluant le nom du fichier (dernier segment).
+        Le dossier destination est créé au besoin (resolve)."""
+        parts = [p for p in src_path.strip("/").split("/") if p]
+        if len(parts) < 1:
+            raise SystemExit("Chemin source vide")
+        name = parts[-1]
+        src_parent = self.resolve("/".join(parts[:-1]), create=False)
+        dest_dir = self.resolve(dest_dir_path)  # créé au besoin
+        if src_parent == dest_dir:
+            raise SystemExit(f"Source et destination identiques — rien à déplacer : {src_path}")
+        q = f"name = '{name}' and '{src_parent}' in parents and trashed = false"
+        res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,name)&pageSize=10")
+        found = res.get("files", [])
+        if len(found) != 1:
+            raise SystemExit(f"{len(found)} fichier(s) « {name} » dans le dossier source — déplacement annulé (unicité exigée)")
+        url = (f"{API}/files/{found[0]['id']}?addParents={dest_dir}&removeParents={src_parent}"
+               f"&fields=id,name,parents")
+        return self._req("PATCH", url, b"", {"Content-Type": "application/json"})["id"]
+
     def list(self, path: str):
         folder = self.resolve(path, create=False)
         q = f"'{folder}' in parents and trashed = false"
         res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,name,mimeType,size)&pageSize=100")
         for f in res.get("files", []):
             print(f"{f['id']}  {f['name']}  {f.get('size', '-')}  {f['mimeType']}")
+
+    def tree(self, path: str, prefix: str = ""):
+        """Listing récursif : dossiers d'abord, puis fichiers (noms + tailles)."""
+        folder = self.resolve(path, create=False)
+        q = f"'{folder}' in parents and trashed = false"
+        res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}"
+                               f"&fields=files(id,name,mimeType,size)&pageSize=100")
+        entries = res.get("files", [])
+        dirs = [e for e in entries if e["mimeType"] == FOLDER_MIME]
+        files = [e for e in entries if e["mimeType"] != FOLDER_MIME]
+        for e in dirs:
+            print(f"{prefix}{e['name']}/")
+            self.tree(f"{path}/{e['name']}", prefix + "  ")
+        for e in files:
+            size = int(e.get("size", 0))
+            human = f"{size / 1048576:.1f} Mo" if size >= 1048576 else f"{size} o"
+            print(f"{prefix}{e['name']}  ({human})")
 
 
 def main():
@@ -195,9 +241,15 @@ def main():
         local = Path(args[1])
         if not local.exists():
             raise SystemExit(f"Fichier introuvable : {local}")
-        print(d.upload(local, args[2]))
+        immutable = "--immutable" in args[2:]
+        rest = [a for a in args[2:] if a != "--immutable"]
+        print(d.upload(local, rest[0], immutable=immutable))
     elif cmd == "list":
         d.list(args[1])
+    elif cmd == "tree":
+        d.tree(args[1] if len(args) > 1 else "")
+    elif cmd == "move":
+        print(d.move(args[1], args[2]))
     else:
         raise SystemExit(__doc__)
 

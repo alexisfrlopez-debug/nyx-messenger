@@ -9,7 +9,7 @@
 #
 # Usage :
 #   scripts/release.sh --version 0.1.1 \
-#     [--apk livrables/nyx-v0.1.1-…-release.apk] [--commit <sha>]
+#     [--apk livrables/dernieres-livrables/nyx-v0.1.1-…-release.apk] [--commit <sha>]
 #     [--title "…"] [--notes-file docs/releases/v0.1.1.md] [--prerelease]
 #
 # Notes de version : par convention `docs/releases/v<version>.md` (versionnées

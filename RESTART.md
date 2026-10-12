@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 10).
+> Dernière mise à jour : **2026-10-12** (session 13).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.
@@ -33,10 +33,35 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 9 | Modération & biométrie | **AUCUNE collecte d'identité réelle (jamais cachée/non consentie)** ; modération protocolaire transparente (signalements, blocklists, PoW) ; **biométrie = déverrouillage LOCAL opt-in** (BiometricPrompt client, Windows Hello admin) — aucune donnée biométrique ne quitte le device | ADR-010 |
 | 10 | Console admin (révision) | **Code/spec admin = dépôt PRIVÉ `nyx-admin`** ; **livrables = Drive privé `/livrables`** (zip Windows autonome + APK signé) — AUCUNE release GitHub pour l'admin ; le public n'a ni code, ni spec, ni binaires admin | ADR-008 (rév. session 11) |
 | 11 | API admin serveur + profil + licence | **`/admin/*` implémentée dans nyx-server** (2 barrières : onion dédié 9091 + signature canonique `nyx-admin-v1` + nonce anti-replay ; checkpoints RFC 6962 ; défaut sûr sans clé) ; **type `profile`** (wire-format §7 : visibilité PAR CHAMP, privé = local uniquement, invariant serveur anti-fuite) ; **licence AGPL-3.0-only** (ADR-011) | ADR-011, APPLI_ADMIN.md §8 (privé) |
+| 12 | Rangement des livrables | **`/livrables` en 3 zones (miroir Drive ↔ git public)** : `dernieres-livrables/` (jeu courant) · `archives/v<version>/` (versions remplacées, immuables) · `documents/` (rapports d'audit) ; binaires HORS git (Releases GitHub §9.6) — git porte structure + empreintes + rapports ; archivage automatique par `build-apk.sh`, propagation par `sync.sh` | §9.4 (rév. session 13) |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 12 — 2026-10-12)
+## 3. État actuel (session 13 — 2026-10-12)
+
+### Fait ✅ (session 13)
+- **Rangement du dossier `/livrables` (Drive) + miroir sur GitHub** (demande
+  utilisateur : « un sous-dossier pour ranger tous les dossiers archives, un
+  pour stocker les documents et un pour déposer les dernières livrables —
+  propage le rangement sur github ») :
+  - `dernieres-livrables/` — jeu COURANT : APK v0.2.0 + SHA256SUMS (v0.2.0 +
+    latest) + console admin v0.1.0 (APK + zip Windows + SHA256SUMS) ;
+  - `archives/v0.1.0|v0.1.1|v0.1.2/` — APK + empreintes par version (immuables) ;
+  - `documents/` — rapports d'audit (client + admin).
+- **Drive** : 14 fichiers déplacés (nouveau `gdrive.py move`), arborescence
+  vérifiée par `tree` ; IDs des 3 sous-dossiers consignés au privé (ops/INFRA.md).
+- **Dépôt public** : `livrables/` versionné SÉLECTIVEMENT — `.gitignore` porte
+  la structure (`*.md`/`*.txt` : README, empreintes, rapports) et exclut les
+  binaires (Releases GitHub = canal des binaires, §9.6) ; `livrables/README.md`
+  documente l'organisation et où trouver chaque livrable.
+- **Pipeline adapté au rangement** : `build-apk.sh` livre dans
+  `dernieres-livrables/` et ARCHIVE AUTOMATIQUEMENT la version remplacée dans
+  `archives/v<version>/` (rapport d'audit → `documents/`) ; `sync.sh` upload
+  récursif miroir (uploads immuables : nom + taille identiques → skip) ;
+  `gdrive.py` : +`move`, +`tree`, +`upload --immutable` ; `release.sh` à jour.
+- **Décision 12** + §9.3/§9.4 révisés + entrée 12 remise dans le tableau du
+  journal (elle était appendue en fin de fichier) ; audits public et privé
+  PASSED ; push public + privé ; synchro Drive complète.
 
 ### Fait ✅ (session 12)
 - **API admin `/admin/*` côté nyx-server (TODO 3 réalisé)** : package
@@ -329,7 +354,8 @@ scripts/release.sh --version 0.1.1 [--commit <sha>] [--prerelease] [--title "…
    - **AUCUNE recompilation sans pipeline** : `scripts/build-apk.sh` (audit → build → vérif autonomie → livrables) ;
    - **AUCUN APK non autonome** : Tor embarqué, signé release, universel, zéro service tiers (§9.2) ;
    - **SYNCHRO SYSTÉMATIQUE en fin de session** : `scripts/sync.sh` (GitHub + Drive, §9.3) ;
-   - **LIVRABLES dans `livrables/` (local) et /livrables (Drive)** (§9.4) ;
+   - **LIVRABLES rangés en 3 zones** (`dernieres-livrables/`, `archives/v<version>/`, `documents/`)
+  dans `livrables/` (local) et `/livrables` (Drive) — miroir git↔Drive (§9.4) ;
    - aucun secret dans le dépôt (identités, clés, tokens) — `.gitignore` calibré §9.5 ;
    - terminer la session en mettant à jour ce fichier (§3 État + §8 Journal).
 
@@ -351,7 +377,7 @@ scripts/release.sh --version 0.1.1 [--commit <sha>] [--prerelease] [--title "…
 |---|---|
 | Dossier Drive projet | « **Messagerie** » (racine du Drive utilisateur — résolution par NOM ; contenu : RESTART.md, GUIDE_DEMARRAGE.md, README.md, archive tar.gz) |
 | **Dossier dédié « Tokens » (credentials)** | sous-dossier « **Tokens** » de « Messagerie » — contenu : OAuth client · oauth_token_relais (refresh Drive, cycle ~7 j → ré-autorisation à prévoir) · compte de service · `token_git.txt` (PAT GitHub fine-grained) · `nyx-release.jks` + `keystore.properties` (keystore release — règle §9.5) |
-| Dossier Drive `/livrables` | sous-dossier « **livrables** » de « Messagerie » — APK signés + rapports d'audit + empreintes SHA-256 (règle §9.4) ⚠️ 4 dossiers « livrables » homonymes existent ailleurs dans ce Drive (autres projets) : toujours descendre depuis « Messagerie », JAMAIS depuis la racine |
+| Dossier Drive `/livrables` | sous-dossier « **livrables** » de « Messagerie » — **3 zones** (session 13) : `dernieres-livrables/` (jeu courant) · `archives/v<version>/` (versions remplacées) · `documents/` (audits) — règle §9.4 ⚠️ 4 dossiers « livrables » homonymes existent ailleurs dans ce Drive (autres projets) : toujours descendre depuis « Messagerie », JAMAIS depuis la racine |
 | Module de synchro Drive | `scripts/gdrive.py` (versionné, stdlib only, **aucun ID en dur** — résolution par noms depuis « Messagerie ») ; credentials dans `.credentials/` du workspace (JAMAIS dans le dépôt) |
 | GitHub — dépôt public | `github.com/alexisfrlopez-debug/nyx-messenger` (code, docs génériques, releases) — `token_git.txt` = PAT fine-grained du compte `alexisfrlopez-debug` |
 | GitHub — **dépôt privé** | `alexisfrlopez-debug/nyx-admin` — **spec console admin + ops/INFRA.md (IDs, credentials, restauration complète) + futur code console** — JAMAIS de contenu de ce dépôt vers le public |
@@ -398,6 +424,8 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 9 | **Cadrage opérateur : biométrie + modération** → ADR-010 : rejet de la collecte d'identité réelle cachée/non consentie (architecture sans compte + RGPD art. 9/13 + pénal) — la modération se fera par mécanismes protocolaires TRANSPARENTS (signalements signés, blocklists de réplicas, orphanage, PoW) ; **biométrie acceptée en déverrouillage LOCAL opt-in** (BiometricPrompt client / Windows Hello admin, aucune donnée biométrique transmise — l'OS vérifie) ; verrou technique AUT-PERM (CAMERA/MICRO bloqués) rappelé. Biométrie client planifiée pour v0.1.2. |
 | 2026-10-12 | 10 | **Demande utilisateur : « périmètre tout » + alias unique pour invitations + admin non public + zéro info perso sur le git public** → **v0.1.2 livrée** : verrou biométrique opt-in (BiometricPrompt/FragmentActivity/AppLock — ADR-010, zéro donnée biométrique) + alias unique (spec filaire §6 d'abord, serveur Go + index min-id convergent + GET /client/alias, client onboarding avec suggestions, claim différé auto) ; tests : 2 Go + 4 Kotlin verts ; **dépôt privé `nyx-admin` créé** (spec admin + ops/INFRA.md déplacés du public) ; **IDs Drive/GCP purgés du public** (RESTART.md + gdrive.py → résolution par noms z.ai/Messagerie testée) ; commits déjà anonymes (pas de réécriture) ; règle permanente **§9.7** (hygiène publique). |
 | 2026-10-12 | 11 | **Demande utilisateur : « l'application d'administration serveur compilée pour windows et android et déposée dans le dossier livrables du drive »** → **console nyx-admin v0.1.0 livrée** : dépôt privé (`:core` admin-core — client API `/admin/*` signé ed25519, chaîne canonique `nyx-admin-v1` figée, client-auth Tor `.auth_private` ; `:desktop` Compose Desktop ; `:android` APK `net.nyx.admin` Tor embarqué + verrou biométrique opt-in) ; pipeline dédié (audit.py miroir §9.1 → build-apk.sh → build-windows.sh) ; **livrables Drive `/livrables`** : APK 16 Mo signé (SHA c65dfc9d…) + zip Windows 103 Mo 100 % autonome (fat jar + Java 21 jlinké + tor 15.0.24, SHA 5704c7f0…) + SHA256SUMS + audit ; **ADR-008 révisé** (admin hors public, distribution Drive) ; spec/notes à jour ; API `/admin/*` serveur = TODO 3 (console opérationnelle dès déploiement). Corrections : Gradle mémoire bornée (OOM 4,1 Go), contrôles unzip via fichiers temporaires (SIGPIPE/pipefail). |
+| 2026-10-12 | 12 | **Demande utilisateur : « implémente l'API admin + contact par alias + partage adresse onion + menu paramètres + édition de profil (avatar, visibilité par champ) + dialogue fermeture (réduire vs tuer proprement) + définis la licence »** → **API admin serveur complète** (adminapi : 2 barrières, anti-replay, 12 endpoints, checkpoints RFC 6962 signés, audit JSONL, onion dédié 9091, défaut sûr) + **type `profile` v1.2** (spec §7 d'abord ; invariant anti-fuite serveur ; index dernier-gagne ; GET /client/profile) + **client v0.2.0** (profil par champ avec avatar, contact par alias, Mon adresse partageable, Paramètres thème/fermeture, dialogue réduire vs quitter proprement) + **AGPL-3.0-only** (ADR-011, LICENSE public+privé, contrôle COH-LIC) ; audit strict 0/0/4, 4 paquets Go + 12 tests JVM verts, APK v0.2.0 signé (SHA ea020098…), release GitHub v0.2.0, sync Drive+GitHub, APPLI_ADMIN.md §8 mis à jour (API livrée). |
+| 2026-10-12 | 13 | **Demande utilisateur : « dans le drive, dossier /livrables, classer le contenu : un sous-dossier pour ranger tous les dossiers archives, un pour stocker les documents et un pour déposer les dernières livrables — propage le rangement sur github »** → **Drive** : `/livrables` structuré en 3 zones — `archives/v0.1.0·v0.1.1·v0.1.2/` (APK+empreintes par version, immuables), `documents/` (rapports d'audit client+admin), `dernieres-livrables/` (jeu courant : APK v0.2.0, console admin v0.1.0 APK+zip, SHA256SUMS) — 14 fichiers déplacés via le nouveau `gdrive.py move`, arborescence vérifiée par `tree` ; **dépôt public** : miroir versionné SÉLECTIF (livrables/README.md + SHA256SUMS + audit-report.txt ; `.gitignore` porte la structure `*.md`/`*.txt`, exclut les binaires — Releases GitHub = canal des binaires) ; **pipeline adapté** : build-apk.sh livre dans `dernieres-livrables/` + ARCHIVAGE AUTO de la version remplacée + rapport d'audit vers `documents/`, sync.sh upload récursif miroir (uploads immuables nom+taille → skip), gdrive.py +`move`/`tree`/`upload --immutable`, release.sh à jour ; décision 12 + §9.3/§9.4 révisés + entrée 12 remise dans le tableau du journal ; IDs des 3 sous-dossiers consignés au privé (ops/INFRA.md) ; audit.py privé CORRIGÉ (binaires skippés — faux positif e-mail sur gradle-wrapper.jar ; mot de passe keystore : seuls les littéraux en dur sont flaggés, la lecture getProperty du git-ignoré keystore.properties est la bonne pratique §9.5) ; audits public et privé PASSED ; push public + privé ; synchro Drive complète. |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 
@@ -456,22 +484,41 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   `/home/z/my-project/.credentials/` (restaurés du **dossier dédié « Tokens »**, §6 ;
   refresh ~7 j → ré-autorisation utilisateur si expiré). Uploads :
   `RESTART.md` + `README.md` + `GUIDE_DEMARRAGE.md` (racine du dossier projet
-  « Messagerie »), archive source tar.gz de l'état de session, et tous les livrables
-  dans `/livrables` (référence exacte : dépôt privé `nyx-admin`, `ops/INFRA.md`).
+  « Messagerie »), archive source tar.gz de l'état de session, et l'arborescence complète
+  de `livrables/` — miroir 3 zones (archives/documents/dernieres-livrables),
+  uploads immuables (référence exacte : dépôt privé `nyx-admin`, `ops/INFRA.md`).
 - Si les credentials manquent : **SKIP explicite** (jamais d'échec silencieux) et
   consigner ce qui reste en attente de synchro.
 - À la reprise d'un workspace vierge : tout restaurer depuis le dépôt GitHub (public)
   + le dossier Drive projet « Messagerie » (docs + archive) + le dossier dédié
   **« Tokens »** (credentials + keystore) — procédure §6.
 
-### 9.4 Livrables dans /livrables
+### 9.4 Livrables dans /livrables — 3 zones (rév. session 13)
 
-- Local : `livrables/` à la racine du dépôt (git-ignoré) — dépôt de sortie du pipeline.
-- Drive : dossier **`/livrables`** à la racine du dossier projet « Messagerie »
-  (créé session 6 ; `sync.sh` y dépose au besoin ; référence exacte : dépôt
-  privé `nyx-admin`, `ops/INFRA.md`). Chaque APK y est accompagné de son rapport
-  d'audit (`audit-report.txt`) et des empreintes (`SHA256SUMS-latest.txt`).
-- Nommage : `nyx-v<versionName>-<AAAAMMJJ-HHMMSS>-release.apk`.
+> Demande utilisateur (session 13) : « un sous-dossier pour ranger tous les
+> dossiers archives, un pour stocker les documents et un pour déposer les
+> dernières livrables » — appliqué au Drive ET propagé sur GitHub (miroir).
+
+- **Structure en 3 zones, MIROIR Drive ↔ dépôt public** :
+  - `dernieres-livrables/` — jeu de livraison COURANT : dernière APK client +
+    `SHA256SUMS-latest.txt` + `SHA256SUMS-v<version>.txt` ; sur le Drive
+    s'ajoutent les livrables admin (APK + zip Windows + SHA256SUMS, §9.7) ;
+  - `archives/v<version>/` — versions REMPLACÉES, immuables (APK + empreintes
+    sur le Drive ; empreintes seules dans le git public) ;
+  - `documents/` — rapports d'audit (`audit-report.txt` client ;
+    `nyx-admin-audit-report.txt` sur le Drive) et documents joints.
+- **Git public** : `livrables/` versionné SÉLECTIVEMENT — `.gitignore` accepte
+  la structure (`*.md`/`*.txt` : README, empreintes, rapports) et exclut les
+  binaires (`*.apk`/`*.zip`) ; les binaires voyagent par les Releases GitHub
+  (§9.6) et le Drive. `livrables/README.md` documente l'organisation.
+- **Drive** : dossier **`/livrables`** (« Messagerie » ; référence exacte :
+  dépôt privé `nyx-admin`, `ops/INFRA.md`) — même arborescence ; `sync.sh`
+  propage par upload récursif IMMUABLE (nom + taille identiques → skip).
+- **Archivage automatique** : à chaque build, `build-apk.sh` déplace la version
+  remplacée de `dernieres-livrables/` vers `archives/v<version>/` AVANT de
+  déposer la nouvelle ; console admin (dépôt privé) : rangement manuel, même
+  convention.
+- Nommage : `nyx-v<versionName>-<AAAAMMJJ-HHMMSS>-release.apk` (inchangé).
 
 ### 9.5 Hygiène permanente (rappel durci)
 
@@ -529,4 +576,3 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   créer dans `/home/z/my-project/nyx-admin/` (clone du privé) ou hors dépôt.
 - L'audit §9.1 (SEC-*) complète cette règle : aucun secret dans le dépôt public ;
   `docs/APPLI_ADMIN.md` et tout doc d'endpoints privilégiés vivent au privé.
-| 2026-10-12 | 12 | **Demande utilisateur : « implémente l'API admin + contact par alias + partage adresse onion + menu paramètres + édition de profil (avatar, visibilité par champ) + dialogue fermeture (réduire vs tuer proprement) + définis la licence »** → **API admin serveur complète** (adminapi : 2 barrières, anti-replay, 12 endpoints, checkpoints RFC 6962 signés, audit JSONL, onion dédié 9091, défaut sûr) + **type `profile` v1.2** (spec §7 d'abord ; invariant anti-fuite serveur ; index dernier-gagne ; GET /client/profile) + **client v0.2.0** (profil par champ avec avatar, contact par alias, Mon adresse partageable, Paramètres thème/fermeture, dialogue réduire vs quitter proprement) + **AGPL-3.0-only** (ADR-011, LICENSE public+privé, contrôle COH-LIC) ; audit strict 0/0/4, 4 paquets Go + 12 tests JVM verts, APK v0.2.0 signé (SHA ea020098…), release GitHub v0.2.0, sync Drive+GitHub, APPLI_ADMIN.md §8 mis à jour (API livrée). |

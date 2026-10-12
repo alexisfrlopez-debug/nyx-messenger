@@ -6,7 +6,9 @@
 #   2. Build release signé (universal APK, 4 ABI, Tor embarqué)
 #   3. Vérification d'autonomie de l'APK (signature, Tor embarqué, ABIs,
 #      permissions, absence de splits) — CRIT si un manquement
-#   4. Livraison : livrables/ (local) → sync.sh pousse vers Drive /livrables
+#   4. Livraison : livrables/dernieres-livrables/ (local) — l'ancienne version
+#      est archivée dans livrables/archives/v<version>/ ; sync.sh pousse le même
+#      rangement vers le Drive /livrables (miroir, §9.4)
 #
 # Usage : scripts/build-apk.sh [--skip-audit]   (--skip-audit : interdit en règle générale)
 # =============================================================================
@@ -16,8 +18,10 @@ ROOT="$PWD"
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YLW=$'\033[33m'; NC=$'\033[0m'
 STAMP=$(date +%Y%m%d-%H%M%S)
-LIVRABLES="$ROOT/livrables"
-mkdir -p "$LIVRABLES"
+LIVRABLES="$ROOT/livrables/dernieres-livrables"
+ARCHIVES="$ROOT/livrables/archives"
+DOCS="$ROOT/livrables/documents"
+mkdir -p "$LIVRABLES" "$ARCHIVES" "$DOCS"
 
 # ---------- environnement ----------
 export JAVA_HOME="${JAVA_HOME:-/home/z/my-project/tools/jdk-21.0.12.1+1}"
@@ -114,12 +118,31 @@ echo "${GRN}Autonomie : vérifiée (Tor embarqué, signé, universel, zéro dép
 echo "${YLW}═══ 4/4 LIVRAISON ═══${NC}"
 VERSION="$VER"
 NAME="nyx-v${VERSION}-${STAMP}-release.apk"
+
+# a) archivage de la version précédente (rangement session 13 : une version
+#    remplacée quitte dernieres-livrables/ pour archives/v<version>/)
+shopt -s nullglob
+for old_apk in "$LIVRABLES"/nyx-v*-release.apk; do
+  case "$(basename "$old_apk")" in
+    "nyx-v${VERSION}-"*) continue ;;  # même version → remplacement, pas archivage
+  esac
+  oldver=$(basename "$old_apk" | sed -E 's/^nyx-v([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
+  mkdir -p "$ARCHIVES/v${oldver}"
+  mv -f "$old_apk" "$ARCHIVES/v${oldver}/"
+  [ -f "$LIVRABLES/SHA256SUMS-v${oldver}.txt" ] \
+    && mv -f "$LIVRABLES/SHA256SUMS-v${oldver}.txt" "$ARCHIVES/v${oldver}/"
+  echo "  ↷ v${oldver} archivée → livrables/archives/v${oldver}/"
+done
+shopt -u nullglob
+
+# b) dépôt du nouveau livrable
 cp "$APK_SRC" "$LIVRABLES/$NAME"
 SHA=$(sha256sum "$LIVRABLES/$NAME" | cut -d' ' -f1)
 echo "$SHA  $NAME" > "$LIVRABLES/SHA256SUMS-latest.txt"
-# rapport d'audit de ce cycle joint au livrable
+echo "$SHA  $NAME" > "$LIVRABLES/SHA256SUMS-v${VERSION}.txt"
+# rapport d'audit de ce cycle joint → livrables/documents/
 LAST_REPORT=$(ls -t reports/audit-*.md 2>/dev/null | head -1 || true)
-[ -n "$LAST_REPORT" ] && cp "$LAST_REPORT" "$LIVRABLES/audit-report.txt"
+[ -n "$LAST_REPORT" ] && cp "$LAST_REPORT" "$DOCS/audit-report.txt"
 
 cat << EOF
 
@@ -128,6 +151,6 @@ ${GRN}✅ LIVRABLE PRODUIT${NC}
   APK      : $LIVRABLES/$NAME
   Taille   : $(du -h "$LIVRABLES/$NAME" | cut -f1)
   SHA-256  : $SHA
-  Suivant  : scripts/sync.sh  (GitHub + Drive /livrables)
+  Suivant  : scripts/sync.sh  (GitHub + Drive /livrables — miroir du rangement)
 ${GRN}════════════════════════════════════════════════${NC}
 EOF
