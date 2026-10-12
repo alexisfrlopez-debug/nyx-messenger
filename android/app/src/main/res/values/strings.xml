@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nyx</string>
+    <string name="onboarding_title">Bienvenue sur Nyx</string>
+    <string name="onboarding_intro">Messagerie anonyme et chiffrée, entièrement passant par le réseau Tor. Votre identité est une adresse onion générée sur cet appareil : aucune inscription, aucune donnée personnelle.</string>
+    <string name="onboarding_warning">Important : votre identité vit dans une clé secrète stockée sur cet appareil. Si vous perdez l\'appareil sans sauvegarde, votre compte est perdu définitivement.</string>
+    <string name="onboarding_create">Créer mon identité</string>
+    <string name="onboarding_creating">Génération des clés et publication du service onion…</string>
+    <string name="your_onion">Votre adresse Nyx</string>
+    <string name="copy">Copier</string>
+    <string name="copied">Adresse copiée</string>
+    <string name="conversations">Conversations</string>
+    <string name="add_contact">Ajouter un contact</string>
+    <string name="add_contact_hint">Adresse onion du contact (56 caractères…)</string>
+    <string name="add">Ajouter</string>
+    <string name="message_hint">Message…</string>
+    <string name="send">Envoyer</string>
+    <string name="tor_offline">Tor hors ligne — démarrez Orbot</string>
+    <string name="tor_online">Tor actif</string>
+    <string name="sending">Envoi via Tor…</string>
+    <string name="sent">Envoyé</string>
+    <string name="failed">Échec (réessaie)</string>
+</resources>

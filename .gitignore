@@ -1,0 +1,37 @@
+# Nyx — .gitignore
+
+# --- Serveur Go ---
+server/nyx-server
+server/data/
+server/*.json
+!server/config.example.json
+*.log
+
+# --- Tor (fichiers locaux) ---
+*.onion.key
+tor_data/
+
+# --- Android / Gradle ---
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+android/.idea/
+android/*.iml
+android/captures/
+android/.kotlin/
+
+# --- Identités et clés (NE JAMAIS COMMITTER) ---
+*.identity.json
+*identity*.json
+!docs/examples/*.identity.json.example
+*.pem
+*.key
+credentials/
+
+# --- Divers ---
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+__pycache__/

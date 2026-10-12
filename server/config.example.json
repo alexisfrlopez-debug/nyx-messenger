@@ -1,0 +1,13 @@
+{
+  "_commentaire": "Configuration du nœud Nyx. Copier vers <data-dir>/config.json. Les pairs sont des réplicas : onion = adresse v3, gossip_pub = clé X25519 du canal de réplication (GET /identity sur ce pair).",
+  "data_dir": "./data",
+  "http_port": 8080,
+  "control_port": 9051,
+  "socks_port": 9050,
+  "peers": [
+    {
+      "onion": "exemple56caracteresbase32xxxxxxxxxxxxxxxxxxxxxxxxxx.onion",
+      "gossip_pub": "BASE64_DE_LA_CLE_X25519_DU_PAIR"
+    }
+  ]
+}
