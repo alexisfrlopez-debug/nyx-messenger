@@ -3,9 +3,8 @@ package net.nyx.messenger.di
 import android.content.Context
 import android.util.Base64
 import androidx.room.Room
-import com.goterl.lazycode.lazysodium.LazySodiumAndroid
-import com.sun.jna.Native
-import com.sun.jna.Pointer
+import com.goterl.lazysodium.LazySodiumAndroid
+import com.goterl.lazysodium.SodiumAndroid
 import net.nyx.messenger.crypto.IdentityManager
 import net.nyx.messenger.crypto.MessageCipher
 import net.nyx.messenger.data.db.NyxDatabase
@@ -35,7 +34,7 @@ object ServiceLocator {
         synchronized(this) {
             if (initialized) return
 
-            sodium = LazySodiumAndroid(Native.load("sodium", Pointer::class.java))
+            sodium = LazySodiumAndroid(SodiumAndroid())
             cipher = MessageCipher(sodium)
             identity = IdentityManager.get(context)
 

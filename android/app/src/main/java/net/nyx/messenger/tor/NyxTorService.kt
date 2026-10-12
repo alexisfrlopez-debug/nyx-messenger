@@ -18,9 +18,9 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Service au premier plan hébergeant le démon Tor embarqué (ADR-007).
  *
- * Il exécute le binaire `libtor.so` fourni par tor-android (extrait dans
- * nativeLibraryDir grâce à useLegacyPackaging) avec le torrc généré par
- * [NyxTorConfig], et draine la sortie du process vers tor.log.
+ * Il exécute le binaire tor embarqué (`libTor.so` fourni par tor-binary,
+ * extrait dans nativeLibraryDir grâce à useLegacyPackaging) avec le torrc
+ * généré par [NyxTorConfig], et draine la sortie du process vers tor.log.
  *
  * Invariant : si le service meurt, tor meurt avec lui (process enfant +
  * __OwningControllerProcess). Aucun trafic Nyx ne circule hors de ce démon.
@@ -46,11 +46,12 @@ class NyxTorService : Service() {
         }
 
         val config = NyxTorConfig.create(this)
-        val binary = File(applicationInfo.nativeLibraryDir, TOR_BINARY)
-        if (!binary.exists() || !binary.canExecute()) {
+        val binary = resolveTorBinary()
+        if (binary == null) {
             TorManager.get(this).reportFailure(
-                "binaire tor absent ou non exécutable : ${binary.absolutePath} " +
-                    "(vérifier useLegacyPackaging — ADR-007)"
+                "binaire tor introuvable ou non exécutable dans " +
+                    "${applicationInfo.nativeLibraryDir} (attendu libTor.so/libtor.so — " +
+                    "vérifier useLegacyPackaging — ADR-007)"
             )
             stopSelf()
             return START_NOT_STICKY
@@ -102,6 +103,15 @@ class NyxTorService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Premier binaire tor exécutable trouvé dans nativeLibraryDir (l'extraction
+     * sur disque est garantie par useLegacyPackaging — ADR-007), ou null si absent.
+     */
+    private fun resolveTorBinary(): File? =
+        TOR_BINARY_CANDIDATES
+            .map { File(applicationInfo.nativeLibraryDir, it) }
+            .firstOrNull { it.exists() && it.canExecute() }
+
     private fun createChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID, "Tor embarqué", NotificationManager.IMPORTANCE_LOW
@@ -124,8 +134,12 @@ class NyxTorService : Service() {
         private const val CHANNEL_ID = "nyx_tor"
         private const val NOTIFICATION_ID = 0x4e59 // 'NY'
 
-        /** Nom du binaire tor fourni par tor-android (exécutable, par ABI). */
-        const val TOR_BINARY = "libtor.so"
+        /**
+         * Noms possibles du binaire tor embarqué selon la source :
+         * - topl tor-binary → libTor.so (majuscule)
+         * - org.torproject.jni:tor-android → libtor.so (repli possible)
+         */
+        private val TOR_BINARY_CANDIDATES = listOf("libTor.so", "libtor.so")
 
         private val RUNNING_PROCESS = AtomicReference<Process?>(null)
 

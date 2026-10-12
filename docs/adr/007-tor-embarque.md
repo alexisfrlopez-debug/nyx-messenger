@@ -13,9 +13,10 @@ L'application Android embarque **son propre démon Tor** : plus aucune dépendan
 Orbot (ni à toute autre application externe). Nyx est autonome au sens complet :
 
 1. **démon Tor in-process** — un service au premier plan (`NyxTorService`) lance le
-   binaire tor fourni par la bibliothèque **tor-android** (Guardian Project, la même
-   qu'utilise Orbot) avec un **torrc généré par l'application** (ports choisis au
-   lancement, cookie d'authentification, répertoire de données privé) ;
+   binaire tor fourni par la bibliothèque **tor-binary** (`io.matthewnelson.topl-android`,
+   Maven Central — voir §5 pour le changement de source) avec un **torrc généré par
+   l'application** (ports choisis au lancement, cookie d'authentification, répertoire
+   de données privé) ;
 2. **publication de son propre onion service** — dès que Tor a bootstrappé, l'app
    publie le service onion v3 de l'utilisateur via le control port
    (`ADD_ONION ED25519-V3:<clé>`) : **l'identité de l'utilisateur devient une adresse
@@ -25,9 +26,10 @@ Orbot (ni à toute autre application externe). Nyx est autonome au sens complet 
 
 ## 2. Choix technique : exécution directe plutôt que TorService
 
-tor-android fournit à la fois le binaire (`libtor.so`, exécutable, par ABI) et un
-`TorService` prêt à l'emploi. **Nous utilisons uniquement le binaire**, exécuté par
-NOTRE service au premier plan avec NOTRE torrc :
+La bibliothèque de packaging du binaire fournit à la fois le tor exécutable
+(`libTor.so`, par ABI) et — pour tor-android — un `TorService` prêt à l'emploi.
+**Nous utilisons uniquement le binaire**, exécuté par NOTRE service au premier plan
+avec NOTRE torrc :
 
 | Critère | Exécution directe (retenu) | TorService (bibliothèque) |
 |---|---|---|
@@ -57,12 +59,15 @@ Android 13+ (POST_NOTIFICATIONS) et 14+ (foregroundServiceType).
 - **Orbot n'est plus requis** ; il reste utilisable en mode « repli censure »
   (réseaux bloquant les nœuds d'entrée directs : Orbot + ponts obfs4/snowflake).
   Cette variante est documentée mais hors périmètre v0.2 — IPtProxy ne servira
-  qu'à embarquer les transports pluggables, pas tor (choix abandonné : tor-android
-  est la source du démon).
-- **Coût** : APK ~10-15 Mo de plus (libtor.so par ABI) ; RAM ~30-60 Mo quand Tor
-  tourne. Accepté : l'autonomie est une exigence de premier ordre.
-- **Tests** : premier build + validation bootstrap à faire sur device (pas de SDK
-  Android dans l'environnement de développement — voir RESTART.md §7).
+  qu'à embarquer les transports pluggables, pas tor (choix abandonné : le binaire
+  embarqué est la source du démon — cf. §5).
+- **Coût** : mesuré au build réel (2026-10-12) — APK release R8 = 21,2 Mo, debug =
+  39,9 Mo (libTor.so ≈ 6,6 Mo par ABI) ; RAM ~30-60 Mo quand Tor tourne. Accepté :
+  l'autonomie est une exigence de premier ordre.
+- **Build** : `assembleDebug` et `assembleRelease` **vérifiés verts** dans
+  l'environnement de développement (SDK 35, JDK 21, Gradle 8.9, wrapper committé).
+  La validation runtime (bootstrap, publication onion) reste à faire sur device —
+  voir RESTART.md §7.
 
 ## 4. Ce qui change côté code
 
@@ -75,3 +80,29 @@ Android 13+ (POST_NOTIFICATIONS) et 14+ (foregroundServiceType).
 | `tor/OnionServiceManager` | stub Orbot | implémentation réelle via `ADD_ONION` (clé = identité) |
 | `net/RelayClient` | SOCKS 9050 fixe | SOCKS sur le port annoncé par TorManager |
 | Orbot | prérequis absolu | non requis (repli censure, plus tard) |
+
+## 5. Amendement (2026-10-12) — source du binaire tor + build réel
+
+Premier build complet réalisé dans l'environnement de développement. Deux
+découvertes ont imposé des ajustements, **sans changer l'architecture** (le binaire
+est toujours exécuté directement par `NyxTorService` avec notre torrc) :
+
+1. **Source du binaire : `tor-binary` au lieu de `org.torproject.jni:tor-android`.**
+   Le dépôt Maven du Guardian Project (`maven.guardianproject.net`) est injoignable
+   depuis certains environnements réseau/CI (DNS filtré), et tor-android n'a ni
+   release GitHub ni présence sur Maven Central. La bibliothèque
+   `io.matthewnelson.topl-android:tor-binary:0.4.6.5` (TorOnionProxyLibrary,
+   Maven Central) embarque le même artefact : un **exécutable tor PIE** (ELF DYN avec
+   PT_INTERP, vérifié) par ABI sous le nom **`libTor.so`** (T majuscule), extrait dans
+   `nativeLibraryDir` via `useLegacyPackaging`. `NyxTorService.resolveTorBinary()`
+   cherche `libTor.so` puis `libtor.so` (retour possible à tor-android sans
+   réécriture). Version tor 0.4.6.5 : toutes les primitives utilisées (control port,
+   cookie, `ADD_ONION ED25519-V3`, `__OwningControllerProcess`) y sont présentes.
+2. **Dépendances calées sur les versions réellement publiées** : sqlcipher
+   `4.5.4` (la 4.5.6 n'existe pas sous l'artefact `net.zetetic:android-database-sqlcipher`),
+   JNA forcé en **artefact `@aar`** avec exclusion du jar desktop transitif de
+   lazysodium-android (sinon `checkDuplicateClasses` échoue), R8 calmé sur les
+   branches desktop `java.awt` de JNA (`-dontwarn`, cf. `proguard-rules.pro`).
+
+Résultats : `assembleDebug` 39,9 Mo / `assembleRelease` (R8) 21,2 Mo, `libTor.so`,
+`libsodium.so`, `libsqlcipher.so`, `libjnidispatch.so` présents par ABI dans l'APK.

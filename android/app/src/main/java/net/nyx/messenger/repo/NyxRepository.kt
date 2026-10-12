@@ -31,7 +31,9 @@ class NyxRepository(
     private val contactDao: ContactDao,
     private val pollStateDao: PollStateDao,
 ) {
-    /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation. */
+    /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation.
+     *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
+    @JvmField
     var replicas: List<String> = emptyList()
     private var client: RelayClient? = null
 

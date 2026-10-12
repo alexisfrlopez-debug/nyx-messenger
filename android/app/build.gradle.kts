@@ -73,15 +73,21 @@ dependencies {
     implementation(libs.androidx.sqlite)
 
     // Crypto : libsodium (sealed box, conversions ed25519↔curve25519)
-    implementation(libs.lazysodium.android)
-    implementation(libs.jna.android)
+    // NB : JNA doit être l'artefact .aar (jniLibs Android) — pas le jar desktop.
+    // On exclut le jna transitif (jar) de lazysodium-android pour ne garder
+    // que notre dépendance @aar explicite, sinon checkDuplicateClasses échoue.
+    implementation(libs.lazysodium.android) {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation(libs.jna.android) { artifact { type = "aar" } }
 
     // Réseau : OkHttp forcé via SOCKS5 Tor (voir RelayClient)
     implementation(libs.okhttp)
 
-    // Tor embarqué (ADR-007) : démon tor (libtor.so exécutable) — autonomie totale,
-    // sans Orbot. L'app génère son torrc, exécute le binaire et publie son onion service.
-    implementation(libs.tor.android)
+    // Tor embarqué (ADR-007) : démon tor (exécutable libTor.so par ABI, empaqueté
+    // dans les jniLibs) — autonomie totale, sans Orbot. L'app génère son torrc,
+    // exécute le binaire et publie son onion service.
+    implementation(libs.tor.binary)
 
     // Clés scellées (Keystore)
     implementation(libs.androidx.security.crypto)

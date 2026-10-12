@@ -8,7 +8,7 @@ activityCompose = "1.9.2"
 navigationCompose = "2.8.1"
 lifecycleRuntime = "2.8.6"
 room = "2.6.1"
-sqlcipher = "4.5.6"
+sqlcipher = "4.5.4"
 androidxSqlite = "2.4.0"
 lazysodium = "5.1.0"
 jna = "5.13.0"
@@ -17,7 +17,11 @@ kotlinxSerialization = "1.7.3"
 coroutines = "1.9.0"
 securityCrypto = "1.1.0-alpha06"
 coreKtx = "1.13.1"
-torAndroid = "0.4.7.14"
+# tor-binary (topl, Maven Central) : embarque un exécutable tor 0.4.6.5 par ABI
+# sous le nom libTor.so, extrait dans nativeLibraryDir (useLegacyPackaging).
+# Choix du 2026-10-12 : maven.guardianproject.net (source de org.torproject.jni:tor-android)
+# est injoignable depuis certains environnements réseau/CI ; tor-binary est sur Central.
+torBinary = "0.4.6.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -43,7 +47,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
-tor-android = { group = "org.torproject.jni", name = "tor-android", version.ref = "torAndroid" }
+tor-binary = { group = "io.matthewnelson.topl-android", name = "tor-binary", version.ref = "torBinary" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

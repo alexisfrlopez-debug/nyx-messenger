@@ -35,6 +35,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import net.nyx.messenger.R
 import net.nyx.messenger.data.db.MessageEntity
@@ -52,7 +53,7 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
         db.messageDao(), db.contactDao(), db.pollStateDao()
     )
 
-    val messages: androidx.compose.runtime.StateFlow<List<MessageEntity>> =
+    val messages: StateFlow<List<MessageEntity>> =
         db.messageDao().conversation(peerOnion)
             .let { flow -> MutableStateFlow<List<MessageEntity>>(emptyList()).also { out ->
                 viewModelScope.launch { flow.collect { out.value = it } }
@@ -78,7 +79,7 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
 @Composable
 fun ChatScreen(peerOnion: String) {
     val vm: ChatViewModel = viewModel(key = peerOnion, factory = viewModelFactory {
-        initializer { ChatViewModel(peerOnion) }
+        ChatViewModel(peerOnion)
     })
     val messages by vm.messages.collectAsState()
     var input by remember { mutableStateOf("") }

@@ -36,8 +36,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Démon Tor embarqué (ADR-007) : exécute libtor.so avec le torrc de l'app,
-             héberge le service onion de l'utilisateur, tout le trafic client en sort. -->
+        <!-- Démon Tor embarqué (ADR-007) : exécute le binaire tor embarqué (libTor.so)
+             avec le torrc de l'app, héberge le service onion de l'utilisateur,
+             tout le trafic client en sort. -->
         <service
             android:name=".tor.NyxTorService"
             android:exported="false"

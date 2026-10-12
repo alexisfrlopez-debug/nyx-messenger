@@ -3,6 +3,12 @@
 -keep class com.goterl.** { *; }
 -keep class com.sun.jna.** { *; }
 -keepclassmembers class * extends com.sun.jna.** { <fields>; <methods>; }
+# JNA embarque des branches desktop (java.awt) jamais chargées sur Android :
+# ne pas faire échouer R8 dessus (règles générées par R8, cf. missing_rules.txt).
+-dontwarn java.awt.Component
+-dontwarn java.awt.GraphicsEnvironment
+-dontwarn java.awt.HeadlessException
+-dontwarn java.awt.Window
 
 # kotlinx.serialization : conserver les serializers
 -keepattributes *Annotation*, InnerClasses

@@ -14,8 +14,8 @@
   ┌─────────────────┐              ┌──────────────────────────────┐
   │  Compose UI     │              │  node1 ⇄ node2 ⇄ node3       │
   │  crypto ed25519 │   Tor        │  journal signé + gossip NaCl │
-  │  Orbot (SOCKS)  │◀═══════════▶ │      ⇅          ⇅            │
-  │                 │  (onions)    │   Tor de dev (9050/9051)     │
+  │  TOR EMBARQUÉ   │◀═══════════▶ │      ⇅          ⇅            │
+  │  (ADR-007)      │  (onions)    │   Tor de dev (9050/9051)     │
   └─────────────────┘              └──────────────────────────────┘
         chaque nœud = un onion v3 publié par Tor = son identité
 ```
@@ -23,7 +23,7 @@
 | Option | Quoi | Où | Durée |
 |---|---|---|---|
 | **1** | Tor + 3 réplicas câblés automatiquement + test de réplication | PC (Linux/macOS/WSL2) | ~10 min |
-| **2** | APK Android + Orbot + connexion au réplica de dev | Android Studio + téléphone | ~20 min |
+| **2** | APK Android (Tor intégré, sans Orbot) + connexion au réplica de dev | Android Studio + téléphone | ~20 min |
 
 L'option 2 a besoin de l'option 1 (ou d'un réplica déployé ailleurs) pour avoir
 quelque chose à qui parler. Commence par l'option 1.
@@ -39,7 +39,9 @@ quelque chose à qui parler. Commence par l'option 1.
 | **Tor ≥ 0.4.7** | publier les onions + SOCKS | Debian/Ubuntu : `sudo apt install tor` · macOS : `brew install tor` |
 | **curl** | tests API | généralement présent |
 | **Android Studio** (option 2) | compiler l'app | https://developer.android.com/studio (SDK 35, JDK 17+ inclus) |
-| **Orbot** (option 2) | Tor sur Android | Play Store ou F-Droid, sur le téléphone |
+
+> Tor sur Android : **rien à installer** — le démon tor est embarqué dans l'APK
+> (ADR-007, bibliothèque `tor-binary`).
 
 ```bash
 git clone https://github.com/alexisfrlopez-debug/nyx-messenger
@@ -206,8 +208,8 @@ en v0.2 après validation du MVP.
 
 Avec **Android Studio** (recommandé) : `File → Open` → sélectionner le dossier
 `android/` du dépôt → laisser Gradle se synchroniser (première fois : plusieurs
-minutes ; la dépendance `tor-android` vient du dépôt Maven du Guardian Project) →
-`Build → Build Bundle(s)/APK(s) → Build APK(s)`.
+minutes ; le wrapper télécharge Gradle 8.9 et les dépendances depuis Maven
+Central — aucun dépôt tiers) → `Build → Build Bundle(s)/APK(s) → Build APK(s)`.
 
 En ligne de commande (SDK 35 + JDK 17+ installés) :
 
@@ -217,6 +219,11 @@ cd android
 # APK : app/build/outputs/apk/debug/app-debug.apk
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
+
+> **Build vérifié (2026-10-12)** : `assembleDebug` (APK 39,9 Mo) et `assembleRelease`
+> (R8, 21,2 Mo) passent avec le wrapper du dépôt. Le binaire tor (`libTor.so`, 6,6 Mo
+> par ABI) provient de `io.matthewnelson.topl-android:tor-binary` sur Maven Central —
+> il est bien présent dans l'APK sous `lib/<abi>/libTor.so` pour les 4 ABI.
 
 ### 3.2 Ce qui se passe au premier lancement (autonomie complète)
 
@@ -292,7 +299,7 @@ binaire tor). C'est le travail prévu de l'option 2.
 | Android : crash natif lazysodium/JNA | ABI/ empaquetage | vérifier `jna` en `@aar` (déjà dans `libs.versions.toml`) ; tester sur arm64 |
 | Android : tout échoue au réseau | Tor embarqué pas encore bootstrappé ou en échec | bannière d'état (Conversations) ; `adb logcat -s nyx-tor` ; vérifier que `libtor.so` est extrait (`useLegacyPackaging`, ADR-007) |
 | Android : « binaire tor absent ou non exécutable » | extraction jniLibs désactivée | garder `packaging { jniLibs { useLegacyPackaging = true } }` dans `app/build.gradle.kts` |
-| Gradle : `tor-android` introuvable | dépôt Guardian non joignable / version retirée | vérifier `settings.gradle.kts` et les versions sur `maven.guardianproject.net` ; ajuster `torAndroid` dans `libs.versions.toml` |
+| Gradle : `tor-binary` introuvable | Maven Central inaccessible / proxy d'entreprise | vérifier l'accès à `repo1.maven.org` ; la version se règle via `torBinary` dans `libs.versions.toml` |
 
 ---
 

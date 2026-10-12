@@ -1,9 +1,9 @@
 package net.nyx.messenger.crypto
 
 import android.content.Context
-import com.goterl.lazycode.lazysodium.LazySodiumAndroid
-import com.goterl.lazycode.lazysodium.interfaces.Sign
-import com.sun.jna.Native
+import com.goterl.lazysodium.LazySodiumAndroid
+import com.goterl.lazysodium.SodiumAndroid
+import com.goterl.lazysodium.interfaces.Sign
 import java.util.Base64
 
 /**
@@ -18,7 +18,7 @@ import java.util.Base64
 class IdentityManager private constructor(context: Context) {
 
     private val prefs = context.getSharedPreferences("nyx_identity", Context.MODE_PRIVATE)
-    private val sodium = LazySodiumAndroid(Native.load("sodium", com.sun.jna.Pointer::class.java))
+    private val sodium = LazySodiumAndroid(SodiumAndroid())
 
     var onionAddress: String? = null; private set
     var publicKey: ByteArray? = null; private set
@@ -31,8 +31,9 @@ class IdentityManager private constructor(context: Context) {
         existsOrNull()?.let { return it }
 
         // 1. Paire ed25519 (libsodium — même primitive côté serveur Go)
-        val pk = ByteArray(Sign.BYTES)
-        val sk = ByteArray(Sign.SECRET_KEY_BYTES)
+        //    sk libsodium = 64 octets (seed||pk), pk = 32 octets.
+        val pk = ByteArray(Sign.ED25519_PUBLICKEYBYTES)
+        val sk = ByteArray(Sign.ED25519_SECRETKEYBYTES)
         sodium.cryptoSignKeypair(pk, sk)
 
         // 2. Adresse onion v3 = base32(pubkey || checksum || 0x03)

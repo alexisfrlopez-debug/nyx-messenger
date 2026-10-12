@@ -10,10 +10,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Tor embarqué (ADR-007) : artefact org.torproject.jni:tor-android publié
-        // par le Guardian Project. Si la résolution échoue, vérifier les versions
-        // disponibles sur https://maven.guardianproject.net/maven2/org/torproject/jni/tor-android/
-        maven("https://maven.guardianproject.net/maven2/")
+        // Tor embarqué (ADR-007) : io.matthewnelson.topl-android:tor-binary est publié
+        // sur Maven Central — aucun dépôt tiers requis. (Alternative historique
+        // org.torproject.jni:tor-android sur maven.guardianproject.net : écartée car
+        // le dépôt Guardian est injoignable depuis certains réseaux/CI.)
     }
 }
 

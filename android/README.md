@@ -9,24 +9,25 @@ inclus dans l'app, plus aucune dépendance à Orbot).
 ```bash
 # Prérequis : Android Studio (SDK 35) ou SDK command-line + JDK 17+
 cd android
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug          # wrapper Gradle 8.9 committé (télécharge au 1er run)
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-> **Tor embarqué** : la dépendance `org.torproject.jni:tor-android` vient du dépôt
-> Maven du Guardian Project (`settings.gradle.kts`). Si la résolution échoue, vérifier
-> les versions disponibles sur
-> <https://maven.guardianproject.net/maven2/org/torproject/jni/tor-android/> et ajuster
-> `torAndroid` dans `gradle/libs.versions.toml`. Au premier build sur device, contrôler
-> que `libtor.so` est bien extrait dans `nativeLibraryDir` (exigé par
-> `packaging { jniLibs { useLegacyPackaging = true } }`).
+> **Build vérifié (2026-10-12)** : `assembleDebug` (39,9 Mo) et `assembleRelease`
+> (R8, 21,2 Mo) passent. Toutes les dépendances viennent de Maven Central —
+> aucun dépôt tiers. Points de vigilance hérités du premier build :
+> - tor embarqué = `io.matthewnelson.topl-android:tor-binary:0.4.6.5` (ADR-007 §5) —
+>   le binaire s'appelle **`libTor.so`** (T majuscule) dans `nativeLibraryDir` ;
+> - `jna` doit rester en artefact **`@aar`** avec l'exclusion du jar transitif
+>   (`app/build.gradle.kts`) ;
+> - sqlcipher = 4.5.4 (dernière version de l'artefact `net.zetetic:android-database-sqlcipher`).
 
 ## Tor embarqué (ADR-007)
 
 | Élément | Rôle |
 |---|---|
 | `tor/NyxTorConfig` | répertoires privés (`filesDir/tor/`), choix des ports libres, génération du torrc |
-| `tor/NyxTorService` | service au premier plan : exécute `libtor.so -f torrc`, notification persistante |
+| `tor/NyxTorService` | service au premier plan : exécute `libTor.so -f torrc`, notification persistante |
 | `tor/TorControlClient` | control port minimal (AUTHENTICATE cookie, GETINFO, ADD_ONION, DEL_ONION) — miroir du serveur Go |
 | `tor/TorManager` | orchestration + état (`Starting %` → `Ready` / `Failed`) + publication auto de l'onion |
 | `tor/OnionServiceManager` | façade `publish/unpublish` — la clé vient du Keystore, jamais écrite sur disque |
@@ -39,19 +40,21 @@ process tor → bootstrap (progression dans la bannière de l'écran Conversatio
 
 | Composant | État |
 |---|---|
-| `crypto/` — KeystoreBox, IdentityManager, MessageCipher, OnionCodec | Écrit, à tester sur device |
-| `tor/NyxTorConfig` + `NyxTorService` + `TorControlClient` | Écrit (exécution directe du binaire) — **premier run device à valider** |
-| `tor/TorManager` (bootstrap + publication onion) | Écrit — à valider sur device |
-| `net/RelayClient` — API client via SOCKS5 dynamique | Écrit |
-| `data/db` — Room + SQLCipher | Écrit |
-| `repo/NyxRepository` — envoi/réception/signature | Écrit, `verifySignature` à brancher (TODO) |
-| `ui/` — onboarding (démarrage Tor), bannière Tor, liste, chat | Écrit |
+| `crypto/` — KeystoreBox, IdentityManager, MessageCipher, OnionCodec | **Compilé ✓** (API lazysodium 5.x corrigée, conversions `convert*Ed25519ToCurve25519`) — à tester sur device |
+| `tor/NyxTorConfig` + `NyxTorService` + `TorControlClient` | **Compilé ✓** (exécution directe de `libTor.so`, résolution tolérante du nom de binaire) — **premier run device à valider** |
+| `tor/TorManager` (bootstrap + publication onion) | **Compilé ✓** — à valider sur device |
+| `net/RelayClient` — API client via SOCKS5 dynamique | **Compilé ✓** |
+| `data/db` — Room + SQLCipher (4.5.4) | **Compilé ✓** |
+| `repo/NyxRepository` — envoi/réception/signature | **Compilé ✓**, `verifySignature` à brancher (TODO) |
+| `ui/` — onboarding (démarrage Tor), bannière Tor, liste, chat | **Compilé ✓** |
+| **Build APK** — debug 39,9 Mo / release R8 21,2 Mo | **VERT ✓ (2026-10-12)** — packaging 4 ABI vérifié |
 
 ## TODO prioritaires (prochaine session)
 
-1. **Premier build device + validation Tor embarqué** : bootstrap complet, bannière %
-   progressive, publication onion vérifiée (logcat `nyx-tor`), test d'un POST sur un
-   réplica de dev (`scripts/dev-server.sh` côté PC).
+1. **Premier run device + validation Tor embarqué** : installer l'APK déjà compilé,
+   bootstrap complet, bannière % progressive, publication onion vérifiée
+   (logcat `nyx-tor`), test d'un POST sur un réplica de dev (`scripts/dev-server.sh`
+   côté PC). Le build est déjà vert — plus rien à compiler, tout est au runtime.
 2. Brancher `crypto_sign_verify_detached` dans `NyxRepository.verifySignature`.
 3. Persister le compteur de séquence par auteur (fichier scellé).
 4. Écran d'ajout de réplica (adresse onion) + stockage ; alors `Replicas.DEFAULT`

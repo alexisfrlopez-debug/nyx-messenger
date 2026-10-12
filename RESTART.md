@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 3).
+> Dernière mise à jour : **2026-10-12** (session 4).
 
 ---
 
@@ -28,58 +28,65 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 3 — 2026-10-12)
+## 3. État actuel (session 4 — 2026-10-12)
 
 ### Fait ✅
-- **ADR-007 : Tor embarqué dans l'app** — demande utilisateur « que l'appli installe
-  son propre service Tor pour qu'elle soit entièrement autonome ». Choix :
-  binaire `libtor.so` de la bibliothèque **tor-android** (Guardian Project) exécuté par
-  NOTRE service au premier plan avec un torrc généré (ports sondés dynamiquement,
-  cookie, `__OwningControllerProcess`) — plutôt que le TorService de la lib (contrôle
-  total, symétrie parfaite avec le serveur Go). Orbot n'est plus requis (repli
-  censure/ponts documenté, hors périmètre immédiat).
-- Code Android Tor embarqué complet :
-  `tor/NyxTorConfig.kt` (torrc, ports libres 9050→+40, répertoires privés),
-  `tor/TorControlClient.kt` (control port minimal : AUTHENTICATE cookie, GETINFO
-  status/bootstrap-phase, ADD_ONION ED25519-V3, DEL_ONION — miroir du Go),
-  `tor/NyxTorService.kt` (service 1er plan dataSync, exec du binaire, drain des logs,
-  notification persistante), `tor/TorManager.kt` réécrit (états Checking/Starting %/
-  Ready/Failed, publication auto de l'onion dès le bootstrap, vérification clé↔adresse
-  miroir du serveur, port SOCKS dynamique exposé via `TorManager.activeSocksPort`),
-  `tor/OnionServiceManager.kt` réel (façade publish/unpublish).
-- Câblage app : `MainActivity` (permission POST_NOTIFICATIONS 13+, démarrage Tor si
-  identité), `OnboardingScreen` (démarrage Tor après création d'identité),
-  `ConversationListScreen` (bannière d'état Tor avec progression %),
-  `NyxRepository` (SOCKS port dynamique via `TorManager.activeSocksPort`),
-  `AndroidManifest` (FOREGROUND_SERVICE_DATA_SYNC + service déclaré),
-  strings FR (tor_starting/ready/failed).
-- Gradle : dépôt Maven Guardian Project ajouté (`settings.gradle.kts`), dépendance
-  `org.torproject.jni:tor-android:0.4.7.14` (`libs.versions.toml`, version à confirmer
-  au premier build — liste des versions sur maven.guardianproject.net),
-  `packaging { jniLibs { useLegacyPackaging = true } }` (obligatoire : le binaire tor
-  doit être extrait sur disque pour être exécutable — W^X Android 10+).
-- Guide de lancement (session 2) : `GUIDE_DEMARRAGE.md` — **option 1** (serveurs :
-  Tor + 3 réplicas + test de réplication) et **option 2** (Android, désormais Tor
-  embarqué sans Orbot), avec dépannage.
-- scripts/dev-server.sh v2 (session 2) : cookie Tor explicite, câblage automatique des
-  pairs, relance idempotente, sous-commande stop, gossip 15 s en dev.
-- server/cmd/nyx-devtool (session 2) : keygen/show/event/verify — client minimal de test.
-- Architecture : docs 00..05 + ADR-001..**007** ; specs filaires protocol/specs/.
-- Nœud serveur Go compilé et testé (journal signé, onion v3, gossip NaCl, API) — tests verts.
-- Git : dépôt `https://github.com/alexisfrlopez-debug/nyx-messenger` — à jour session 3.
+- **Environnement de build Android installé et premier build réussi** (demande
+  utilisateur : « installe tout ce qu'il faut pour compiler toi-même ») :
+  - JDK 21 complet (Temurin, javac+jlink) et SDK Android (cmdline-tools,
+    platform-tools, build-tools 34.0.0, platform 35) installés hors dépôt
+    (`/home/z/my-project/tools/`, référencés par `local.properties` git-ignoré) ;
+  - **Gradle 8.9 + wrapper committé** dans `android/` (gradlew, wrapper jar) —
+    plus besoin d'installation Gradle sur une machine neuve ;
+  - `assembleDebug` **VERT** (39,9 Mo) et `assembleRelease` **VERT** (R8, 21,2 Mo).
+- **Changement de source du binaire tor (ADR-007 §5)** : `tor-android` (maven
+  Guardian, injoignable depuis certains réseaux/CI, ni release GitHub ni Central)
+  → **`io.matthewnelson.topl-android:tor-binary:0.4.6.5`** (Maven Central, exécutable
+  tor PIE vérifié par ABI, nom **`libTor.so`**). `NyxTorService.resolveTorBinary()`
+  cherche `libTor.so` puis `libtor.so` — retour à tor-android possible sans réécriture.
+  Architecture inchangée : toujours notre torrc + exécution directe + control port.
+- **7 corrections de code révélées par le premier build** (code jamais compilé) :
+  1. lazysodium : package `com.goterl.lazycode.lazysodium` → `com.goterl.lazysodium`
+     (v5) ; constructeurs `LazySodiumAndroid(SodiumAndroid())` ;
+  2. `MessageCipher` réécrit sur les interfaces **Native** (byte[] bruts) : les
+     variantes « Lazy » passent par des String et corrompraient les corps binaires ;
+     `cryptoBoxSealOpen` prend (m, c, len, **pk, sk**) ; conversions
+     `convertPublicKey/SecretKeyEd25519ToCurve25519(curve, ed)` — ordre documenté ;
+  3. **Bug crypto réel** : allocation de la clé publique avec `Sign.BYTES` (64) au lieu
+     de 32 → `Sign.ED25519_PUBLICKEYBYTES`/`ED25519_SECRETKEYBYTES` (sinon adresse
+     onion fausse) ;
+  4. `ChatScreen` : type `kotlinx.coroutines.flow.StateFlow` (pas dans compose.runtime),
+     factory ViewModel sans DSL `initializer` ;
+  5. `NyxRepository` : `@JvmField var replicas` (clash JVM du setter avec `setReplicas`) ;
+  6. JNA en artefact **`@aar`** + exclusion du jar desktop transitif (dupliqués de
+     classes) ; R8 : `-dontwarn java.awt.*` (branches desktop de JNA) ;
+  7. sqlcipher 4.5.6 → **4.5.4** (dernière version publiée de l'artefact).
+- Vérification du contenu APK : `libTor.so` (6,6 Mo), `libsodium.so`,
+  `libsqlcipher.so`, `libjnidispatch.so` présents par ABI (arm64-v8a, armeabi-v7a,
+  x86, x86_64) ; `package net.nyx.messenger`, minSdk 26, targetSdk 35.
+- Docs à jour : ADR-007 (§5 amendement + chiffres réels), android/README.md (état
+  « Compilé ✓ » + points de vigilance), GUIDE_DEMARRAGE.md (carte sans Orbot, build
+  vérifié, dépannage tor-binary), worklog.
+- Session 3 (rappel) : ADR-007 + code Tor embarqué complet (NyxTorConfig,
+  TorControlClient, NyxTorService, TorManager, OnionServiceManager), câblage app
+  (MainActivity, bannière, manifest), guide de lancement options 1/2, dev-server.sh v2,
+  devtool, serveur Go testé.
+- Git : dépôt `https://github.com/alexisfrlopez-debug/nyx-messenger` — à jour session 4.
 
 ### Validations
-- Session 2 : go vet + go test verts ; devtool smoke testé (signature OK, falsification rejetée) ;
-  dev-server.sh validé avec Tor factice (câblage pairs exact, identités stables). La
-  réplication avec Tor réel reste à faire sur machine utilisateur (le sandbox tue les démons).
-- Session 3 : code Android non compilé ici (pas de SDK) — **premier build + run device =
-  prochaine étape critique** (voir TODO 1).
+- Session 2 : go vet + go test verts ; devtool smoke testé ; dev-server.sh validé avec
+  Tor factice. Réplication Tor réel : **toujours à faire sur machine utilisateur**.
+- Session 3 : code Android écrit, non compilé (pas de SDK).
+- Session 4 : **compilation Android complète verte (debug + release R8)**, packaging
+  4 ABI vérifié dans l'APK. **Reste non validé : le runtime** (bootstrap tor, socket
+  SOCKS local, publication ADD_ONION, échanges avec réplica) — impossible ici
+  (pas d'émulateur ; le sandbox tue les démons longs).
 
 ### À faire (ordre suggéré) 🔜
-1. **Android : premier build + run device du Tor embarqué** — suivre GUIDE_DEMARRAGE.md
-   §3 : build, install, vérifier bootstrap (bannière %), publication onion (logcat
-   `nyx-tor`), connexions au réplica de dev. Ajuster si besoin (version tor-android,
-   extraction du binaire, notification).
+1. **Android : premier run device du Tor embarqué** — l'APK est déjà compilé (ou
+   recompile-le en 1 cmd grâce au wrapper). Suivre GUIDE_DEMARRAGE.md §3 : install,
+   bootstrap (bannière %), publication onion (logcat `nyx-tor`), connexions au réplica
+   de dev. Ajuster si besoin (extraction du binaire, notification, ports).
 2. **Test 3 réplicas sur machine avec Tor** — GUIDE_DEMARRAGE.md §2 (option 1).
 3. TODO app restants (android/README.md) : verifySignature (lazysodium), écran d'ajout
    de réplica, compteur de séquence persisté, tests instrumentés.
@@ -131,8 +138,9 @@ curl -s -X POST http://127.0.0.1:8081/client/event -d @/tmp/ev.json
 # Nœud unique manuel (Tor doit tourner : ControlPort 9051, Cookie 1)
 ./nyx-server --data-dir ./data --http-port 8080
 
-# Android (Android Studio + SDK 35)
+# Android (wrapper Gradle 8.9 committé — SDK 35 + JDK 17+ requis)
 cd android && ./gradlew :app:assembleDebug
+# APK : app/build/outputs/apk/debug/app-debug.apk (build vérifié 2026-10-12)
 ```
 
 4. **Règles de session** :
@@ -161,8 +169,10 @@ Si expiré → demander à l'utilisateur une nouvelle autorisation.
 | Outil | Version/Emplacement |
 |---|---|
 | Go | 1.22.10 — `/home/z/.local/go/bin/go` (tarball utilisateur, pas de root) |
-| Java | OpenJDK 21 (présent) — Gradle Android OK |
-| Tor | **absent** de l'environnement session 1 (pas de root) → tests Tor à faire ailleurs |
+| Java | **Session 4 : JDK 21 complet Temurin** (`/home/z/my-project/tools/jdk-21.0.12.1+1`, javac+jlink — le JRE système manque de javac/jlink) ; `org.gradle.java.home` posé dans le `gradle.properties` du GRADLE_USER_HOME du workspace (pas dans le dépôt) |
+| SDK Android | **Session 4** : cmdline-tools 12 + platform-tools + build-tools 34.0.0 + platform android-35 — `/home/z/my-project/tools/android-sdk` (référé par `android/local.properties`, git-ignoré) |
+| Gradle | **Session 4** : 8.9 — binaire dans `/home/z/my-project/tools/gradle-8.9` + **wrapper committé** dans `android/` (GRADLE_USER_HOME du workspace : daemon off, Xmx2g, Kotlin in-process — contraintes sandbox 4 Go RAM) |
+| Tor | **absent** de l'environnement (pas de root) → tests Tor à faire ailleurs |
 | Python | 3.12 (module gdrive.py : stdlib only) |
 | Git | 2.47.3 |
 
@@ -173,3 +183,4 @@ Si expiré → demander à l'utilisateur une nouvelle autorisation.
 | 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts. **Dépôt GitHub `nyx-messenger` créé + push initial. Sauvegarde Drive complète (RESTART.md + README.md + archive tar.gz).** |
 | 2026-10-12 | 2 | **Demande utilisateur : « comment lancer tout ça, options 1 et 2 »** → rédaction de GUIDE_DEMARRAGE.md (option 1 serveurs / option 2 Android + dépannage) ; scripts/dev-server.sh v2 (cookie Tor explicite — bug de premier lancement corrigé, câblage auto des pairs, stop, idempotent) ; ajout server/cmd/nyx-devtool (keygen/show/event/verify, smoke testé). Mécanique validée avec Tor factice (réplication Tor réel à faire sur machine de l'utilisateur). Push GitHub + sauvegarde Drive. |
 | 2026-10-12 | 3 | **Demande utilisateur : « que l'appli installe son propre service Tor, autonomie totale »** → ADR-007 : Tor embarqué via tor-android (binaire `libtor.so` exécuté par notre `NyxTorService` au 1er plan, torrc généré, ports dynamiques) ; nouveau code : NyxTorConfig, TorControlClient (miroir Go), NyxTorService, TorManager réécrit (bootstrap %, publication auto ADD_ONION de l'identité), OnionServiceManager réel ; câblage MainActivity/Onboarding/bannière Tor/manifest/strings ; Gradle (Guardian maven, useLegacyPackaging). Orbot supprimé comme prérequis (repli censure documenté). Code non compilé ici (pas de SDK) — premier build device = TODO 1. Push GitHub + Drive v0.3. |
+| 2026-10-12 | 4 | **Demande utilisateur : « installe tout ce qu'il faut pour compiler toi-même »** → environnement Android complet installé (JDK 21 Temurin, SDK 35, build-tools 34, Gradle 8.9, wrapper committé) ; **premiers builds verts : assembleDebug 39,9 Mo + assembleRelease (R8) 21,2 Mo** ; tor-android (maven Guardian injoignable) remplacé par **tor-binary 0.4.6.5 (Maven Central)** — même architecture, binaire `libTor.so` (ADR-007 §5) ; 7 corrections de code révélées par la compilation (package lazysodium v5, MessageCipher sur API Native byte[] avec sealOpen 5 args + ordre conversions, **bug crypto : pk 32 octets pas 64**, StateFlow kotlinx, @JvmField clash setter, jna @aar + exclusion, sqlcipher 4.5.4, R8 dontwarn awt) ; packaging 4 ABI vérifié dans l'APK. Reste : runtime sur device (TODO 1). Push GitHub + Drive v0.4. |
