@@ -36,6 +36,27 @@ Flux au lancement : identité existe → `TorManager.start { clé }` → `NyxTor
 process tor → bootstrap (progression dans la bannière de l'écran Conversations) →
 `ADD_ONION` de l'identité → **l'adresse onion de l'utilisateur est réellement publiée**.
 
+## Nouveautés v0.2.0 (session 12)
+
+- **Profil à visibilité par champ** (`profile/` — wire-format.md §7) : écran
+  « Mon profil » (menu ⋮) avec avatar (photo picker système, recodage local
+  256×256 — `AvatarCodec`), display_name/bio/website/location, interrupteur
+  public/privé PAR champ ; privé = ne quitte JAMAIS l'appareil. Publication =
+  événement `profile` en diffusion (seule la partie publique part — invariant
+  §7.2 vérifié côté serveur aussi). Consultation du profil public d'un contact
+  depuis le chat (icône) via `GET /client/profile`.
+- **Contact par alias unique** (`@pseudo`) : le champ d'ajout détecte alias vs
+  onion ; résolution `GET /client/alias` puis enregistrement local.
+- **« Mon adresse Nyx »** (menu ⋮) : onion + alias, copier, partager (feuille
+  système — Nyx ne transmet rien).
+- **Paramètres** (menu ⋮) : thème système/clair/sombre (`SettingsManager` +
+  `NyxTheme(mode)`), comportement de fermeture, verrou biométrique (composant
+  partagé `ui/components/BiometricSwitch`).
+- **Dialogue de fermeture** (`ExitController`) : à la fermeture → « Réduire
+  (Tor actif) » ou « Quitter complètement » (service au premier plan arrêté →
+  démon tor enfant détruit, puis fin de tâche) ; choix permanent possible.
+- **Licence AGPL-3.0-only** (ADR-011).
+
 ## État v0.2 (Tor embarqué)
 
 | Composant | État |
