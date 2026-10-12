@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 7).
+> Dernière mise à jour : **2026-10-12** (session 8).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.
@@ -28,10 +28,36 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 4 | Client | Kotlin natif + Jetpack Compose ; **Tor embarqué dans l'app (tor-android) depuis la v0.2 — Orbot n'est plus requis** (repli censure documenté) | ADR-004, **ADR-007** |
 | 5 | Serveur | Go ≥ 1.22, binaire statique, stdlib + x/crypto | ADR-005 |
 | 6 | Phases 2/3 | Market : quorum `tx` dédié, escrow 2-of-3, réputation escrow ; fiat = réglementaire d'abord | ADR-006 |
+| 7 | Console d'admin | **nyx-admin : appli SÉPARÉE Windows + Android** (monitoring, start/stop, réplication, élagage) — plan de contrôle = onion d'admin dédié + onion auth + commandes signées ed25519 | ADR-008 |
+| 8 | Hébergement réplicas | **100 % réseau, zéro local** : réplicas sur hôtes distants, exposés UNIQUEMENT en hidden services ; le client DÉCOUVRE le réseau (rendezvous signé embarqué), il ne déploie rien | ADR-009 |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 7 — 2026-10-12)
+## 3. État actuel (session 8 — 2026-10-12)
+
+### Fait ✅ (session 8)
+- **Section Releases GitHub opérationnelle** (demande utilisateur : « une section
+  releases dans le git où tu déposeras les nouvelles versions ») :
+  `github.com/alexisfrlopez-debug/nyx-messenger/releases` — **v0.1.1 = Latest**
+  (correctif SHA-3), **v0.1.0 = pré-release historique** (bug connu documenté) ;
+  chaque release embarque l'APK signé + SHA256SUMS + rapport d'audit ; tags
+  annotés poussés (v0.1.0→edc6cac, v0.1.1→98b5093).
+- **`scripts/release.sh`** (versionné) : publication idempotente — tag annoté →
+  release API → assets (APK/SHA256SUMS-vX/audit-report-vX) ; notes versionnées
+  par convention `docs/releases/v<version>.md`. Nouvelle règle permanente
+  **§9.6** : toute nouvelle version est publiée en release GitHub EN PLUS du
+  dépôt /livrables du Drive.
+- **Architecture de déploiement serveur actée** (demande utilisateur : « serveurs
+  en service caché dès le lancement d'un client, rien de local, tout hébergé
+  sur le réseau ») : **ADR-009** (réplicas sur hôtes distants, hidden services
+  uniquement, client = découverte pas provisionnement) + **ADR-008** (console
+  admin séparée Windows+Android) + doc d'exploitation **docs/DEPLOIEMENT_SERVEUR.md**
+  (modèle, découverte, cycle de vie d'un réplica, sécurité du plan de contrôle,
+  feuille de route).
+- **Spec console nyx-admin rédigée** : **docs/APPLI_ADMIN.md** — 2 barrières
+  d'auth (onion auth + commandes signées ed25519/nonce), API admin v1 (monitoring,
+  maintenance, réplication, checkpoints d'élagage), écrans, modèle de menace,
+  roadmap (v0.2 read-only → v0.4 élagage). Futur module `admin/` du dépôt.
 
 ### Fait ✅ (session 7)
 - **Premier run device effectué par l'utilisateur : l'app se lance ✓** — mais crash
@@ -116,16 +142,21 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 - Runtime Tor réel (serveurs) : à faire sur machine utilisateur.
 
 ### À faire (ordre suggéré) 🔜
-1. **Android : run device de la v0.1.1** — installer l'APK (par-dessus v0.1.0 si
-   déjà installé), vérifier : création d'identité OK (correctif SHA-3), bootstrap
-   tor (bannière %), publication onion (logcat `nyx-tor`), connexion au réplica
-   de dev (GUIDE_DEMARRAGE.md §2 option 1 + §3).
+1. **Android : run device de la v0.1.1** (release GitHub `v0.1.1`) — installer
+   l'APK (par-dessus v0.1.0 si déjà installé), vérifier : création d'identité OK
+   (correctif SHA-3), bootstrap tor (bannière %), publication onion (logcat
+   `nyx-tor`), connexion au réplica de dev (GUIDE_DEMARRAGE.md §2 option 1 + §3).
 2. **Test 3 réplicas sur machine avec Tor** — GUIDE_DEMARRAGE.md §2 (option 1).
-3. TODO app restants (android/README.md) : persistance compteur de séquence, écran
+3. **Chantier nyx-admin (ADR-008)** : API admin read-only dans nyx-server (§4 de
+   docs/APPLI_ADMIN.md) + module `admin-core` + console Windows/Android —
+   démarrer par le monitoring (v0.2 admin).
+4. **Bundle deploy/ (ADR-009 §2)** : script one-shot hôte distant (systemd +
+   torrc durci) + liste de rendezvous signée embarquée dans l'APK.
+5. TODO app restants (android/README.md) : persistance compteur de séquence, écran
    d'ajout de réplica, tests instrumentés.
-4. Repli censure : ponts obfs4/snowflake via IPtProxy dans le torrc (ADR-007 §3).
-5. CI GitHub (workflow Go, puis Android) ; v0.2+ : libsignal, chiffrement du champ
-   `to`, purge TTL, push P2P direct, déploiement réplica prod (systemd + torrc durci).
+6. Repli censure : ponts obfs4/snowflake via IPtProxy dans le torrc (ADR-007 §3).
+7. CI GitHub (workflow Go, puis Android) ; v0.2+ : libsignal, chiffrement du champ
+   `to`, purge TTL, push P2P direct.
 
 ## 4. Structure du projet
 
@@ -135,10 +166,14 @@ nyx/
 ├── GUIDE_DEMARRAGE.md      ← COMMENT LANCER (option 1 serveurs / option 2 Android)
 ├── README.md               ← vue d'ensemble
 ├── docs/                   ← architecture, sécurité, protocoles, roadmap, setup, ADR/
+│     ├── DEPLOIEMENT_SERVEUR.md (exploitation réplicas — ADR-008/009)
+│     ├── APPLI_ADMIN.md         (spec console nyx-admin Windows+Android)
+│     └── releases/              ← notes de version (docs/releases/vX.Y.Z.md)
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
-└── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev
+├── admin/                  ← (à créer, ADR-008) console nyx-admin : core + windows + android
+└── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh
 ```
 
 ## 5. Comment redémarrer une session agent rapidement
@@ -173,6 +208,11 @@ curl -s -X POST http://127.0.0.1:8081/client/event -d @/tmp/ev.json
 # Android (wrapper Gradle 8.9 committé — SDK 35 + JDK 17+ requis)
 cd android && ./gradlew :app:assembleDebug
 # APK : app/build/outputs/apk/debug/app-debug.apk (build vérifié 2026-10-12)
+
+# Publier une release GitHub (APK dans livrables/ requis ; notes dans docs/releases/vX.Y.Z.md)
+scripts/release.sh --version 0.1.1 [--commit <sha>] [--prerelease] [--title "…"]
+#   → tag annoté poussé + release + assets (APK, SHA256SUMS-vX, audit-report-vX)
+#   Releases actuelles : https://github.com/alexisfrlopez-debug/nyx-messenger/releases
 ```
 
 4. **Règles de session** (détail complet en **§9**) :
@@ -235,6 +275,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 5 | **Demande utilisateur : « audit systématique avant chaque recompilation ; APK entièrement autonomes (1 clic) ; synchro Drive+GitHub systématique ; livrables dans /livrables du Drive ; ajouter tout ça au fichier d'instructions »** → §9 instauré ; scripts/audit.py (6 catégories, strict, rapport MD) + build-apk.sh (audit bloquant → build release signé → 13 contrôles autonomie → livrables/) + sync.sh (GitHub+Drive) + gdrive.py réécrit ; premier cycle audit→corrections (singleton repository, mort : socksProxy/Replicas/rng/bloc onboarding, verifySignature branchée, bouton Copier adresse, strings, .gitignore durci) ; signature release ajoutée (keystore hors dépôt) — l'APK release n'était pas signé ; APK v0.1.0 21 Mo vérifié et livré. Environnement reconstruit (reset workspace). Synchro en attente des credentials du dossier « accès ». |
 | 2026-10-12 | 6 | **Demande utilisateur : « tu as un dossier dédié dans le drive, indique-le dans les instructions »** → dossier **« Tokens »** identifié sur le Drive (id `1IUYrT_BeGEbJWW_88QQ47Sqaba1ig8q1`) : client_secret OAuth, oauth_token_relais, compte de service, PAT GitHub. Credentials restaurés, **accès API Drive vérifié (refresh OK) et PAT GitHub validée** ; **dossier `/livrables` créé** (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`) ; ce fichier mis à jour (§3, §6, §9) ; commits session 5 poussés vers GitHub ; APK v0.1.0 + rapport d'audit + SHA256 déposés dans /livrables ; keystore + keystore.properties sauvegardés dans « Tokens » (§9.5) ; archive session 6 uploadée. Synchro Drive+GitHub pleinement opérationnelle. |
 | 2026-10-12 | 7 | **Retour utilisateur : l'app se lance mais crash à la création d'identité — « SHA3-256 MessageDigest not available »** → cause : `MessageDigest("SHA3-256")` absent d'Android ≤ 13 (Conscrypt ne fournit SHA-3 qu'à partir d'Android 14 ; minSdk 26) ; **correctif : Bouncy Castle bcprov-jdk18on (SHA3Digest FIPS 202, pas Keccak)** dans OnionCodec ; **4 tests unitaires JVM verts** (NIST + vecteur hashlib Python + aller-retour + checksum invalide) ; audit.py corrigé (COH-PKG plantait sur src/test) ; cycle complet : audit PASSED → release signée → 13 contrôles OK → **APK v0.1.1 (versionCode 2, SHA-256 411cdb15…) livré** dans /livrables ; docs à jour (android/README.md § Correctif v0.1.1). |
+| 2026-10-12 | 8 | **Demande utilisateur : « section releases dans le git + explication déploiement serveur (hidden services dès le lancement d'un client, rien de local) + appli admin séparée Windows/Android + mettre à jour les instructions »** → **Releases GitHub actées** : script `release.sh` (tag annoté + release API + assets, idempotent), notes versionnées `docs/releases/`, **v0.1.1 = Latest** + v0.1.0 pré-release historique (APK+SHA256SUMS+audit en assets, tags v0.1.0→edc6cac, v0.1.1→98b5093) ; règle permanente **§9.6**. **ADR-009** (hébergement 100 % réseau, zéro local, rendezvous signé, client = découverte) + **ADR-008** (console nyx-admin séparée Win+Android, onion d'admin dédié, commandes signées) + **docs/DEPLOIEMENT_SERVEUR.md** (exploitation complète) + **docs/APPLI_ADMIN.md** (API admin v1, écrans, menace, roadmap). TODO n°3/n°4 ajoutés (admin, bundle deploy). |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 
@@ -318,3 +359,25 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
 - Le keystore release ET ses mots de passe doivent exister à deux endroits : workspace
   courant + dossier Drive dédié **« Tokens »** (§6). En cas de perte : nouvelle clé =
   nouvelle signature = désinstallation obligatoire pour les utilisateurs.
+
+### 9.6 Releases GitHub — TOUTE nouvelle version y est publiée (session 8+)
+
+> Instaurée à la demande utilisateur (session 8) : « une section releases dans le
+> git où tu déposeras les nouvelles versions ».
+
+- **Où** : `github.com/alexisfrlopez-debug/nyx-messenger/releases` — c'est le
+  canal de distribution des versions (en complément du /livrables Drive, §9.4).
+- **Quoi** : chaque version livrée par `build-apk.sh` donne lieu à une **release
+  GitHub** contenant : l'APK signé (asset), les empreintes (`SHA256SUMS-vX.Y.Z.txt`),
+  le rapport d'audit (`audit-report-vX.Y.Z.txt`), et des notes de version.
+- **Comment** : `scripts/release.sh --version X.Y.Z [--commit <sha>] [--prerelease]
+  [--title "…"]` — crée/pousse le tag annoté `vX.Y.Z`, crée la release via l'API
+  (idempotent : relancé, il réutilise la release existante), téléverse les assets.
+- **Notes de version** : `docs/releases/vX.Y.Z.md` (versionnées dans le dépôt) —
+  correctifs, contenu, bugs connus. Une release sans notes est un livrable incomplet.
+- **Convention** : la release la plus récente NON pré-release est la version
+  courante (« Latest » affichée sur le dépôt) ; une version à bug bloquant connu
+  est (re)marquée pré-release avec le bug documenté et le renvoi vers la version
+  corrigée (ex. v0.1.0).
+- **Ordre du cycle de livraison** (règle de bout en bout) : audit §9.1 → build
+  §9.2 → livrables locaux §9.4 → **release GitHub §9.6** → synchro Drive §9.3.
