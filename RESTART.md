@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 13).
+> Dernière mise à jour : **2026-10-13** (session 16).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.
@@ -35,10 +35,42 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 11 | API admin serveur + profil + licence | **`/admin/*` implémentée dans nyx-server** (2 barrières : onion dédié 9091 + signature canonique `nyx-admin-v1` + nonce anti-replay ; checkpoints RFC 6962 ; défaut sûr sans clé) ; **type `profile`** (wire-format §7 : visibilité PAR CHAMP, privé = local uniquement, invariant serveur anti-fuite) ; **licence AGPL-3.0-only** (ADR-011) | ADR-011, APPLI_ADMIN.md §8 (privé) |
 | 12 | Rangement des livrables | **`/livrables` en 3 zones (miroir Drive ↔ git public)** : `dernieres-livrables/` (jeu courant) · `archives/v<version>/` (versions remplacées, immuables) · `documents/` (rapports d'audit) ; binaires HORS git (Releases GitHub §9.6) — git porte structure + empreintes + rapports ; archivage automatique par `build-apk.sh`, propagation par `sync.sh` | §9.4 (rév. session 13) |
 | 13 | Provisionnement des réplicas | **Création autonome depuis la console** : « Ajouter un réplica » offre Créer (la console forge les identités — onion client + admin + gossip + client-auth — et produit un bundle one-shot tar.gz : binaire serveur, identités pré-remplies, config, torrc durci, systemd, install.sh) ou Existant ; cycle « en attente → actif » + câblage flotte automatiques (pairs ajoutés des deux sens) ; identité forgée console = amendement motivé ADR-009 §2 (l'hôte lit le disque de toute façon) | ADR-012 |
+| 14 | Déploiement + gestion des réplicas | **Déploiement EN UN CLIC depuis la console desktop** : bouton « Déployer » (carte « en attente » + fin d'assistant) → SSH/SFTP vers L'HÔTE DE L'OPÉRATEUR (hôte/port/utilisateur + mdp OU clé privée — saisie à chaque fois, AUCUN secret SSH persisté ; clé d'hôte épinglée TOFU journalisé) → install.sh streamé → nettoyage systématique ; JSch (fork mwiede) embarqué desktop ; **gestion flotte (desktop + Android)** : menu (⋯) Renommer / Modifier / Supprimer (retrait STRICTEMENT local — le nœud n'est pas arrêté ni effacé ; révocation réelle = re-provisionnement ADR-009 §5) ; zéro extension protocolaire | ADR-013 |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 15 — 2026-10-13)
+## 3. État actuel (session 16 — 2026-10-13)
+
+### Fait ✅ (session 16)
+- **Déploiement en un clic des réplicas + gestion de la flotte (console
+  nyx-admin v0.3.0)** — demande opérateur : « le replica ne se déploie pas
+  tout seul. dans l'onglet flotte, je voudrais un bouton pour déployer en un
+  clic et un pour supprimer/modifier/renommer le replica » (ADR-013) :
+  - **SshDeployer** (desktop, JSch mwiede 0.2.21 — artefact unique, zéro
+    dépendance transitive) : SFTP du bundle → /tmp, extraction, install.sh
+    streamé ligne à ligne dans le dialogue, nettoyage systématique (trap EXIT
+    — secrets d'infrastructure) ; `sudo -n` si utilisateur ≠ root ; commande
+    distante validée par `sh -n` réel (tests JVM) ; annulation = déconnexion ;
+  - **Sécurité** : AUCUN secret SSH persisté (seuls hôte/port/utilisateur +
+    bundlePath par réplica — round-trip JSON testé y compris compat ascendante
+    v0.2) ; clé d'hôte épinglée TOFU journalisé (~/.nyx-admin/known_hosts,
+    format OpenSSH [hôte]:port) ; changement de clé = échec explicite (MITM) ;
+  - **UI desktop** : bouton « Déployer » sur chaque carte « en attente » +
+    « Déployer maintenant… » en fin d'assistant de création (replicaId filé) ;
+    dialogue SSH (hôte/port/utilisateur, mot de passe OU clé privée +
+    passphrase, choix/relocalisation du bundle, journal live auto-scroll) ;
+    menu (⋯) par carte : **Renommer / Modifier / Supprimer** (confirmation) ;
+    retrait relance le Tor embarqué (trousseau client-auth) ;
+  - **UI Android** : même menu (⋯) Renommer/Modifier/Supprimer (KeyVault
+    round-trip partagé via `ReplicaConfigJson` du core) ; badge « en attente »
+    avec invitation à déployer depuis le desktop ;
+  - **16 tests JVM verts** (round-trip + secrets jamais sérialisés + syntaxe
+    sh -n des commandes root/sudo + quoting POSIX réel + tokens known_hosts +
+    validation SshAuth) ; audits strict public/privé PASSED.
+- **Livrables nyx-admin v0.3.0** : zip Windows 106 Mo + installer.exe 108 Mo
+  (payload embarqué, SHA compilé, smoke test Linux : 223 fichiers extraits,
+  essentiels OK) + APK admin 16 Mo versionCode 4 (9/9 contrôles autonomie) +
+  SHA256SUMS ; LISEZMOI à jour (déploiement 1 clic + gestion flotte).
 
 ### Fait ✅ (session 15)
 - **Correctif Android v0.2.1 — « choisir une photo de profil verrouille l'app
@@ -353,10 +385,12 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
    (correctif SHA-3), bootstrap tor (bannière %), publication onion (logcat
    `nyx-tor`), connexion au réplica de dev (GUIDE_DEMARRAGE.md §2 option 1 + §3).
 2. **Test 3 réplicas sur machine avec Tor** — GUIDE_DEMARRAGE.md §2 (option 1).
-3. **Déployer la flotte + associer la console** : déployer 1+ réplicas (todo 4)
-   puis configurer `admin.authorized_keys` sur chaque nœud ; l'ONION D'ADMIN
-   s'affiche dans les logs (`ONION ADMIN publié : xxx.onion`) — à déclarer dans
-   nyx-admin (dépôt privé) ; tester le cycle complet console↔nœud.
+3. **Déployer la flotte + associer la console** : DÉSORMAIS EN UN CLIC — dans
+   nyx-admin v0.3.0 : « Ajouter un réplica » → Créer → « Déployer maintenant »
+   (SSH vers l'hôte : mdp ou clé, install.sh streamé — ADR-013) ; puis la
+   console détecte et câble la flotte automatiquement ; l'ONION D'ADMIN
+   n'est plus à recopier depuis les logs (identité pré-forgée ADR-012).
+   Tester le cycle complet console↔nœud.
 4. **Rendezvous signé embarqué dans l'APK** (suite ADR-009 §3) — le bundle
    one-shot de déploiement est RÉALISÉ (ADR-012, assistant console) ; reste la
    liste de rendezvous des réplicas d'amorçage dans les releases.
@@ -507,6 +541,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 12 | **Demande utilisateur : « implémente l'API admin + contact par alias + partage adresse onion + menu paramètres + édition de profil (avatar, visibilité par champ) + dialogue fermeture (réduire vs tuer proprement) + définis la licence »** → **API admin serveur complète** (adminapi : 2 barrières, anti-replay, 12 endpoints, checkpoints RFC 6962 signés, audit JSONL, onion dédié 9091, défaut sûr) + **type `profile` v1.2** (spec §7 d'abord ; invariant anti-fuite serveur ; index dernier-gagne ; GET /client/profile) + **client v0.2.0** (profil par champ avec avatar, contact par alias, Mon adresse partageable, Paramètres thème/fermeture, dialogue réduire vs quitter proprement) + **AGPL-3.0-only** (ADR-011, LICENSE public+privé, contrôle COH-LIC) ; audit strict 0/0/4, 4 paquets Go + 12 tests JVM verts, APK v0.2.0 signé (SHA ea020098…), release GitHub v0.2.0, sync Drive+GitHub, APPLI_ADMIN.md §8 mis à jour (API livrée). |
 | 2026-10-12 | 13 | **Demande utilisateur : « dans le drive, dossier /livrables, classer le contenu : un sous-dossier pour ranger tous les dossiers archives, un pour stocker les documents et un pour déposer les dernières livrables — propage le rangement sur github »** → **Drive** : `/livrables` structuré en 3 zones — `archives/v0.1.0·v0.1.1·v0.1.2/` (APK+empreintes par version, immuables), `documents/` (rapports d'audit client+admin), `dernieres-livrables/` (jeu courant : APK v0.2.0, console admin v0.1.0 APK+zip, SHA256SUMS) — 14 fichiers déplacés via le nouveau `gdrive.py move`, arborescence vérifiée par `tree` ; **dépôt public** : miroir versionné SÉLECTIF (livrables/README.md + SHA256SUMS + audit-report.txt ; `.gitignore` porte la structure `*.md`/`*.txt`, exclut les binaires — Releases GitHub = canal des binaires) ; **pipeline adapté** : build-apk.sh livre dans `dernieres-livrables/` + ARCHIVAGE AUTO de la version remplacée + rapport d'audit vers `documents/`, sync.sh upload récursif miroir (uploads immuables nom+taille → skip), gdrive.py +`move`/`tree`/`upload --immutable`, release.sh à jour ; décision 12 + §9.3/§9.4 révisés + entrée 12 remise dans le tableau du journal ; IDs des 3 sous-dossiers consignés au privé (ops/INFRA.md) ; audit.py privé CORRIGÉ (binaires skippés — faux positif e-mail sur gradle-wrapper.jar ; mot de passe keystore : seuls les littéraux en dur sont flaggés, la lecture getProperty du git-ignoré keystore.properties est la bonne pratique §9.5) ; audits public et privé PASSED ; push public + privé ; synchro Drive complète. |
 | 2026-10-13 | 15 | **Demandes utilisateur : (1) « quand je choisis une photo de profil et que je clique sur ok, l'app se verrouille et revient à l'écran d'invitation sans enregistrer » ; (2) « pour l'appli admin windows, un exe autosuffisant qui déploie tout en un clic »** → **v0.2.1 client** : AppLock.suspendNextBackground (picker/partage = arrière-plan ATTENDU, consommé une fois), verrou = calque opaque au-dessus de la navigation (NavController + pile + écran survivent — plus de retour à l'accueil ni de perte d'édition), décodage photo durci (IO + runCatching) ; 7 tests JVM AppLock (22 verts) ; APK signé + release GitHub + Drive. **nyx-admin v0.2.1** : installer/ Go (payload zip EMBARQUÉ dans l'exe, SHA de référence compilé vérifié à l'exécution, extraction anti Zip-Slip, raccourcis Bureau+Menu Démarrer, désinstalleur, -silent/-dir), smoke test Linux du même binaire (223 fichiers) + 7 tests Go + vet, zip manuel + APK admin rebuildés + SHA256SUMS ; ADR-008 respecté (Drive, pas de release GitHub admin). Build : mémoire gradle bornée par ligne de commande (OOM noyau durci dans les 3 scripts), purge disque. |
+| 2026-10-13 | 16 | **Demande utilisateur : « le replica ne se déploie pas tout seul. dans l'onglet flotte, je voudrais un bouton pour déployer en un clic et un pour supprimer/modifier/renommer le replica »** → **ADR-013 + console nyx-admin v0.3.0** : SshDeployer (desktop, JSch mwiede — SFTP bundle → /tmp, extraction, install.sh STREAMÉ dans le dialogue, nettoyage trap EXIT, sudo -n si non-root, annulation = déconnexion) ; sécurité : AUCUN secret SSH persisté (hôte/port/utilisateur + bundlePath seulement — round-trip JSON + compat ascendante v0.2 testés), clé d'hôte épinglée TOFU journalisé (known_hosts console, [hôte]:port), changement de clé = échec explicite ; UI desktop : « Déployer » sur les cartes en attente + « Déployer maintenant… » en fin d'assistant + dialogue SSH (mdp OU clé + passphrase, relocalisation bundle, journal live) ; menu (⋯) Renommer/Modifier/Supprimer par carte (desktop + Android, retrait local — nœud intact, relance Tor client-auth) ; `ReplicaConfigJson` partagé core (SettingsStore + KeyVault) ; 16 tests JVM verts (sh -n réel des commandes root/sudo, quoting POSIX exécuté, tokens known_hosts) ; audits strict public/privé PASSED ; livrables : zip 106 Mo + installer.exe 108 Mo (smoke 223 fichiers) + APK admin 16 Mo (9/9 autonomie, versionCode 4) + SHA256SUMS → Drive. Dépôt privé : code+spec §9.4/§9.5+roadmap v0.3 ; public : ADR-013 + RESTART (décision 14). |
 | 2026-10-13 | 14 | **Demande utilisateur : « les réplicas se créent seuls dans la console admin quand je clique sur ajouter réplica, en gardant la possibilité d'en ajouter des existants »** → **ADR-012 + console v0.2.0** : admin-core `OnionIdentity` (ed25519, onion v3 SHA-3 BC — vecteur croisé Go↔Kotlin, X25519) + `ReplicaProvisioning` (bundle tar.gz ustar : binaire serveur linux/amd64, identités pré-remplies, config parrain+clé admin, torrc durci, systemd, install.sh avec sha256sum -c, LISEZMOI) — validé par GNU tar réel ; UI desktop choix Créer/Existant + état « en attente » + promotion + câblage flotte automatiques ; **correctif addPeer (gossip_pub base64 via GET /identity — l'envoi du booléen était rejeté 400)** ; miroir Android ; ADR-009 §2 amendé (identité forgée console, menace honnête hébergeur) ; APPLI_ADMIN.md §9 ; 7 tests JVM verts ; audits PASSED ; livrables zip Windows 106 Mo + APK signé → Drive. |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
