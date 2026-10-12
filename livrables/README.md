@@ -11,6 +11,7 @@ empreintes SHA-256 et les rapports d'audit — tout ce qui est texte et petit.
 ```
 livrables/
 ├── archives/<version>/         ← anciennes versions (empreintes ; binaires = release vX archivée)
+├── archives/nyx-admin-v<version>/ ← anciennes versions de la console (Drive uniquement)
 ├── documents/                  ← rapports d'audit et documents joints
 └── dernieres-livrables/        ← jeu de livraison COURANT (ce qu'un nouvel utilisateur prend)
 ```
@@ -30,7 +31,10 @@ livrables/
    + `SHA256SUMS-latest.txt` + `SHA256SUMS-v<version>.txt`. Un livrable n'y
    reste que tant qu'il est la version à jour.
 2. **`archives/v<version>/`** reçoit l'empreinte (et, sur le Drive, le binaire)
-   de chaque version remplacée — un sous-dossier par version, immuable.
+   de chaque version du CLIENT remplacée — un sous-dossier par version,
+   immuable ; la CONSOLE admin archive en `archives/nyx-admin-v<version>/`
+   (même convention, produit distinct pour éviter toute confusion de
+   numérotation).
 3. **`documents/`** reçoit les rapports d'audit et tout document joint à la
    livraison (rapport admin inclus sur le Drive).
 4. Le passage de « dernière » à « archivée » est automatique à la prochaine

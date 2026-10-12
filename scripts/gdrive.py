@@ -189,6 +189,30 @@ class Drive:
                f"&fields=id,name,parents")
         return self._req("PATCH", url, b"", {"Content-Type": "application/json"})["id"]
 
+    def delete(self, path: str) -> str:
+        """Met à la corbeille un fichier OU un dossier vide (nom unique exigé).
+        Chemin complet ; le dernier segment est la cible."""
+        parts = [p for p in path.strip("/").split("/") if p]
+        if not parts:
+            raise SystemExit("Chemin vide")
+        name = parts[-1]
+        parent = self.resolve("/".join(parts[:-1]), create=False)
+        q = f"name = '{name}' and '{parent}' in parents and trashed = false"
+        res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,name,mimeType)&pageSize=10")
+        found = res.get("files", [])
+        if len(found) != 1:
+            raise SystemExit(f"{len(found)} élément(s) « {name} » — suppression annulée (unicité exigée)")
+        target = found[0]
+        if target["mimeType"] == FOLDER_MIME:
+            inside_q = f"'{target['id']}' in parents and trashed = false"
+            inside = self._req("GET", (f"{API}/files?q={urllib.parse.quote(inside_q)}"
+                                       f"&fields=files(id)&pageSize=1")).get("files", [])
+            if inside:
+                raise SystemExit("dossier non vide — suppression annulée")
+        body = b'{"trashed": true}'
+        self._req("PATCH", f"{API}/files/{target['id']}", body, {"Content-Type": "application/json"})
+        return target["id"]
+
     def list(self, path: str):
         folder = self.resolve(path, create=False)
         q = f"'{folder}' in parents and trashed = false"
@@ -250,6 +274,8 @@ def main():
         d.tree(args[1] if len(args) > 1 else "")
     elif cmd == "move":
         print(d.move(args[1], args[2]))
+    elif cmd == "delete":
+        print(d.delete(args[1]))
     else:
         raise SystemExit(__doc__)
 
