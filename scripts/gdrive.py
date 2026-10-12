@@ -23,6 +23,7 @@ from pathlib import Path
 
 CREDS_DIR = Path("/home/z/my-project/.credentials")
 API = "https://www.googleapis.com/drive/v3"
+UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"  # endpoint d'upload (segment /upload OBLIGATOIRE)
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 # Racine ANCRÉE : dossier projet « Messagerie » (ne JAMAIS résoudre depuis la racine
 # de Mon Drive — d'autres projets y ont des dossiers homonymes, ex. « livrables »).
@@ -116,7 +117,7 @@ class Drive:
         res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id)&pageSize=5")
         existing = res.get("files", [])
         meta = json.dumps({"name": name, "parents": [folder]}).encode()
-        url = f"{API}/files?uploadType=multipart" if not existing else f"{API}/files/{existing[0]['id']}?uploadType=multipart"
+        url = f"{UPLOAD_API}/files?uploadType=multipart" if not existing else f"{UPLOAD_API}/files/{existing[0]['id']}?uploadType=multipart"
         method = "POST" if not existing else "PATCH"
         boundary = "nyx37boundary"
         mp = (f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
