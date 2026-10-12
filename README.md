@@ -36,6 +36,7 @@ et **[docs/04-roadmap.md](docs/04-roadmap.md)**.
 ```
 nyx/
 ├── RESTART.md            ← INSTRUCTIONS DE REDÉMARRAGE (lire en premier)
+├── GUIDE_DEMARRAGE.md    ← COMMENT LANCER (option 1 : serveurs · option 2 : Android)
 ├── README.md             ← ce fichier
 ├── docs/                 ← architecture, sécurité, protocoles, ADRs, roadmap, setup
 ├── protocol/             ← spécifications des formats filaires (wire format, API)
@@ -46,15 +47,26 @@ nyx/
 
 ## Démarrage rapide (serveur)
 
+**→ Guide pas à pas complet : [GUIDE_DEMARRAGE.md](GUIDE_DEMARRAGE.md)** (option 1 :
+3 réplicas + test de réplication en une commande ; option 2 : app Android + Orbot).
+
+Version courte :
+
 ```bash
-# Prérequis : Go ≥ 1.22, Tor (démon) installé
+# Prérequis : Go ≥ 1.22 (scripts/bootstrap.sh l'installe sans root) + Tor installé
+scripts/bootstrap.sh           # environnement + build + tests (une seule fois)
+scripts/dev-server.sh 3        # Tor de dev + 3 réplicas câblés automatiquement
+go run ./server/cmd/nyx-devtool keygen /tmp/alice.json   # client de test (voir guide)
+```
+
+Pour un nœud unique à la main :
+
+```bash
 cd server
 go build -o nyx-server ./cmd/nyx-server
 ./nyx-server --data-dir ./data --http-port 8080
 # → affiche l'adresse .onion du nœud et démarre l'API
 ```
-
-Pour créer plusieurs réplicas et observer la réplication, voir `scripts/dev-server.sh`.
 
 ## Documentation
 

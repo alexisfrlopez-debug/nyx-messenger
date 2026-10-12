@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 1).
+> Dernière mise à jour : **2026-10-12** (session 2).
 
 ---
 
@@ -28,50 +28,68 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 1 — 2026-10-12)
+## 3. État actuel (session 2 — 2026-10-12)
 
 ### Fait ✅
+- **GUIDE_DEMARRAGE.md** (racine) : guide pas à pas complet — **option 1** (serveurs :
+  Tor + 3 réplicas + test de réplication) et **option 2** (Android + Orbot + connexion
+  au réplica de dev), avec dépannage.
+- **scripts/dev-server.sh réécrit (v2)** : détection du Tor correcte (control port 9051,
+  pas seulement SOCKS 9050), cookie passé explicitement (`--cookie-file
+  scripts/tor_data/control.authcookie` — l'auto-détection Go ne couvre que /run/tor,
+  **bug de premier lancement corrigé**), câblage automatique des pairs (lecture des
+  identity.json, écriture des config.json, redémarrage), relance idempotente,
+  sous-commande `stop`, gossip 15 s en dev, diagnostic enrichi.
+- **server/cmd/nyx-devtool** : client minimal de test — `keygen` (identité cliente
+  ed25519 → onion), `show`, `event` (événement signé sur stdout, seq auto-incrémentée,
+  --to pour les messages privés), `verify` (Validate complète). Smoke testé : signature
+  valide acceptée, body falsifié rejeté.
 - Architecture complète rédigée : `docs/00-architecture.md`, `01-modele-securite.md`,
   `02-protocole-replication.md`, `03-protocole-messagerie.md`, `04-roadmap.md`,
-  `05-setup-dev.md` + 6 ADR.
+  `05-setup-dev.md` + 6 ADR (session 1).
 - Spécifications filaires : `protocol/specs/wire-format.md`, `protocol/specs/api.md`.
-- **Nœud serveur Go compilé et testé** (`server/`) :
-  - client control port Tor minimal (`ADD_ONION ED25519-V3:…` — l'identité EST l'onion) ;
-  - journal signé ed25519, séquence stricte par auteur, events en attente, JSONL append-only ;
-  - décodage/codage adresse onion v3 (checksum SHA3) aller-retour testé ;
-  - gossip chiffré NaCl (push/pull + curseurs) via SOCKS5 ;
-  - API client (`/health`, `/identity`, `/client/event`, `/client/inbox`, `/client/events`)
-    et gossip (`/gossip/peers|push|pull`) ;
-  - tests unitaires verts (`go test ./...`), build : `server/nyx-server`.
-- **Squelette Android complet** (`android/`) : Gradle version-catalog, Compose, Room+SQLCipher,
-  lazysodium, OkHttp SOCKS5 ; crypto (KeystoreBox, IdentityManager, MessageCipher,
-  OnionCodec miroir du Go), TorManager (Orbot), OnionServiceManager (interface),
-  RelayClient, NyxRepository, UI (onboarding/liste/chat). **Non encore compilé** (pas de
-  SDK Android dans l'environnement de la session 1) — `android/README.md` liste les TODO device.
-- Scripts : `scripts/bootstrap.sh` (env sans root), `scripts/dev-server.sh` (3 réplicas),
-  `scripts/torrc-dev` (généré par bootstrap).
-- Git : branche `main` committée, dépôt GitHub **créé et poussé** :
-  `https://github.com/alexisfrlopez-debug/nyx-messenger` (61 fichiers).
+- **Nœud serveur Go compilé et testé** (`server/`) : client control port Tor minimal
+  (ADD_ONION ED25519-V3), journal signé ed25519 (seq stricte, pending, JSONL), onion v3
+  codec aller-retour, gossip NaCl via SOCKS5, API client+gossip, tests verts.
+- **Squelette Android complet** (`android/`) : Gradle version-catalog, Compose,
+  Room+SQLCipher, lazysodium, OkHttp SOCKS5, TorManager (Orbot), UI onboarding/liste/chat.
+  **Toujours non compilé** (pas de SDK Android dans l'environnement) — TODO dans
+  `android/README.md`.
+- Scripts : `scripts/bootstrap.sh` (env sans root), `scripts/dev-server.sh` (v2),
+  `scripts/torrc-dev`.
+- Git : branche `main`, dépôt GitHub `https://github.com/alexisfrlopez-debug/nyx-messenger`
+  — à jour session 2 (guide + devtool + scripts v2).
+
+### Validations session 2
+- `go vet` + `go test ./...` verts ; build des deux binaires OK.
+- devtool : cycle keygen→event→verify vérifié (y compris rejet d'un body falsifié).
+- dev-server.sh : mécanique validée avec un Tor factice (TCP) — phases, câblage des
+  pairs (config.json contient exactement les N-1 autres, sans soi-même), persistence
+  d'identité au redémarrage, health checks, stop. **La réplication gossip avec Tor réel
+  reste à tester sur machine disposant de Tor** (l'environnement de la session tue les
+  démons longs et n'a pas Tor — voir §7).
 
 ### À faire (ordre suggéré) 🔜
-1. **Test 3 réplicas sur machine avec Tor** : `scripts/bootstrap.sh` puis
-   `scripts/dev-server.sh 3` ; connecter les pairs (cf. sortie du script) ; observer la
-   réplication (POST d'un événement sur node1 → visible sur node2/node3).
-2. **Android sur device** : suivre `android/README.md` (TODO prioritaires) — compiler,
-   brancher Orbot, point d'accès réplica de dev, `verifySignature` (crypto_sign_verify_detached).
+1. **Test 3 réplicas sur machine avec Tor** — suivre GUIDE_DEMARRAGE.md §2 (une
+   commande + test devtool). C'est l'option 1 du guide.
+2. **Android sur device** — GUIDE_DEMARRAGE.md §3 : premier build (ajustements probables),
+   Orbot, réplica de dev dans Replicas.kt, puis TODO de android/README.md
+   (verifySignature, OnionServiceManager, écran d'ajout de réplica).
 3. **CI GitHub** (facultatif) : workflow Go (build + tests) ; plus tard build Android.
 4. v0.2 (voir roadmap `docs/04-roadmap.md`) : libsignal, chiffrement du champ `to`,
-   IPtProxy, purge TTL serveur, push P2P direct, sauvegarde BIP39.
+   IPtProxy, purge TTL serveur, push P2P direct, sauvegarde BIP39, déploiement d'un
+   réplica de prod (systemd + torrc durci).
 
 ## 4. Structure du projet
 
 ```
 nyx/
 ├── RESTART.md              ← ce fichier (racine du répertoire de travail)
+├── GUIDE_DEMARRAGE.md      ← COMMENT LANCER (option 1 serveurs / option 2 Android)
 ├── README.md               ← vue d'ensemble
 ├── docs/                   ← architecture, sécurité, protocoles, roadmap, setup, ADR/
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
-├── server/                 ← nœud Go (cmd/nyx-server, internal/{tor,journal,gossip,api,identity,config})
+├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev
 ```
@@ -89,16 +107,21 @@ nyx/
    > Ta mission : [DÉCRIRE LA TÂCHE — ex. « TODO n°1 : test 3 réplicas »].
    > Mets à jour RESTART.md (§3 et §8) à la fin de la session.
 
-3. **Commandes de référence** :
+3. **Commandes de référence** (détail complet : GUIDE_DEMARRAGE.md) :
 
 ```bash
-# Serveur (Go ≥ 1.22 requis — go installé dans ~/.local/go si pas de root)
-cd server && go build -o nyx-server ./cmd/nyx-server && go test ./...
-./nyx-server --data-dir ./data --http-port 8080     # Tor doit tourner (ControlPort 9051, Cookie 1)
-
-# Environnement complet + 3 réplicas de dev
+# Environnement + build + tests
 scripts/bootstrap.sh
+cd server && go build -o nyx-server ./cmd/nyx-server && go test ./...
+
+# Tor de dev + 3 réplicas câblés automatiquement + test de réplication
 scripts/dev-server.sh 3
+go run ./server/cmd/nyx-devtool keygen /tmp/alice.json
+go run ./server/cmd/nyx-devtool event --keys /tmp/alice.json --body "salut" > /tmp/ev.json
+curl -s -X POST http://127.0.0.1:8081/client/event -d @/tmp/ev.json
+
+# Nœud unique manuel (Tor doit tourner : ControlPort 9051, Cookie 1)
+./nyx-server --data-dir ./data --http-port 8080
 
 # Android (Android Studio + SDK 35)
 cd android && ./gradlew :app:assembleDebug
@@ -140,3 +163,4 @@ Si expiré → demander à l'utilisateur une nouvelle autorisation.
 | Date | Session | Résumé |
 |---|---|---|
 | 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts. **Dépôt GitHub `nyx-messenger` créé + push initial. Sauvegarde Drive complète (RESTART.md + README.md + archive tar.gz).** |
+| 2026-10-12 | 2 | **Demande utilisateur : « comment lancer tout ça, options 1 et 2 »** → rédaction de GUIDE_DEMARRAGE.md (option 1 serveurs / option 2 Android + dépannage) ; scripts/dev-server.sh v2 (cookie Tor explicite — bug de premier lancement corrigé, câblage auto des pairs, stop, idempotent) ; ajout server/cmd/nyx-devtool (keygen/show/event/verify, smoke testé). Mécanique validée avec Tor factice (réplication Tor réel à faire sur machine de l'utilisateur). Push GitHub + sauvegarde Drive. |

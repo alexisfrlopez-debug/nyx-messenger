@@ -10,6 +10,7 @@ server/*.json
 # --- Tor (fichiers locaux) ---
 *.onion.key
 tor_data/
+scripts/dev/
 
 # --- Android / Gradle ---
 android/.gradle/
