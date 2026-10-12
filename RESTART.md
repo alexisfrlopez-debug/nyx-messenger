@@ -2,7 +2,7 @@
 
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-12** (session 8).
+> Dernière mise à jour : **2026-10-12** (session 9).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.
@@ -30,10 +30,24 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 6 | Phases 2/3 | Market : quorum `tx` dédié, escrow 2-of-3, réputation escrow ; fiat = réglementaire d'abord | ADR-006 |
 | 7 | Console d'admin | **nyx-admin : appli SÉPARÉE Windows + Android** (monitoring, start/stop, réplication, élagage) — plan de contrôle = onion d'admin dédié + onion auth + commandes signées ed25519 | ADR-008 |
 | 8 | Hébergement réplicas | **100 % réseau, zéro local** : réplicas sur hôtes distants, exposés UNIQUEMENT en hidden services ; le client DÉCOUVRE le réseau (rendezvous signé embarqué), il ne déploie rien | ADR-009 |
+| 9 | Modération & biométrie | **AUCUNE collecte d'identité réelle (jamais cachée/non consentie)** ; modération protocolaire transparente (signalements, blocklists, PoW) ; **biométrie = déverrouillage LOCAL opt-in** (BiometricPrompt client, Windows Hello admin) — aucune donnée biométrique ne quitte le device | ADR-010 |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 8 — 2026-10-12)
+## 3. État actuel (session 9 — 2026-10-12)
+
+### Fait ✅ (session 9)
+- **ADR-010 (modération & biométrie) acté** après cadrage avec l'opérateur :
+  1. rejet ferme de toute collecte d'identité réelle cachée/non consentie
+     (contradictoire avec ADR-002/003 + RGPD art. 9/13 + infraction pénale en
+     capture à l'insu) — verrou technique : AUT-PERM bloque CAMERA/MICRO (déjà actif) ;
+  2. modération **protocolaire transparente** : signalements signés, blocklists
+     de réplicas, orphanage, rate-limiting/PoW (spec filaire à ouvrir en phase 2) ;
+  3. **biométrie acceptée = déverrouillage local opt-in** : BiometricPrompt
+     (client Android), Windows Hello + biométrie (console nyx-admin) — l'OS
+     vérifie, l'app ne reçoit qu'un succès/échec, rien ne transite sur le fil.
+- Biométrie client à implémenter (verrou app ouverture + retour 1er plan,
+  androidx.biometric, repli PIN device) → prochaine version APK v0.1.2.
 
 ### Fait ✅ (session 8)
 - **Section Releases GitHub opérationnelle** (demande utilisateur : « une section
@@ -276,6 +290,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-12 | 6 | **Demande utilisateur : « tu as un dossier dédié dans le drive, indique-le dans les instructions »** → dossier **« Tokens »** identifié sur le Drive (id `1IUYrT_BeGEbJWW_88QQ47Sqaba1ig8q1`) : client_secret OAuth, oauth_token_relais, compte de service, PAT GitHub. Credentials restaurés, **accès API Drive vérifié (refresh OK) et PAT GitHub validée** ; **dossier `/livrables` créé** (id `1aT6YY0pga5BHI1so59x2bFN_7hv9OBB9`) ; ce fichier mis à jour (§3, §6, §9) ; commits session 5 poussés vers GitHub ; APK v0.1.0 + rapport d'audit + SHA256 déposés dans /livrables ; keystore + keystore.properties sauvegardés dans « Tokens » (§9.5) ; archive session 6 uploadée. Synchro Drive+GitHub pleinement opérationnelle. |
 | 2026-10-12 | 7 | **Retour utilisateur : l'app se lance mais crash à la création d'identité — « SHA3-256 MessageDigest not available »** → cause : `MessageDigest("SHA3-256")` absent d'Android ≤ 13 (Conscrypt ne fournit SHA-3 qu'à partir d'Android 14 ; minSdk 26) ; **correctif : Bouncy Castle bcprov-jdk18on (SHA3Digest FIPS 202, pas Keccak)** dans OnionCodec ; **4 tests unitaires JVM verts** (NIST + vecteur hashlib Python + aller-retour + checksum invalide) ; audit.py corrigé (COH-PKG plantait sur src/test) ; cycle complet : audit PASSED → release signée → 13 contrôles OK → **APK v0.1.1 (versionCode 2, SHA-256 411cdb15…) livré** dans /livrables ; docs à jour (android/README.md § Correctif v0.1.1). |
 | 2026-10-12 | 8 | **Demande utilisateur : « section releases dans le git + explication déploiement serveur (hidden services dès le lancement d'un client, rien de local) + appli admin séparée Windows/Android + mettre à jour les instructions »** → **Releases GitHub actées** : script `release.sh` (tag annoté + release API + assets, idempotent), notes versionnées `docs/releases/`, **v0.1.1 = Latest** + v0.1.0 pré-release historique (APK+SHA256SUMS+audit en assets, tags v0.1.0→edc6cac, v0.1.1→98b5093) ; règle permanente **§9.6**. **ADR-009** (hébergement 100 % réseau, zéro local, rendezvous signé, client = découverte) + **ADR-008** (console nyx-admin séparée Win+Android, onion d'admin dédié, commandes signées) + **docs/DEPLOIEMENT_SERVEUR.md** (exploitation complète) + **docs/APPLI_ADMIN.md** (API admin v1, écrans, menace, roadmap). TODO n°3/n°4 ajoutés (admin, bundle deploy). |
+| 2026-10-12 | 9 | **Cadrage opérateur : biométrie + modération** → ADR-010 : rejet de la collecte d'identité réelle cachée/non consentie (architecture sans compte + RGPD art. 9/13 + pénal) — la modération se fera par mécanismes protocolaires TRANSPARENTS (signalements signés, blocklists de réplicas, orphanage, PoW) ; **biométrie acceptée en déverrouillage LOCAL opt-in** (BiometricPrompt client / Windows Hello admin, aucune donnée biométrique transmise — l'OS vérifie) ; verrou technique AUT-PERM (CAMERA/MICRO bloqués) rappelé. Biométrie client planifiée pour v0.1.2. |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 
