@@ -15,6 +15,7 @@ Usage :
   gdrive.py --status                     → credentials présents ? token valide ?
 """
 import json
+import mimetypes
 import sys
 import time
 import urllib.parse
@@ -110,20 +111,25 @@ class Drive:
         return parent
 
     def upload(self, local: Path, remote_dir: str) -> str:
-        """Téléverse local dans remote_dir (remplace un fichier du même nom)."""
+        """Téléverse local dans remote_dir (crée ou remplace un fichier du même nom)."""
         folder = self.resolve(remote_dir)
         name = local.name
         q = (f"name = '{name}' and '{folder}' in parents and trashed = false")
         res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id)&pageSize=5")
         existing = res.get("files", [])
+        if existing:
+            # Mise à jour : PATCH média seul — le multipart n'est pas supporté sur PATCH (v3).
+            # Le nom/parent étant inchangés (même nom, même dossier), le contenu suffit.
+            ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+            url = f"{UPLOAD_API}/files/{existing[0]['id']}?uploadType=media"
+            return self._req("PATCH", url, local.read_bytes(), {"Content-Type": ctype})["id"]
         meta = json.dumps({"name": name, "parents": [folder]}).encode()
-        url = f"{UPLOAD_API}/files?uploadType=multipart" if not existing else f"{UPLOAD_API}/files/{existing[0]['id']}?uploadType=multipart"
-        method = "POST" if not existing else "PATCH"
+        url = f"{UPLOAD_API}/files?uploadType=multipart"
         boundary = "nyx37boundary"
         mp = (f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
               f"{meta.decode()}\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n").encode()
         mp += local.read_bytes() + f"\r\n--{boundary}--".encode()
-        fid = self._req(method, url, mp, {"Content-Type": f"multipart/related; boundary={boundary}"})["id"]
+        fid = self._req("POST", url, mp, {"Content-Type": f"multipart/related; boundary={boundary}"})["id"]
         return fid
 
     def list(self, path: str):
