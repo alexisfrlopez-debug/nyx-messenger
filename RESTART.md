@@ -50,7 +50,8 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
   SDK Android dans l'environnement de la session 1) — `android/README.md` liste les TODO device.
 - Scripts : `scripts/bootstrap.sh` (env sans root), `scripts/dev-server.sh` (3 réplicas),
   `scripts/torrc-dev` (généré par bootstrap).
-- Git local initialisé (branche `main`), dépôt GitHub **à créer** (voir §6).
+- Git : branche `main` committée, dépôt GitHub **créé et poussé** :
+  `https://github.com/alexisfrlopez-debug/nyx-messenger` (61 fichiers).
 
 ### À faire (ordre suggéré) 🔜
 1. **Test 3 réplicas sur machine avec Tor** : `scripts/bootstrap.sh` puis
@@ -58,8 +59,7 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
    réplication (POST d'un événement sur node1 → visible sur node2/node3).
 2. **Android sur device** : suivre `android/README.md` (TODO prioritaires) — compiler,
    brancher Orbot, point d'accès réplica de dev, `verifySignature` (crypto_sign_verify_detached).
-3. **GitHub** : créer le dépôt `nyx-messenger` et pousser (§6) ; y ajouter les secrets
-   CI plus tard (aucun secret jamais committé).
+3. **CI GitHub** (facultatif) : workflow Go (build + tests) ; plus tard build Android.
 4. v0.2 (voir roadmap `docs/04-roadmap.md`) : libsignal, chiffrement du champ `to`,
    IPtProxy, purge TTL serveur, push P2P direct, sauvegarde BIP39.
 
@@ -117,7 +117,7 @@ cd android && ./gradlew :app:assembleDebug
 | Répertoire de travail (sauvegarde systématique) | Dossier Drive « travail » (lien fourni par l'utilisateur dans la conversation d'origine) |
 | Dossier « accès » | Contient : `client_secret_*.json`, `oauth_token_relais_*.json` (Drive, scope complet, cycle ~7 j → ré-autorisation à prévoir), `physichong-*.json` (compte de service), `token_git.txt` (PAT GitHub fine-grained, compte `alexisfrlopez-debug`) |
 | Module de synchro Drive | `scripts/gdrive.py` (session 1 ; hors dépôt — voir note) + credentials dans `.credentials/` du workspace (JAMAIS dans le dépôt) |
-| GitHub | Compte `alexisfrlopez-debug` ; dépôt à créer : **`nyx-messenger`** (token_git.txt a accès aux repos du compte) |
+| GitHub | Dépôt : **`github.com/alexisfrlopez-debug/nyx-messenger`** (créé session 1) ; `token_git.txt` = PAT fine-grained du compte `alexisfrlopez-debug` (création/push OK) |
 
 Note : `scripts/gdrive.py` et `.credentials/` vivent dans le **workspace de la session**
 (`/home/z/my-project/`), pas dans le dépôt Nyx. Une nouvelle session doit les récupérer
@@ -139,4 +139,4 @@ Si expiré → demander à l'utilisateur une nouvelle autorisation.
 
 | Date | Session | Résumé |
 |---|---|---|
-| 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts, RESTART.md. Accès Drive (OAuth) vérifiés, token GitHub vérifié. Sauvegarde Drive + création dépôt GitHub : en fin de session 1 (voir §3). |
+| 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts. **Dépôt GitHub `nyx-messenger` créé + push initial. Sauvegarde Drive complète (RESTART.md + README.md + archive tar.gz).** |
