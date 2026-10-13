@@ -153,7 +153,11 @@ def check_autonomy(a: Audit):
         if not txt:
             continue
         for i, line in enumerate(txt.splitlines(), 1):
-            if "http://" in line and not re.search(r'http://(127\.0\.0\.1|localhost|\$|"|\{)', line):
+            # xmlns='http://…' = IDENTIFIANT d'espace de noms XML (RFC 3986,
+            # jamais résolu en réseau — ex. streams XMPP ADR-014) : pas une
+            # URL en clair. Les vraies URL réseau restent flaggées.
+            if "http://" in line and "xmlns" not in line \
+                    and not re.search(r'http://(127\.0\.0\.1|localhost|\$|"|\{)', line):
                 a.add(CRIT, "AUT-URL", f"URL http:// en clair (hors localhost) ligne {i}: {line.strip()[:100]}", f, line.strip()[:60])
     if "AUT-DEP" not in [f[1] for f in a.findings]:
         a.ok("AUT-DEP")

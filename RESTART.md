@@ -36,10 +36,61 @@ PSAN/AMF — voir ADR-006, décision explicite requise avant tout développement
 | 12 | Rangement des livrables | **`/livrables` en 3 zones (miroir Drive ↔ git public)** : `dernieres-livrables/` (jeu courant) · `archives/v<version>/` (versions remplacées, immuables) · `documents/` (rapports d'audit) ; binaires HORS git (Releases GitHub §9.6) — git porte structure + empreintes + rapports ; archivage automatique par `build-apk.sh`, propagation par `sync.sh` | §9.4 (rév. session 13) |
 | 13 | Provisionnement des réplicas | **Création autonome depuis la console** : « Ajouter un réplica » offre Créer (la console forge les identités — onion client + admin + gossip + client-auth — et produit un bundle one-shot tar.gz : binaire serveur, identités pré-remplies, config, torrc durci, systemd, install.sh) ou Existant ; cycle « en attente → actif » + câblage flotte automatiques (pairs ajoutés des deux sens) ; identité forgée console = amendement motivé ADR-009 §2 (l'hôte lit le disque de toute façon) | ADR-012 |
 | 14 | Déploiement + gestion des réplicas | **Déploiement EN UN CLIC depuis la console desktop** : bouton « Déployer » (carte « en attente » + fin d'assistant) → SSH/SFTP vers L'HÔTE DE L'OPÉRATEUR (hôte/port/utilisateur + mdp OU clé privée — saisie à chaque fois, AUCUN secret SSH persisté ; clé d'hôte épinglée TOFU journalisé) → install.sh streamé → nettoyage systématique ; JSch (fork mwiede) embarqué desktop ; **gestion flotte (desktop + Android)** : menu (⋯) Renommer / Modifier / Supprimer (retrait STRICTEMENT local — le nœud n'est pas arrêté ni effacé ; révocation réelle = re-provisionnement ADR-009 §5) ; zéro extension protocolaire | ADR-013 |
+| 15 | Transports alternatifs des réplicas | **2 voies OPT-IN, jamais défaut** : (1) **XMPP MUC** — un salon MUC d'un serveur tiers (ex. hookipa.net) sert de bus aux enveloppes Nyx signées ; chaque réplica outbound-only publie ses événements propres, MAM = rattrapage ; le serveur XMPP ne voit que du chiffré ; réplica sur n'importe quel hôte gratuit sans port entrant, déploiement SSH ADR-013 inchangé ; (2) **relais TURN Cloudflare** — credentials éphémères générés par un backend (réplica/console, JAMAIS l'APK), allocation RFC 6062 = phase 2 ; métadonnées visibles du relais → opt-in documenté. L'onion v3 reste le transport premier (ADR-009). Client XMPP écrit dans le dépôt (stdlib + x/crypto — amendement ADR-005 ; ni mellium ni pion). | ADR-014 |
 
 Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
-## 3. État actuel (session 16 — 2026-10-13)
+## 3. État actuel (session 17 — 2026-10-13)
+
+### Fait ✅ (session 17)
+- **ADR-014 — transports alternatifs « commodity » (demande opérateur :
+  « est-il possible de déployer sur un serveur xmpp type hookipa.net ? je
+  voudrais pouvoir le faire » + « je regarde aussi pour utiliser un serveur
+  TURN Cloudflare »)** :
+  - **ADR-014 écrit** (docs/adr/) : 2 voies OPT-IN (XMPP MUC ; relais TURN),
+    l'onion v3 RESTE le défaut (ADR-009 inchangé) ; amendement motivé ADR-005
+    (client XMPP maison dans le dépôt, stdlib + x/crypto — ni mellium ni pion) ;
+  - **specs d'abord (§9)** : protocol/specs/transport-xmpp.md (mapping MUC
+    complet : join XEP-0045, enveloppes `nyx1` base64 fragmentées ≤ 48 Ko,
+    rattrapage MAM XEP-0313, JIDs pseudonymes, SOCKS5 Tor optionnel,
+    publication des SEULES événements propres) et protocol/specs/transport-turn.md
+    (credentials éphémères Cloudflare phase 1 ; allocation RFC 6062 + publication
+    au rendezvous signé = phase 2 spécifiée, non implémentée) ;
+  - **client XMPP minimal** (server/internal/transportxmpp/, ~1 300 lignes) :
+    XML streams, STARTTLS/TLS direct (tls_enforce, défaut true), **SASL
+    SCRAM-SHA-1** (repli PLAIN sous TLS ; anti-MITM nonce + vérification v=
+    serveur), bind, MUC join (presence + code 110), messages groupchat, MAM,
+    dial via SOCKS5 Tor (x/net/proxy), reconnexion backoff 30 s → 15 min ;
+  - **pompe journal ↔ MUC** : chaque réplica publie SES événements propres
+    (curseur par auteur, 300 ms/lot), intègre ceux du salon via
+    journal.Store.Append (validation signature + dé-dup id natives) et
+    re-propage au gossip (OnNew → kick) ; réassemblage fragments (FIFO 128,
+    TTL 10 min) ;
+  - **config** : section `xmpp` {enabled, host, port, jid, password, muc,
+    nick, tor_socks, tls_enforce} — mot de passe SECRET (data_dir/config.json
+    uniquement ; config.example.json = valeur factice documentée) ; défaut =
+    transport désactivé ;
+  - **helper TURN** (server/internal/turn/ + CLI `nyx-devtool turn-creds`) :
+    POST /v1/turn/keys/{key_id}/credentials/generate-ice-servers (Bearer,
+    ttl ≤ 86400), filtre TCPOnly (UDP exclu — Tor TCP only), token lu depuis
+    NYX_TURN_API_TOKEN (jamais argv) ;
+  - **tests** : 12 tests Go verts (enveloppes aller-retour + fragmentation
+    2 fragments + refus oversize, SCRAM client↔serveur math réel + rejet
+    nonce imposteur + server-final falsifié, handshake complet contre faux
+    serveur XMPP PLAIN et SCRAM, mot de passe erroné, TLS exigé, pompe :
+    intégration événement signé + idempotence rejeu + bruit tiers ignoré +
+    événement falsifié rejeté ; TURN : httptest + erreurs + filtre TCP) —
+    `go vet` OK, **audit strict PASSED (CRIT 0/MAJOR 0)** ;
+  - **audit.py précisé** : les identifiants d'espaces de noms XML
+    (`xmlns='http://…'` — RFC 3986, jamais résolus en réseau) ne sont plus
+    flaggés AUT-URL (faux positifs du transport XMPP) ;
+  - ⚠️ **console nyx-admin (choix transport XMPP/TURN à l'assistant) NON FAITE
+    cette session** : dépôt privé injoignable (workspace reconstruit, PAT
+    absente — voir §6) — modification précise préparée, à appliquer au
+    premier clonage (journal §8) ;
+  - ⚠️ **synchro Drive/GitHub non faite** : credentials absents après reset
+    du workspace (.credentials/ vide) — tout le travail est COMMITTÉ en local,
+    pusher dès restauration du dossier « Tokens » (procédure §6).
 
 ### Fait ✅ (session 16)
 - **Déploiement en un clic des réplicas + gestion de la flotte (console
@@ -402,7 +453,14 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 6. TODO app restants (android/README.md) : persistance compteur de séquence, écran
    d'ajout de réplica, tests instrumentés.
 7. Repli censure : ponts obfs4/snowflake via IPtProxy dans le torrc (ADR-007 §3).
-8. CI GitHub (workflow Go, puis Android) ; libsignal, chiffrement du champ
+8. **Console nyx-admin : choix de transport à l'assistant « Ajouter un
+   réplica »** (VPS-onion / XMPP / TURN) — dépôt privé injoignable en session
+   17 (PAT absente) : modification précise préparée (journal §8), appliquer au
+   premier clonage, puis livrables admin + Drive.
+9. **TURN phase 2** (ADR-014/transport-turn.md §6) : allocation TCP RFC 6062
+   côté réplica en stdlib (~600 lignes STUN/HMAC-SHA1), publication de
+   l'adresse relayée dans le rendezvous signé, repli client documenté.
+10. CI GitHub (workflow Go, puis Android) ; libsignal, chiffrement du champ
    `to`, purge TTL, push P2P direct.
 
 ## 4. Structure du projet
@@ -417,7 +475,7 @@ nyx/
 │     │     (la spec détaillée APPLI_ADMIN.md vit dans le dépôt PRIVÉ, §9.7)
 │     └── releases/              ← notes de version (docs/releases/vX.Y.Z.md)
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
-├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config})
+├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config,transportxmpp,turn})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
 ├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh
@@ -543,6 +601,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-13 | 15 | **Demandes utilisateur : (1) « quand je choisis une photo de profil et que je clique sur ok, l'app se verrouille et revient à l'écran d'invitation sans enregistrer » ; (2) « pour l'appli admin windows, un exe autosuffisant qui déploie tout en un clic »** → **v0.2.1 client** : AppLock.suspendNextBackground (picker/partage = arrière-plan ATTENDU, consommé une fois), verrou = calque opaque au-dessus de la navigation (NavController + pile + écran survivent — plus de retour à l'accueil ni de perte d'édition), décodage photo durci (IO + runCatching) ; 7 tests JVM AppLock (22 verts) ; APK signé + release GitHub + Drive. **nyx-admin v0.2.1** : installer/ Go (payload zip EMBARQUÉ dans l'exe, SHA de référence compilé vérifié à l'exécution, extraction anti Zip-Slip, raccourcis Bureau+Menu Démarrer, désinstalleur, -silent/-dir), smoke test Linux du même binaire (223 fichiers) + 7 tests Go + vet, zip manuel + APK admin rebuildés + SHA256SUMS ; ADR-008 respecté (Drive, pas de release GitHub admin). Build : mémoire gradle bornée par ligne de commande (OOM noyau durci dans les 3 scripts), purge disque. |
 | 2026-10-13 | 16 | **Demande utilisateur : « le replica ne se déploie pas tout seul. dans l'onglet flotte, je voudrais un bouton pour déployer en un clic et un pour supprimer/modifier/renommer le replica »** → **ADR-013 + console nyx-admin v0.3.0** : SshDeployer (desktop, JSch mwiede — SFTP bundle → /tmp, extraction, install.sh STREAMÉ dans le dialogue, nettoyage trap EXIT, sudo -n si non-root, annulation = déconnexion) ; sécurité : AUCUN secret SSH persisté (hôte/port/utilisateur + bundlePath seulement — round-trip JSON + compat ascendante v0.2 testés), clé d'hôte épinglée TOFU journalisé (known_hosts console, [hôte]:port), changement de clé = échec explicite ; UI desktop : « Déployer » sur les cartes en attente + « Déployer maintenant… » en fin d'assistant + dialogue SSH (mdp OU clé + passphrase, relocalisation bundle, journal live) ; menu (⋯) Renommer/Modifier/Supprimer par carte (desktop + Android, retrait local — nœud intact, relance Tor client-auth) ; `ReplicaConfigJson` partagé core (SettingsStore + KeyVault) ; 16 tests JVM verts (sh -n réel des commandes root/sudo, quoting POSIX exécuté, tokens known_hosts) ; audits strict public/privé PASSED ; livrables : zip 106 Mo + installer.exe 108 Mo (smoke 223 fichiers) + APK admin 16 Mo (9/9 autonomie, versionCode 4) + SHA256SUMS → Drive. Dépôt privé : code+spec §9.4/§9.5+roadmap v0.3 ; public : ADR-013 + RESTART (décision 14). |
 | 2026-10-13 | 14 | **Demande utilisateur : « les réplicas se créent seuls dans la console admin quand je clique sur ajouter réplica, en gardant la possibilité d'en ajouter des existants »** → **ADR-012 + console v0.2.0** : admin-core `OnionIdentity` (ed25519, onion v3 SHA-3 BC — vecteur croisé Go↔Kotlin, X25519) + `ReplicaProvisioning` (bundle tar.gz ustar : binaire serveur linux/amd64, identités pré-remplies, config parrain+clé admin, torrc durci, systemd, install.sh avec sha256sum -c, LISEZMOI) — validé par GNU tar réel ; UI desktop choix Créer/Existant + état « en attente » + promotion + câblage flotte automatiques ; **correctif addPeer (gossip_pub base64 via GET /identity — l'envoi du booléen était rejeté 400)** ; miroir Android ; ADR-009 §2 amendé (identité forgée console, menace honnête hébergeur) ; APPLI_ADMIN.md §9 ; 7 tests JVM verts ; audits PASSED ; livrables zip Windows 106 Mo + APK signé → Drive. |
+| 2026-10-13 | 17 | **Demande utilisateur : « est-il possible de déployer sur un serveur xmpp type hookipa.net ? je voudrais pouvoir le faire » + « je regarde aussi pour utiliser un serveur TURN Cloudflare »** → **ADR-014 « Transports alternatifs commodity »** : analyse (hookipa.net = fournisseur de COMPTES chat, impossible d'y héberger le binaire ; la voie correcte = le MUC comme BUS de messages, enveloppes Nyx signées dedans, MAM = rattrapage) ; 2 voies OPT-IN (XMPP MUC ; TURN Cloudflare), onion v3 défaut (ADR-009), amendement ADR-005 (client XMPP maison stdlib+x/crypto, ni mellium ni pion) ; **specs d'abord** (transport-xmpp.md : join XEP-0045, enveloppes nyx1 base64 fragmentées ≤ 48 Ko sous max_stanza 64 Ko, MAM catch-up, JIDs pseudonymes, SOCKS5 Tor optionnel, publication des seuls événements propres ; transport-turn.md : creds éphémères Cloudflare — POST /v1/turn/keys/{id}/credentials/generate-ice-servers Bearer ttl ≤ 86400 —, phase 2 = allocation RFC 6062 + adresse relayée au rendezvous signé) ; **implémentation serveur** : internal/transportxmpp (XML streams, STARTTLS obligatoire défaut, SASL SCRAM-SHA-1 anti-MITM + repli PLAIN, bind, MUC join 110, groupchat, MAM, dial SOCKS5 Tor, backoff 30 s→15 min ; pompe journal↔MUC par-auteur, réassemblage FIFO 128/TTL 10 min ; OnNew→kick gossip) + config `xmpp` (password = SECRET data_dir only, example factice) + internal/turn + CLI `nyx-devtool turn-creds` (token via NYX_TURN_API_TOKEN, jamais argv ; TCPOnly — UDP exclu, Tor TCP only) ; **12 tests Go verts** (SCRAM math réel client↔serveur + imposteurs rejetés, handshake complet PLAIN/SCRAM contre faux serveur, TLS exigé, pompe : signé intégré/rejeu idempotent/falsifié rejeté) ; go vet OK, **audit strict PASSED 0/0** ; audit.py précisé (xmlns = identifiant d'espace de noms, pas une URL) ; smoke binaire (xmpp disabled → rien ; enabled → « transport MUC activé » + backoff propre, /health saine) ; ⚠️ **workspace reconstruit après reset** : nyx-messenger recloné (HEAD public dabe50c retrouvé sur GitHub — le « 1 commit non poussé » de la session 16 est donc soit déjà poussé, soit perdu avec l'ancien disque ; nyx-admin et .credentials/tokens/ à restaurer §6) ; console nyx-admin (choix transport) NON applicable sans le privé — modification préparée ; push/Drive en attente de credentials (§9.3 SKIP explicite). |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 

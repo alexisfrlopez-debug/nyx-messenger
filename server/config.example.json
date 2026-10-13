@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Configuration du nœud Nyx. Copier vers <data-dir>/config.json. Les pairs sont des réplicas : onion = adresse v3, gossip_pub = clé X25519 du canal de réplication (GET /identity sur ce pair). La section admin active l'API d'administration (onion DÉDIÉ port 9091, console nyx-admin — dépôt privé APPLI_ADMIN.md) : authorized_keys = clés publiques ed25519 (base64, 32 octets) des appareils autorisés. Section admin absente ou vide = API admin désactivée (aucun onion privilégié publié).",
+  "_commentaire": "Configuration du nœud Nyx. Copier vers <data-dir>/config.json. Les pairs sont des réplicas : onion = adresse v3, gossip_pub = clé X25519 du canal de réplication (GET /identity sur ce pair). La section admin active l'API d'administration (onion DÉDIÉ port 9091, console nyx-admin — dépôt privé APPLI_ADMIN.md) : authorized_keys = clés publiques ed25519 (base64, 32 octets) des appareils autorisés. Section admin absente ou vide = API admin désactivée (aucun onion privilégié publié). La section « xmpp » (ADR-014) active un transport OPT-IN : un salon MUC XMPP sert de bus aux enveloppes Nyx signées (protocol/specs/transport-xmpp.md) — réplicas outbound-only, aucun port entrant, aucun onion requis. L'onion v3 reste le transport premier (ADR-009) : section absente ou enabled=false = transport désactivé. tls_enforce (défaut true) interdit toute authentification hors STARTTLS/TLS. tor_socks peut router le client XMPP via Tor (ex. \"127.0.0.1:9050\"). MOT DE PASSE = SECRET : à poser dans <data-dir>/config.json uniquement, JAMAIS de vrai secret dans cet exemple.",
   "data_dir": "./data",
   "http_port": 8080,
   "control_port": 9051,
@@ -18,5 +18,16 @@
         "added_at": "2026-10-12T00:00:00Z"
       }
     ]
+  },
+  "xmpp": {
+    "enabled": false,
+    "host": "exemple-serveur-xmpp.net",
+    "port": 5222,
+    "jid": "nyx-0000000000000000@exemple-serveur-xmpp.net",
+    "password": "SECRET_A_POSER_DANS_DATA_DIR_CONFIG_JSON_UNIQUEMENT",
+    "muc": "nyx-bus@conference.exemple-serveur-xmpp.net",
+    "nick": "nyx-0000000000000000",
+    "tor_socks": "127.0.0.1:9050",
+    "tls_enforce": true
   }
 }

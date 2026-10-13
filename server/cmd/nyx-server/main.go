@@ -36,6 +36,7 @@ import (
 	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/identity"
 	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/journal"
 	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/tor"
+	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/transportxmpp"
 )
 
 const version = "0.2.0"
@@ -190,16 +191,54 @@ func main() {
 		Kick:        kick,
 	}
 
-	// partage des signaux entre API et moteur gossip
+	// partage des signaux entre API, moteur gossip et transport XMPP (le cas échéant)
+	var xkick chan struct{}
 	go func() {
 		for range kick {
 			select {
 			case gn.Kick <- struct{}{}:
 			default:
 			}
+			if xkick != nil {
+				select {
+				case xkick <- struct{}{}:
+				default:
+				}
+			}
 		}
 	}()
 	go gn.Run()
+
+	// 5bis. Transport XMPP MUC (ADR-014, opt-in — ADR-009 reste le défaut) :
+	// activé uniquement si config.json contient une section "xmpp" enabled.
+	if cfg.XMPP.Enabled {
+		port := cfg.XMPP.Port
+		if port == 0 {
+			port = 5222
+		}
+		opt := transportxmpp.Options{
+			Host:       cfg.XMPP.Host,
+			Addr:       fmt.Sprintf("%s:%d", cfg.XMPP.Host, port),
+			JID:        cfg.XMPP.JID,
+			Password:   cfg.XMPP.Password,
+			MUC:        cfg.XMPP.MUC,
+			Nick:       cfg.XMPP.Nick,
+			TorSOCKS:   cfg.XMPP.TorSOCKS,
+			TLSEnforce: cfg.XMPP.TLSEnforced(),
+		}
+		xkick = make(chan struct{}, 1)
+		pump := transportxmpp.NewPump(store, id.Onion, xkick, opt, 10*time.Second)
+		pump.OnNew = func() {
+			select {
+			case kick <- struct{}{}:
+			default:
+			}
+		}
+		go pump.Run()
+		defer pump.Stop()
+		log.Printf("[xmpp] transport MUC activé : %s (tor_socks=%q, tls_enforce=%v)",
+			cfg.XMPP.MUC, cfg.XMPP.TorSOCKS, cfg.XMPP.TLSEnforced())
+	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.HTTPPort)
 	log.Printf("✔ API en écoute sur %s (onion:80 → ici)", addr)

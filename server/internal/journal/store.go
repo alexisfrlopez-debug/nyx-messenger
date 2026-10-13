@@ -260,6 +260,14 @@ func (s *Store) SinceMap() map[string]uint64 {
 	return m
 }
 
+// LastSeq — dernier seq accepté d'un auteur (0 = inconnu). Sert au transport
+// XMPP (ADR-014) pour positionner son curseur de publication par auteur.
+func (s *Store) LastSeq(author string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastSeq[author]
+}
+
 // EventsFor — événements strictement au-delà des seq fournies par auteur
 // (pour les auteurs inconnus : tout le journal de cet auteur).
 func (s *Store) EventsFor(want map[string]uint64, limit int) ([]*Event, bool) {

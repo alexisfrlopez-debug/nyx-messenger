@@ -28,6 +28,26 @@ type Admin struct {
 	AuthorizedKeys []AdminKey `json:"authorized_keys"`
 }
 
+// XMPP — transport alternatif opt-in (ADR-014, protocol/specs/transport-xmpp.md) :
+// un salon MUC d'un serveur XMPP tiers sert de bus aux enveloppes Nyx signées.
+// Vide (défaut) = transport DÉSACTIVÉ — l'onion v3 reste le transport premier
+// (ADR-009). Le mot de passe est un SECRET : data_dir/config.json uniquement,
+// jamais dans config.example.json (valeur factice) ni dans le dépôt.
+type XMPP struct {
+	Enabled    bool   `json:"enabled"`
+	Host       string `json:"host"`        // domaine XMPP, ex. "hookipa.net"
+	Port       int    `json:"port"`        // 5222 client / 5223 TLS direct ; 0 = 5222
+	JID        string `json:"jid"`         // compte pseudonyme dédié au réseau
+	Password   string `json:"password"`    // SECRET (jamais dans le dépôt)
+	MUC        string `json:"muc"`         // salon bus, ex. "nyx-bus@conference.hookipa.net"
+	Nick       string `json:"nick"`        // occupant ; vide = partie locale du JID
+	TorSOCKS   string `json:"tor_socks"`   // ex. "127.0.0.1:9050" ; vide = direct
+	TLSEnforce *bool  `json:"tls_enforce"` // défaut true (STARTTLS/TLS obligatoire)
+}
+
+// TLSEnforced — valeur effective de tls_enforce (défaut true).
+func (x XMPP) TLSEnforced() bool { return x.TLSEnforce == nil || *x.TLSEnforce }
+
 // Config — configuration du nœud.
 type Config struct {
 	DataDir     string `json:"data_dir"`
@@ -36,6 +56,7 @@ type Config struct {
 	SOCKSPort   int    `json:"socks_port"`   // SOCKS5 Tor (sortie gossip)
 	Peers       []Peer `json:"peers"`
 	Admin       Admin  `json:"admin"` // clés admin autorisées (console nyx-admin)
+	XMPP        XMPP   `json:"xmpp"`  // transport opt-in (ADR-014) ; vide = désactivé
 }
 
 // AdminEnabled — vrai si au moins une clé admin est configurée.

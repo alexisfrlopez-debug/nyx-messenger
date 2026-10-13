@@ -10,6 +10,12 @@
 //	show   --keys <fichier.json>     affiche l'adresse onion et la prochaine séquence
 //	event  --keys <f.json> [opts]    émet un événement signé (JSON) sur stdout
 //	verify <fichier.json|->          vérifie un événement (structure + signature + horloge)
+//	turn-creds --key-id <id> [--ttl s]  credentials ICE éphémères Cloudflare (ADR-014 :
+//	                                    token lu depuis NYX_TURN_API_TOKEN — jamais en argv)
+//	turn-creds --key-id <id> [--ttl s]  credentials ICE éphémères Cloudflare (ADR-014 :
+//	                                    token lu depuis NYX_TURN_API_TOKEN — jamais en argv)
+//	turn-creds --key-id <id> [--ttl s]  credentials ICE éphémères Cloudflare (ADR-014 :
+//	                                    token lu depuis NYX_TURN_API_TOKEN — jamais en argv)
 //
 // Exemples (voir GUIDE_DEMARRAGE.md) :
 //
@@ -32,6 +38,7 @@ import (
 	"time"
 
 	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/journal"
+	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/turn"
 )
 
 // keysFile — contenu du fichier d'identité cliente (même forme que identity.json
@@ -56,6 +63,7 @@ Usage :
   nyx-devtool event  --keys <fichier.json> [--type msg] [--body "texte"]
                      [--to <onion|public>] [--ttl 0] [--seq N]
   nyx-devtool verify <fichier.json|->
+  nyx-devtool turn-creds --key-id <TOKEN_ID> [--ttl 86400]
 
 Voir GUIDE_DEMARRAGE.md à la racine du projet pour le scénario complet.
 `)
@@ -228,6 +236,33 @@ func cmdVerify(args []string) {
 	fmt.Printf("OK  id=%s  auteur=%s  seq=%d  to=%s\n", ev.ID(), ev.Author, ev.Seq, ev.To)
 }
 
+// cmdTurnCreds — credentials ICE éphémères (ADR-014, phase 1) : appel API
+// Cloudflare avec le token lu depuis l'environnement NYX_TURN_API_TOKEN
+// (jamais d'argument de ligne de commande — visible dans `ps` ; jamais de
+// fichier dans le dépôt). Résultat : iceServers filtrés TCP-only sur stdout.
+func cmdTurnCreds(args []string) {
+	fs := flag.NewFlagSet("turn-creds", flag.ExitOnError)
+	keyID := fs.String("key-id", "", "Token ID de la clé TURN Cloudflare (obligatoire)")
+	ttl := fs.Int("ttl", 86400, "durée de vie des credentials en secondes (≤ 86400)")
+	_ = fs.Parse(args)
+	if *keyID == "" {
+		die("turn-creds: --key-id requis")
+	}
+	token := os.Getenv("NYX_TURN_API_TOKEN")
+	if token == "" {
+		die("turn-creds: variable d'environnement NYX_TURN_API_TOKEN absente (jamais en argv)")
+	}
+	servers, err := turn.GenerateICEServers(*keyID, token, *ttl)
+	if err != nil {
+		die("turn-creds: %v", err)
+	}
+	out, err := json.MarshalIndent(turn.TCPOnly(servers), "", "  ")
+	if err != nil {
+		die("turn-creds: encodage: %v", err)
+	}
+	fmt.Println(string(out))
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -241,6 +276,8 @@ func main() {
 		cmdEvent(os.Args[2:])
 	case "verify":
 		cmdVerify(os.Args[2:])
+	case "turn-creds":
+		cmdTurnCreds(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
