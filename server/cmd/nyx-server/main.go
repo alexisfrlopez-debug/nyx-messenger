@@ -16,6 +16,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"flag"
@@ -37,6 +38,7 @@ import (
 	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/journal"
 	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/tor"
 	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/transportxmpp"
+	"github.com/alexisfrlopez-debug/nyx-messenger/server/internal/turn"
 )
 
 const version = "0.2.0"
@@ -238,6 +240,28 @@ func main() {
 		defer pump.Stop()
 		log.Printf("[xmpp] transport MUC activé : %s (tor_socks=%q, tls_enforce=%v)",
 			cfg.XMPP.MUC, cfg.XMPP.TorSOCKS, cfg.XMPP.TLSEnforced())
+	}
+
+	// 5ter. Relais TURN (ADR-014 phase 2, opt-in — ADR-009 reste le défaut) :
+	// adresse relayée RFC 6062 obtenue outbound-only et maintenue ; publication
+	// au rendezvous signé = spec §4 (branchement à venir). Voie opt-in : la
+	// section "turn" est absente par défaut. SOCKS (Tor) = contrôle seul :
+	// l'acceptation des connexions peer exige un chemin TCP direct (§4.4).
+	if cfg.TURN.Enabled {
+		turnCtx, cancelTurn := context.WithCancel(context.Background())
+		defer cancelTurn()
+		go turn.MaintainRelay(turnCtx, turn.RelayParams{
+			RelayURL: cfg.TURN.RelayURL,
+			SOCKS:    cfg.TURN.SOCKS,
+			KeyID:    cfg.TURN.KeyID,
+			APIToken: cfg.TURN.APIToken,
+			Lifetime: time.Duration(cfg.TURN.Lifetime) * time.Second,
+		}, func(info turn.RelayInfo) {
+			// Publication rendezvous signé (spec §4) à brancher ici.
+			log.Printf("[turn] adresse relayée active : %s (TTL %s) — publication rendezvous à brancher (spec §4)",
+				info.RelayAddr, info.Lifetime)
+		})
+		log.Printf("[turn] relais activé : %s (socks=%q)", cfg.TURN.RelayURL, cfg.TURN.SOCKS)
 	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.HTTPPort)

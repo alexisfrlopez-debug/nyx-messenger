@@ -2,7 +2,11 @@
 
 Statut : **acté** (ADR-014) — implémentation phase 1 : `server/internal/turn/`
 (génération de credentials) + CLI `nyx-devtool turn-creds` ; **allocation RFC
-6062 = PHASE 2** (§6, non implémentée).
+6062 = PHASE 2 implémentée** (§6 : `stun.go` + `alloc.go` + `worker.go` +
+`reuseport_linux.go`, 16 tests verts dont E2E contre un faux relais local ;
+config opt-in `turn` + worker de maintien dans nyx-server ; CLI
+`nyx-devtool turn-alloc`) — reste à brancher : publication rendezvous signé
+(§4, la structure du rendezvous n'existe pas encore côté serveur).
 
 > Ce document spécifie comment un réplica Nyx privé de port entrant (VPS
 > restrictif, réseau NAT strict) peut néanmoins **recevoir** des connexions via
@@ -134,18 +138,38 @@ Le rendezvous signé (ADR-009 §3, embarqué dans l'APK) est **étendu** :
 - **anti-abus** : credentials éphémères TTL court ; le relais n'est jamais
   publié seul (toujours attaché à un rendezvous signé).
 
-## 6. Phase 2 — allocation RFC 6062 côté réplica (non implémentée)
+## 6. Phase 2 — allocation RFC 6062 côté réplica (implémentée — session 18)
 
-À implémenter en stdlib (+ x/crypto) — **pion écarté** (ADR-014) :
+Implémentation : `server/internal/turn/` — stdlib (+ x/net pour SOCKS5) —
+**pion écarté** (ADR-014) :
 
-1. TLS vers `turn.cloudflare.com:5349` (via SOCKS5 Tor si configuré) ;
-2. `ALLOCATE` avec `REQUESTED-TRANSPORT=TCP (6)` (RFC 6062 §4.2) ;
-3. `CONNECT` vers l'adresse pair cible → le relais renvoie
-   `CONNECTION-SUCCESS` + adresse relayée (XOR-PEER-ADDRESS / XOR-RELAYED-ADDRESS) ;
-4. publication au rendezvous (§4) + acceptation de la connexion entrante
-   relayée sur le socket retourné ;
-5. refresh d'allocation (`REFRESH`) avant expiration ; renouvellement des
-   credentials via §2.
+1. `DialControl` : TLS vers `turn.cloudflare.com:5349` (via SOCKS5 Tor si
+   configuré) ; écouteur couplé SO_REUSEPORT créé AVANT le dial (le relais
+   ouvre la connexion peer ENTRANTE vers le port source du contrôle, §4.4) ;
+2. `Allocate` : `ALLOCATE` avec `REQUESTED-TRANSPORT=TCP (6)` (RFC 6062 §4.2),
+   credentials SHORT-TERM (clé = credential éphémère, HMAC-SHA1 RFC 5389
+   §15.4) + FINGERPRINT (CRC32 XOR « STUN ») ; XOR-RELAYED-ADDRESS + LIFETIME
+   décodés ; réponses de succès sans MESSAGE-INTEGRITY rejetées (anti-MITM) ;
+3. `Connect` : `CONNECT` vers le pair cible → `ConnectionAttempt` (indication
+   mise en file si intercalée) → acceptation de la TCP entrante dont la SOURCE
+   = adresse relayée (vérifiée, RFC 6062 §4.4) → `CONNECTION-BIND` (même
+   TRANSACTION-ID que l'indication, signé) → canal applicatif retourné ;
+4. publication au rendezvous (§4) : `Allocation.RelayAddr()` (et
+   `RelayInfo.RelayAddr` du worker) — BRANCHEMENT À FAIRE quand le rendezvous
+   signé existera côté serveur ;
+5. `worker.MaintainRelay` : regénération des credentials éphémères (§2),
+   `REFRESH` aux 2/3 du TTL, ré-allocation après rupture — backoff 30 s →
+   15 min ; config opt-in `turn` {relay_url, key_id, api_token (SECRET),
+   socks, lifetime} ; CLI `nyx-devtool turn-alloc` (diagnostic opérateur,
+   token via `NYX_TURN_API_TOKEN`).
 
-Budget estimé : ~600 lignes (STUN framing + message integrity HMAC-SHA1 sur le
-credential éphémère — `SHORT-TERM CREDENTIALS` RFC 5389 §10.1).
+**Contrainte §4.4** : l'acceptation des connexions peer exige un chemin TCP
+DIRECT (le relais ramène la connexion entrante par le chemin NAT déjà
+traversé) — Tor/SOCKS5 ne sert qu'à la connexion de contrôle (gén/refresh).
+Tests : `alloc_test.go` — faux relais TURN TCP local (ALLOCATE/CONNECT/
+ConnectionAttempt/CONNECTION-BIND/REFRESH, relais d'octets bidirectionnel),
+erreurs explicites (401 credential invalide, réponse mal signée rejetée,
+frames tronquées, cookie invalide), URLs (turns:// et turns: sans //, UDP
+refusé, ports par défaut 5349/3478, IPv6).
+
+Budget réalisé : ~700 lignes + ~450 lignes de tests (estimation §6 : ~600).

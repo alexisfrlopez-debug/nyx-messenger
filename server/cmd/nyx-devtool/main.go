@@ -64,6 +64,11 @@ Usage :
                      [--to <onion|public>] [--ttl 0] [--seq N]
   nyx-devtool verify <fichier.json|->
   nyx-devtool turn-creds --key-id <TOKEN_ID> [--ttl 86400]
+  nyx-devtool turn-alloc --relay <url> --key-id <TOKEN_ID> [--ttl s]
+                         [--socks host:port] [--peer ip:port]
+                         allocation relais RFC 6062 (ADR-014 phase 2) :
+                         affiche l'adresse relayée ; avec --peer, établit le
+                         tunnel et relaie stdin/stdout (diagnostic)
 
 Voir GUIDE_DEMARRAGE.md à la racine du projet pour le scénario complet.
 `)
@@ -263,6 +268,63 @@ func cmdTurnCreds(args []string) {
 	fmt.Println(string(out))
 }
 
+// cmdTurnAlloc — diagnostic du relais TURN (ADR-014 phase 2) : génère des
+// credentials éphémères (token via NYX_TURN_API_TOKEN, jamais argv), alloue
+// (RFC 6062 §4.2) et affiche l'adresse relayée. Avec --peer : CONNECTION-BIND
+// complet puis relais stdin/stdout sur le tunnel (test manuel de bout en bout).
+func cmdTurnAlloc(args []string) {
+	fs := flag.NewFlagSet("turn-alloc", flag.ExitOnError)
+	relay := fs.String("relay", "", "URL du relais (défaut : première URL TCP des iceServers)")
+	keyID := fs.String("key-id", "", "Token ID de la clé TURN Cloudflare (obligatoire)")
+	ttl := fs.Int("ttl", 3600, "durée de vie demandée en secondes (≤ 86400)")
+	socks := fs.String("socks", "", "SOCKS5 pour la connexion de contrôle (ex. 127.0.0.1:9050)")
+	peer := fs.String("peer", "", "ip:port du pair cible (CONNECT RFC 6062 §4.3)")
+	_ = fs.Parse(args)
+	if *keyID == "" {
+		die("turn-alloc: --key-id requis")
+	}
+	token := os.Getenv("NYX_TURN_API_TOKEN")
+	if token == "" {
+		die("turn-alloc: variable d'environnement NYX_TURN_API_TOKEN absente (jamais en argv)")
+	}
+	ice, err := turn.GenerateICEServers(*keyID, token, *ttl)
+	if err != nil {
+		die("turn-alloc: %v", err)
+	}
+	if len(ice) == 0 {
+		die("turn-alloc: aucune entrée iceServers")
+	}
+	url, user, cred := turn.PickTCPURL(ice)
+	if url == "" {
+		die("turn-alloc: aucune URL TCP dans iceServers (UDP exclu — Tor TCP only)")
+	}
+	if *relay != "" {
+		url = *relay
+	}
+	fmt.Fprintf(os.Stderr, "[turn-alloc] contrôle : %s (socks=%q)\n", url, *socks)
+	ctrl, err := turn.DialControl(url, *socks, 20*time.Second)
+	if err != nil {
+		die("turn-alloc: %v", err)
+	}
+	alloc, err := ctrl.Allocate(user, cred, time.Duration(*ttl)*time.Second)
+	if err != nil {
+		die("turn-alloc: %v", err)
+	}
+	fmt.Printf("adresse relayée : %s (TTL %s)\n", alloc.RelayAddr(), alloc.Lifetime)
+	if *peer == "" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[turn-alloc] CONNECT %s — tunnel stdin/stdout (Ctrl-D pour finir)\n", *peer)
+	conn, err := alloc.Connect(*peer, 30*time.Second)
+	if err != nil {
+		die("turn-alloc: connect: %v", err)
+	}
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(conn, os.Stdin); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(os.Stdout, conn); done <- struct{}{} }()
+	<-done
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -278,6 +340,8 @@ func main() {
 		cmdVerify(os.Args[2:])
 	case "turn-creds":
 		cmdTurnCreds(os.Args[2:])
+	case "turn-alloc":
+		cmdTurnAlloc(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:

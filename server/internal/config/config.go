@@ -48,6 +48,23 @@ type XMPP struct {
 // TLSEnforced — valeur effective de tls_enforce (défaut true).
 func (x XMPP) TLSEnforced() bool { return x.TLSEnforce == nil || *x.TLSEnforce }
 
+// TURN — relais anti-blocage opt-in (ADR-014 phase 2, protocol/specs/
+// transport-turn.md) : le réplica obtient une adresse relayée (RFC 6062,
+// outbound-only) qu'il publie au rendezvous signé ; les métadonnées sont
+// visibles du relais (Cloudflare) → voie OPT-IN, jamais par défaut (ADR-009).
+// api_token = SECRET : data_dir/config.json uniquement, jamais dans
+// config.example.json (valeur factice) ni dans le dépôt ni dans les logs.
+// NB : l'acceptation des connexions peer (RFC 6062 §4.4) exige un chemin TCP
+// direct — socks ne sert qu'à la connexion de contrôle (génération/refresh).
+type TURN struct {
+	Enabled  bool   `json:"enabled"`
+	RelayURL string `json:"relay_url"` // ex. "turns://turn.cloudflare.com:5349?transport=tcp"
+	KeyID    string `json:"key_id"`    // Token ID Cloudflare (non secret)
+	APIToken string `json:"api_token"` // SECRET (jamais dans le dépôt)
+	SOCKS    string `json:"socks"`     // ex. "127.0.0.1:9050" ; vide = direct
+	Lifetime int    `json:"lifetime"`  // secondes (≤ 86400) ; 0 = 3600
+}
+
 // Config — configuration du nœud.
 type Config struct {
 	DataDir     string `json:"data_dir"`
@@ -57,6 +74,7 @@ type Config struct {
 	Peers       []Peer `json:"peers"`
 	Admin       Admin  `json:"admin"` // clés admin autorisées (console nyx-admin)
 	XMPP        XMPP   `json:"xmpp"`  // transport opt-in (ADR-014) ; vide = désactivé
+	TURN        TURN   `json:"turn"`  // relais opt-in (ADR-014 phase 2) ; vide = désactivé
 }
 
 // AdminEnabled — vrai si au moins une clé admin est configurée.

@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Configuration du nœud Nyx. Copier vers <data-dir>/config.json. Les pairs sont des réplicas : onion = adresse v3, gossip_pub = clé X25519 du canal de réplication (GET /identity sur ce pair). La section admin active l'API d'administration (onion DÉDIÉ port 9091, console nyx-admin — dépôt privé APPLI_ADMIN.md) : authorized_keys = clés publiques ed25519 (base64, 32 octets) des appareils autorisés. Section admin absente ou vide = API admin désactivée (aucun onion privilégié publié). La section « xmpp » (ADR-014) active un transport OPT-IN : un salon MUC XMPP sert de bus aux enveloppes Nyx signées (protocol/specs/transport-xmpp.md) — réplicas outbound-only, aucun port entrant, aucun onion requis. L'onion v3 reste le transport premier (ADR-009) : section absente ou enabled=false = transport désactivé. tls_enforce (défaut true) interdit toute authentification hors STARTTLS/TLS. tor_socks peut router le client XMPP via Tor (ex. \"127.0.0.1:9050\"). MOT DE PASSE = SECRET : à poser dans <data-dir>/config.json uniquement, JAMAIS de vrai secret dans cet exemple.",
+  "_commentaire": "Configuration du nœud Nyx. Copier vers <data-dir>/config.json. Les pairs sont des réplicas : onion = adresse v3, gossip_pub = clé X25519 du canal de réplication (GET /identity sur ce pair). La section admin active l'API d'administration (onion DÉDIÉ port 9091, console nyx-admin — dépôt privé APPLI_ADMIN.md) : authorized_keys = clés publiques ed25519 (base64, 32 octets) des appareils autorisés. Section admin absente ou vide = API admin désactivée (aucun onion privilégié publié). La section « xmpp » (ADR-014) active un transport OPT-IN : un salon MUC XMPP sert de bus aux enveloppes Nyx signées (protocol/specs/transport-xmpp.md) — réplicas outbound-only, aucun port entrant, aucun onion requis. L'onion v3 reste le transport premier (ADR-009) : section absente ou enabled=false = transport désactivé. tls_enforce (défaut true) interdit toute authentification hors STARTTLS/TLS. La section « turn » (ADR-014 phase 2) active le relais TCP RFC 6062 (adresse relayée outbound-only, publiée au rendezvous signé) : métadonnées visibles du relais → OPT-IN documenté, JAMAIS par défaut ; key_id = Token ID (non secret) ; API TOKEN = SECRET ici uniquement. tor_socks peut router le client XMPP via Tor (ex. \"127.0.0.1:9050\"). MOT DE PASSE = SECRET : à poser dans <data-dir>/config.json uniquement, JAMAIS de vrai secret dans cet exemple.",
   "data_dir": "./data",
   "http_port": 8080,
   "control_port": 9051,
@@ -29,5 +29,13 @@
     "nick": "nyx-0000000000000000",
     "tor_socks": "127.0.0.1:9050",
     "tls_enforce": true
+  },
+  "turn": {
+    "enabled": false,
+    "relay_url": "turns://turn.cloudflare.com:5349?transport=tcp",
+    "key_id": "TOKEN_ID_CLOUDFLARE_NON_SECRET",
+    "api_token": "SECRET_A_POSER_DANS_DATA_DIR_CONFIG_JSON_UNIQUEMENT",
+    "socks": "127.0.0.1:9050",
+    "lifetime": 3600
   }
 }
