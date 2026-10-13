@@ -48,11 +48,14 @@ done
 
 # ---------- 1. APK ----------
 if [ -z "$APK" ]; then
-  APK=$(ls -t livrables/nyx-v"$VERSION"-*-release.apk 2>/dev/null | head -1 || true)
+  APK=$(ls -t livrables/dernieres-livrables/nyx-v"$VERSION"*.apk livrables/nyx-v"$VERSION"*.apk 2>/dev/null | head -1 || true)
 fi
 [ -n "$APK" ] && [ -f "$APK" ] || { echo "${RED}✗ APK v$VERSION introuvable dans livrables/ (lancer scripts/build-apk.sh d'abord)${NC}"; exit 1; }
 echo "  APK      : $APK"
 APK_SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+# empreintes « latest » : layout session 13 (dernieres-livrables/) ou ancien
+SUMS_LATEST="livrables/dernieres-livrables/SHA256SUMS-latest.txt"
+[ -f "$SUMS_LATEST" ] || SUMS_LATEST="livrables/SHA256SUMS-latest.txt"
 
 # ---------- 2. Notes ----------
 if [ -z "$NOTES_FILE" ]; then NOTES_FILE="docs/releases/$TAG.md"; fi
@@ -125,9 +128,28 @@ upload() { # $1=fichier  $2=nom d'asset  $3=content-type
 upload "$APK" "$(basename "$APK")" "application/vnd.android.package-archive"
 
 # Empreintes + audit : copies nominatives par version (sinon « latest » écrase le sens)
-cp -f livrables/SHA256SUMS-latest.txt "livrables/SHA256SUMS-$TAG.txt" 2>/dev/null || true
+cp -f "$SUMS_LATEST" "livrables/SHA256SUMS-$TAG.txt" 2>/dev/null || true
 [ -f "livrables/SHA256SUMS-$TAG.txt" ] && upload "livrables/SHA256SUMS-$TAG.txt" "SHA256SUMS-$TAG.txt" "text/plain"
 [ -f livrables/audit-report.txt ] && upload livrables/audit-report.txt "audit-report-$TAG.txt" "text/plain"
+
+# ---------- 6. Drive : archivage des remplacées + upload du jeu courant (§9.4) ----------
+# Systématique à CHAQUE release (session 18) : l'ancien APK client quitte
+# dernieres-livrables/ pour archives/v<ancienne>/, le nouveau jeu est téléversé.
+PUBLISH="scripts/publish-drive.sh"
+if [ -x "$PUBLISH" ]; then
+  DRIVE_FILES=("$APK")
+  [ -f "livrables/SHA256SUMS-$TAG.txt" ] && DRIVE_FILES+=("livrables/SHA256SUMS-$TAG.txt")
+  [ -f "$SUMS_LATEST" ] && DRIVE_FILES+=("$SUMS_LATEST")
+  DRIVE_DOCS=()
+  [ -f "livrables/audit-report.txt" ] && DRIVE_DOCS+=("livrables/audit-report.txt")
+  if "$PUBLISH" --kind client --version "$VERSION" --files "${DRIVE_FILES[@]}" --doc "${DRIVE_DOCS[@]}"; then
+    echo "${GRN}  ✓ Drive /livrables à jour (§9.4)${NC}"
+  else
+    echo "${YLW}  ⚠ publication Drive incomplète — relancer scripts/publish-drive.sh --kind client --version $VERSION${NC}"
+  fi
+else
+  echo "${YLW}  ⚠ scripts/publish-drive.sh absent — publication Drive à faire manuellement${NC}"
+fi
 
 REL_URL=$(curl -s "$API/releases/tags/$TAG" -H "Authorization: Bearer $PAT" | python3 -c "import json,sys;print(json.load(sys.stdin).get('html_url',''))")
 echo "${GRN}═══ RELEASE $TAG PUBLIÉE → $REL_URL ═══${NC}"

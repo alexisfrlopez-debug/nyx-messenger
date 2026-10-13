@@ -48,7 +48,10 @@ if [ -d "$CREDS" ] && python3 scripts/gdrive.py --status >/dev/null 2>&1; then
     while IFS= read -r f; do
       rel="${f#livrables/}"
       sub="livrables/$(dirname "$rel")"   # dirname "." → dossier racine livrables
-      python3 scripts/gdrive.py upload "$f" "$sub" --immutable >/dev/null \
+      # SHA256SUMS-latest.txt = mutable par définition (même taille à chaque
+      # version, contenu différent) → JAMAIS d'upload immuable pour lui.
+      IM="--immutable"; [ "$(basename "$f")" = "SHA256SUMS-latest.txt" ] && IM=""
+      python3 scripts/gdrive.py upload "$f" "$sub" $IM >/dev/null \
         && echo "${GRN}  ✓ Drive/$sub ← $rel${NC}" \
         || echo "${RED}  ✗ upload $rel${NC}"
     done < <(find livrables -type f)

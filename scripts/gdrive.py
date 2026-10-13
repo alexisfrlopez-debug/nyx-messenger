@@ -16,6 +16,7 @@ Usage :
   gdrive.py list <chemin/>               → contenu (direct)
   gdrive.py tree <chemin/>               → contenu récursif (dossiers puis fichiers)
   gdrive.py move <chemin/fichier> <dossier-dest/> → déplace (addParents/removeParents, dossier dest créé au besoin)
+  gdrive.py cat <chemin/fichier>         → contenu du fichier (vérification d'intégrité à distance)
   gdrive.py --status                     → credentials présents ? token valide ?
 """
 import json
@@ -213,6 +214,20 @@ class Drive:
         self._req("PATCH", f"{API}/files/{target['id']}", body, {"Content-Type": "application/json"})
         return target["id"]
 
+    def cat(self, path: str) -> bytes:
+        """Contenu d'un fichier distant (GET ?alt=media) — vérification d'intégrité."""
+        parts = [p for p in path.strip("/").split("/") if p]
+        if len(parts) < 1:
+            raise SystemExit("Chemin vide")
+        name = parts[-1]
+        parent = self.resolve("/".join(parts[:-1]), create=False)
+        q = f"name = '{name}' and '{parent}' in parents and trashed = false"
+        res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id)&pageSize=10")
+        found = res.get("files", [])
+        if len(found) != 1:
+            raise SystemExit(f"{len(found)} fichier(s) « {name} » — lecture annulée (unicité exigée)")
+        return self._req("GET", f"{API}/files/{found[0]['id']}?alt=media", raw=True)
+
     def list(self, path: str):
         folder = self.resolve(path, create=False)
         q = f"'{folder}' in parents and trashed = false"
@@ -274,6 +289,8 @@ def main():
         d.tree(args[1] if len(args) > 1 else "")
     elif cmd == "move":
         print(d.move(args[1], args[2]))
+    elif cmd == "cat":
+        sys.stdout.buffer.write(d.cat(args[1]))
     elif cmd == "delete":
         print(d.delete(args[1]))
     else:

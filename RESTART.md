@@ -468,10 +468,12 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 6. TODO app restants (android/README.md) : persistance compteur de séquence, écran
    d'ajout de réplica, tests instrumentés.
 7. Repli censure : ponts obfs4/snowflake via IPtProxy dans le torrc (ADR-007 §3).
-8. **Livrables console v0.3.1** (code poussé — commit privé 3b43fe9) :
-   installer.exe + zip Windows + APK admin via scripts/build-windows.sh +
-   build-apk.sh sur l'env de build habituel (JDK/tools + SDK Android), puis
-   /livrables (§9.4) + Drive + version consignée ici.
+8. **Livrables console v0.3.1 — PARTIEL** : jar desktop v0.3.1 construit et
+   déposé (dernieres-livrables/, archive nyx-admin-v0.3.0 complète — session
+   18) ; reste installer.exe + zip Windows + APK admin via
+   scripts/build-windows.sh + build-apk.sh sur l'env de build habituel
+   (JDK/tools + SDK Android), puis `publish-drive.sh --kind admin
+   --version 0.3.1 --files …` + version consignée ici.
 9. **TURN phase 2** (ADR-014/transport-turn.md §6) : allocation TCP RFC 6062
    côté réplica en stdlib (~600 lignes STUN/HMAC-SHA1), publication de
    l'adresse relayée dans le rendezvous signé, repli client documenté.
@@ -493,7 +495,7 @@ nyx/
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config,transportxmpp,turn})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
 ├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
-└── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh
+└── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh, publish-drive.sh
 ```
 
 ## 5. Comment redémarrer une session agent rapidement
@@ -617,6 +619,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 | 2026-10-13 | 16 | **Demande utilisateur : « le replica ne se déploie pas tout seul. dans l'onglet flotte, je voudrais un bouton pour déployer en un clic et un pour supprimer/modifier/renommer le replica »** → **ADR-013 + console nyx-admin v0.3.0** : SshDeployer (desktop, JSch mwiede — SFTP bundle → /tmp, extraction, install.sh STREAMÉ dans le dialogue, nettoyage trap EXIT, sudo -n si non-root, annulation = déconnexion) ; sécurité : AUCUN secret SSH persisté (hôte/port/utilisateur + bundlePath seulement — round-trip JSON + compat ascendante v0.2 testés), clé d'hôte épinglée TOFU journalisé (known_hosts console, [hôte]:port), changement de clé = échec explicite ; UI desktop : « Déployer » sur les cartes en attente + « Déployer maintenant… » en fin d'assistant + dialogue SSH (mdp OU clé + passphrase, relocalisation bundle, journal live) ; menu (⋯) Renommer/Modifier/Supprimer par carte (desktop + Android, retrait local — nœud intact, relance Tor client-auth) ; `ReplicaConfigJson` partagé core (SettingsStore + KeyVault) ; 16 tests JVM verts (sh -n réel des commandes root/sudo, quoting POSIX exécuté, tokens known_hosts) ; audits strict public/privé PASSED ; livrables : zip 106 Mo + installer.exe 108 Mo (smoke 223 fichiers) + APK admin 16 Mo (9/9 autonomie, versionCode 4) + SHA256SUMS → Drive. Dépôt privé : code+spec §9.4/§9.5+roadmap v0.3 ; public : ADR-013 + RESTART (décision 14). |
 | 2026-10-13 | 14 | **Demande utilisateur : « les réplicas se créent seuls dans la console admin quand je clique sur ajouter réplica, en gardant la possibilité d'en ajouter des existants »** → **ADR-012 + console v0.2.0** : admin-core `OnionIdentity` (ed25519, onion v3 SHA-3 BC — vecteur croisé Go↔Kotlin, X25519) + `ReplicaProvisioning` (bundle tar.gz ustar : binaire serveur linux/amd64, identités pré-remplies, config parrain+clé admin, torrc durci, systemd, install.sh avec sha256sum -c, LISEZMOI) — validé par GNU tar réel ; UI desktop choix Créer/Existant + état « en attente » + promotion + câblage flotte automatiques ; **correctif addPeer (gossip_pub base64 via GET /identity — l'envoi du booléen était rejeté 400)** ; miroir Android ; ADR-009 §2 amendé (identité forgée console, menace honnête hébergeur) ; APPLI_ADMIN.md §9 ; 7 tests JVM verts ; audits PASSED ; livrables zip Windows 106 Mo + APK signé → Drive. |
 | 2026-10-13 | 17 | **Demande utilisateur : « est-il possible de déployer sur un serveur xmpp type hookipa.net ? je voudrais pouvoir le faire » + « je regarde aussi pour utiliser un serveur TURN Cloudflare »** → **ADR-014 « Transports alternatifs commodity »** : analyse (hookipa.net = fournisseur de COMPTES chat, impossible d'y héberger le binaire ; la voie correcte = le MUC comme BUS de messages, enveloppes Nyx signées dedans, MAM = rattrapage) ; 2 voies OPT-IN (XMPP MUC ; TURN Cloudflare), onion v3 défaut (ADR-009), amendement ADR-005 (client XMPP maison stdlib+x/crypto, ni mellium ni pion) ; **specs d'abord** (transport-xmpp.md : join XEP-0045, enveloppes nyx1 base64 fragmentées ≤ 48 Ko sous max_stanza 64 Ko, MAM catch-up, JIDs pseudonymes, SOCKS5 Tor optionnel, publication des seuls événements propres ; transport-turn.md : creds éphémères Cloudflare — POST /v1/turn/keys/{id}/credentials/generate-ice-servers Bearer ttl ≤ 86400 —, phase 2 = allocation RFC 6062 + adresse relayée au rendezvous signé) ; **implémentation serveur** : internal/transportxmpp (XML streams, STARTTLS obligatoire défaut, SASL SCRAM-SHA-1 anti-MITM + repli PLAIN, bind, MUC join 110, groupchat, MAM, dial SOCKS5 Tor, backoff 30 s→15 min ; pompe journal↔MUC par-auteur, réassemblage FIFO 128/TTL 10 min ; OnNew→kick gossip) + config `xmpp` (password = SECRET data_dir only, example factice) + internal/turn + CLI `nyx-devtool turn-creds` (token via NYX_TURN_API_TOKEN, jamais argv ; TCPOnly — UDP exclu, Tor TCP only) ; **12 tests Go verts** (SCRAM math réel client↔serveur + imposteurs rejetés, handshake complet PLAIN/SCRAM contre faux serveur, TLS exigé, pompe : signé intégré/rejeu idempotent/falsifié rejeté) ; go vet OK, **audit strict PASSED 0/0** ; audit.py précisé (xmlns = identifiant d'espace de noms, pas une URL) ; smoke binaire (xmpp disabled → rien ; enabled → « transport MUC activé » + backoff propre, /health saine) ; ⚠️ **workspace reconstruit après reset** : nyx-messenger recloné (HEAD public dabe50c retrouvé sur GitHub — le « 1 commit non poussé » de la session 16 est donc soit déjà poussé, soit perdu avec l'ancien disque ; nyx-admin et .credentials/tokens/ à restaurer §6) ; console nyx-admin (choix transport) NON applicable sans le privé — modification préparée ; push/Drive en attente de credentials (§9.3 SKIP explicite). **Suite (même session, credentials restaurés)** : dossier « Tokens » téléversé du Drive vers .credentials/tokens/ (6 fichiers, §6) — gdrive.py --status OK ; push public b8cc2eb ; nyx-admin cloné (b1fcd90) puis **console v0.3.1** : assistant « Créer un réplica » + étape « Transport principal » (VPS+onion / XMPP MUC / TURN v0.4 désactivé), XmppParams (validation JID/salon/port/SOCKS), section `xmpp` du bundle (mot de passe = bundle ONLY), badge Flotte desktop+Android, `ReplicaConfig.transport` (défaut onion), +10 tests JVM (18/18), audit privé PASSED (JIDs d'exemple exclus SEC-PERSONAL, commentés), fat jar OK — commit privé 3b43fe9 poussé ; livrables admin = SKIP (outils cross-build + SDK absents du conteneur, à faire sur l'env habituel) ; worklog + RESTART sauvegardés → sauvegardes/session-2026-10-13/. |
+| 2026-10-13 | 18 | **Demande utilisateur : « dépose les dernières livrables dans le drive et archive les anciennes qui s'y trouvent. il faut faire ça systématiquement à chaque release »** → **Règle §9.4 durcie (rév. session 18)** : nouveau `scripts/publish-drive.sh` — publication Drive SYSTÉMATIQUE par famille (client/admin) : archivage des versions remplacées de `dernieres-livrables/` → `archives/v<ancienne>/` (client) ou `archives/nyx-admin-v<ancienne>/` (admin), puis upload du jeu courant (uploads immuables nom+taille ; `SHA256SUMS-latest.txt` = MUTABLE par définition, jamais immuable) + documents → `documents/` ; appelé AUTOMATIQUEMENT par `release.sh` (étape 6, famille client), invocation directe pour l'admin ; `sync.sh` aligné (latest jamais immuable) ; `gdrive.py` +`cat` (lecture distante = vérification d'intégrité) ; **Drive vérifié/rangé** : jar console v0.3.1 en `dernieres-livrables/` (empreinte d1f56369… vérifiée cat ↔ sha256sum), `SHA256SUMS-nyx-admin-v0.3.1.txt` en place, archive `nyx-admin-v0.3.0/` complète (ID consigné ops/INFRA.md) ; `.gitignore` privé durci (artefacts de livraison racine) ; à-faire n°8 réduit (reste installer.exe/zip/APK admin sur env de build) ; audits public/privé PASSED, commits + pushs public/privé, RESTART synchronisé sur le Drive. |
 
 ## 9. Règles permanentes — audit, APK autonomes, synchro, livrables (session 5+)
 
@@ -684,7 +687,7 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
   + le dossier Drive projet « Messagerie » (docs + archive) + le dossier dédié
   **« Tokens »** (credentials + keystore) — procédure §6.
 
-### 9.4 Livrables dans /livrables — 3 zones (rév. session 13)
+### 9.4 Livrables dans /livrables — 3 zones (rév. sessions 13, 18)
 
 > Demande utilisateur (session 13) : « un sous-dossier pour ranger tous les
 > dossiers archives, un pour stocker les documents et un pour déposer les
@@ -705,10 +708,27 @@ Le pipeline `scripts/build-apk.sh` enchaîne : **audit strict → assembleReleas
 - **Drive** : dossier **`/livrables`** (« Messagerie » ; référence exacte :
   dépôt privé `nyx-admin`, `ops/INFRA.md`) — même arborescence ; `sync.sh`
   propage par upload récursif IMMUABLE (nom + taille identiques → skip).
-- **Archivage automatique** : à chaque build, `build-apk.sh` déplace la version
-  remplacée de `dernieres-livrables/` vers `archives/v<version>/` AVANT de
-  déposer la nouvelle ; console admin (dépôt privé) : rangement manuel, même
-  convention.
+- **Publication Drive SYSTÉMATIQUE à chaque release — `scripts/publish-drive.sh`
+  (rév. session 18, demande opérateur : « il faut faire ça systématiquement à
+  chaque release »)** : à CHAQUE version livrée (client OU console admin), le
+  script 1) ARCHIVE dans `archives/…` tout livrable de la MÊME famille encore
+  dans `dernieres-livrables/` dont la version n'est plus la version publiée
+  (client → `archives/v<ancienne>/`, admin → `archives/nyx-admin-v<ancienne>/`),
+  puis 2) TÉLÉVERSE le nouveau jeu dans `dernieres-livrables/` (uploads
+  immuables nom+taille → skip ; `SHA256SUMS-latest.txt` = fichier MUTABLE par
+  définition — jamais d'upload immuable pour lui) ; les documents (`--doc`)
+  vont dans `documents/`. Appelé AUTOMATIQUEMENT par `release.sh` (famille
+  client, étape 6) ; famille admin = invocation directe depuis le dépôt privé
+  (`scripts/publish-drive.sh --kind admin --version X.Y.Z --files …`).
+  Idempotent : relancé à l'identique, il n'archive rien et saute les uploads
+  déjà présents. SKIP propre si credentials Drive absents (livrables en
+  attente dans le miroir local, relance plus tard). `sync.sh` est aligné.
+- **Archivage automatique côté build** : à chaque build, `build-apk.sh` déplace
+  la version remplacée de `dernieres-livrables/` vers `archives/v<version>/`
+  AVANT de déposer la nouvelle ; la console admin suit la même convention via
+  `publish-drive.sh` (fin du rangement manuel).
+- Vérification d'intégrité distante : `gdrive.py cat livrables/…` (contenu du
+  fichier distant — comparer à l'empreinte locale).
 - Nommage : `nyx-v<versionName>-<AAAAMMJJ-HHMMSS>-release.apk` (inchangé).
 
 ### 9.5 Hygiène permanente (rappel durci)
