@@ -52,3 +52,7 @@ Thumbs.db
 *.tmp
 *.bak
 __pycache__/
+
+# --- Build test : credentials Drive de l'export de logs (dossier « Tokens », §6) ---
+android/test-upload.properties
+android/replica-bootstrap.properties

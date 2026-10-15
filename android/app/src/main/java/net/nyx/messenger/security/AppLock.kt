@@ -38,6 +38,7 @@ object AppLock {
         enabled = enabledNow
         backgroundSuspension = false
         _locked.value = enabledNow
+        android.util.Log.i("nyx-lock", "init : opt-in=$enabledNow, verrouillé=$enabledNow")
     }
 
     /**
@@ -55,13 +56,16 @@ object AppLock {
         if (!enabled) return
         if (backgroundSuspension) {
             backgroundSuspension = false
+            android.util.Log.d("nyx-lock", "arrière-plan suspendu (flux système attendu)")
             return
         }
+        android.util.Log.i("nyx-lock", "arrière-plan → re-verrouillage")
         _locked.value = true
     }
 
     /** Déverrouillage (après succès de la vérification OS). */
     fun unlock() {
+        android.util.Log.i("nyx-lock", "déverrouillé")
         _locked.value = false
     }
 

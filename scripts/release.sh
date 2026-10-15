@@ -8,9 +8,13 @@
 #   4. Téléverse les assets : APK signé + SHA256SUMS + rapport d'audit
 #
 # Usage :
-#   scripts/release.sh --version 0.1.1 \
-#     [--apk livrables/dernieres-livrables/nyx-v0.1.1-…-release.apk] [--commit <sha>]
-#     [--title "…"] [--notes-file docs/releases/v0.1.1.md] [--prerelease]
+#   scripts/release.sh --version 0.2.2 \
+#     [--apk livrables/dernieres-livrables/nyx-v0.2.2-…-release.apk] \
+#     [--test-apk livrables/dernieres-livrables/nyx-v0.2.2-…-test.apk] \
+#     [--commit <sha>] [--title "…"] [--notes-file docs/releases/v0.2.2.md] [--prerelease]
+#
+# Depuis v0.2.2 (règle release) : chaque version publie DEUX APK — standard +
+# test (bouton rouge). --test-apk optionnel pour rétrocompatibilité.
 #
 # Notes de version : par convention `docs/releases/v<version>.md` (versionnées
 # dans le dépôt) ; à défaut un résumé générique est produit.
@@ -22,11 +26,12 @@ REPO="alexisfrlopez-debug/nyx-messenger"
 CREDS=/home/z/my-project/.credentials
 RED=$'\033[31m'; GRN=$'\033[32m'; YLW=$'\033[33m'; NC=$'\033[0m'
 
-VERSION=""; APK=""; COMMIT=""; TITLE=""; NOTES_FILE=""; PRERELEASE=false
+VERSION=""; APK=""; TEST_APK=""; COMMIT=""; TITLE=""; NOTES_FILE=""; PRERELEASE=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION="$2"; shift 2 ;;
     --apk) APK="$2"; shift 2 ;;
+    --test-apk) TEST_APK="$2"; shift 2 ;;
     --commit) COMMIT="$2"; shift 2 ;;
     --title) TITLE="$2"; shift 2 ;;
     --notes-file) NOTES_FILE="$2"; shift 2 ;;
@@ -52,6 +57,10 @@ if [ -z "$APK" ]; then
 fi
 [ -n "$APK" ] && [ -f "$APK" ] || { echo "${RED}✗ APK v$VERSION introuvable dans livrables/ (lancer scripts/build-apk.sh d'abord)${NC}"; exit 1; }
 echo "  APK      : $APK"
+if [ -n "$TEST_APK" ]; then
+  [ -f "$TEST_APK" ] || { echo "${RED}✗ APK test introuvable : $TEST_APK${NC}"; exit 1; }
+  echo "  APK test : $TEST_APK"
+fi
 APK_SHA=$(sha256sum "$APK" | cut -d' ' -f1)
 # empreintes « latest » : layout session 13 (dernieres-livrables/) ou ancien
 SUMS_LATEST="livrables/dernieres-livrables/SHA256SUMS-latest.txt"
@@ -126,6 +135,7 @@ upload() { # $1=fichier  $2=nom d'asset  $3=content-type
 }
 
 upload "$APK" "$(basename "$APK")" "application/vnd.android.package-archive"
+[ -n "$TEST_APK" ] && upload "$TEST_APK" "$(basename "$TEST_APK")" "application/vnd.android.package-archive"
 
 # Empreintes + audit : copies nominatives par version (sinon « latest » écrase le sens)
 cp -f "$SUMS_LATEST" "livrables/SHA256SUMS-$TAG.txt" 2>/dev/null || true
@@ -138,6 +148,7 @@ cp -f "$SUMS_LATEST" "livrables/SHA256SUMS-$TAG.txt" 2>/dev/null || true
 PUBLISH="scripts/publish-drive.sh"
 if [ -x "$PUBLISH" ]; then
   DRIVE_FILES=("$APK")
+  [ -n "$TEST_APK" ] && DRIVE_FILES+=("$TEST_APK")
   [ -f "livrables/SHA256SUMS-$TAG.txt" ] && DRIVE_FILES+=("livrables/SHA256SUMS-$TAG.txt")
   [ -f "$SUMS_LATEST" ] && DRIVE_FILES+=("$SUMS_LATEST")
   DRIVE_DOCS=()

@@ -34,21 +34,44 @@ class NyxRepository(
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
     @JvmField
     var replicas: List<String> = emptyList()
-    private var client: RelayClient? = null
+
+    // Bug v0.2.2 n°2 : setReplicas n'était JAMAIS appelé (aucune liste de
+    // rendezvous embarquée — ADR-009) et le client figeait le port SOCKS de
+    // tor À SA CRÉATION, alors que les ports tor sont DYNAMIQUES (NyxTorConfig
+    // sonde un port libre à chaque démarrage). Le relais est donc reconstruit
+    // dès que le port courant change.
+    private var relayPort: Int = -1
+    private var relayClient: RelayClient? = null
 
     fun setReplicas(onions: List<String>) {
-        replicas = onions
-        // SOCKS : port du Tor EMBARQUÉ (dynamique — ADR-007), plus Orbot requis.
-        client = replicas.firstOrNull()?.let {
-            RelayClient.forReplica(it, socksPort = net.nyx.messenger.tor.TorManager.activeSocksPort)
-        }
+        replicas = onions.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        relayPort = -1
+        relayClient = null
     }
+
+    /** Relais courant (reconstruit si le port SOCKS de tor a changé). */
+    private fun relay(): RelayClient? {
+        val port = net.nyx.messenger.tor.TorManager.activeSocksPort
+        val c = relayClient
+        if (c != null && port == relayPort) return c
+        val fresh = replicas.firstOrNull()?.let {
+            RelayClient.forReplica(it, socksPort = port).also { _ ->
+                android.util.Log.i("nyx-repo", "relais réplica : ${it.take(16)}… (socks $port)")
+            }
+        }
+        relayClient = fresh
+        relayPort = port
+        return fresh
+    }
+
+    /** Sonde de joignabilité du réplica rattaché (GET /health via Tor). */
+    suspend fun replicaHealth(): Boolean = relay()?.health() ?: false
 
     /* ---------------- envoi ---------------- */
 
     suspend fun send(peerOnion: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val relay = client ?: error("aucun réplica configuré")
+            val relay = relay() ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
             val peerPub = OnionCodec.onionToPubKey(peerOnion)
@@ -93,7 +116,7 @@ class NyxRepository(
 
     /** Poll de la boîte de réception sur le réplica rattaché. */
     suspend fun pollInbox(): Int = withContext(Dispatchers.IO) {
-        val relay = client ?: return@withContext 0
+        val relay = relay() ?: return@withContext 0
         val me = identity.onionAddress ?: return@withContext 0
         val priv = identity.secretKey()
 
@@ -153,7 +176,7 @@ class NyxRepository(
      */
     suspend fun checkAlias(name: String): Result<AliasInfo> = withContext(Dispatchers.IO) {
         runCatching {
-            val relay = client ?: error("aucun réplica configuré — vérification à la première connexion")
+            val relay = relay() ?: error("aucun réplica configuré — vérification à la première connexion")
             val res = relay.resolveAlias(name)
             AliasInfo(name, res.taken, res.by)
         }
@@ -166,7 +189,7 @@ class NyxRepository(
      */
     suspend fun claimAlias(name: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val relay = client ?: error("aucun réplica configuré")
+            val relay = relay() ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
             val bodyJson = "{\"alias\":\"$name\",\"action\":\"claim\"}"
@@ -211,7 +234,7 @@ class NyxRepository(
                 val (bodyCard, err) = store.publicCard()
                 err?.let { error(it) }
                 val card = bodyCard ?: return@runCatching // rien de public : no-op
-                val relay = client ?: error("aucun réplica configuré")
+                val relay = relay() ?: error("aucun réplica configuré")
                 val me = identity.onionAddress ?: error("identité absente")
                 val priv = identity.secretKey()
 
@@ -236,7 +259,7 @@ class NyxRepository(
     suspend fun contactProfile(onion: String): Result<net.nyx.messenger.net.ProfileResponse?> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val relay = client ?: error("aucun réplica configuré")
+                val relay = relay() ?: error("aucun réplica configuré")
                 relay.profile(onion.lowercase())
             }
         }
@@ -261,7 +284,7 @@ class NyxRepository(
         runCatching {
             val name = net.nyx.messenger.crypto.AliasValidator.normalize(alias)
             check(net.nyx.messenger.crypto.AliasValidator.isValid(name)) { "format d'alias invalide" }
-            val relay = client ?: error("aucun réplica configuré")
+            val relay = relay() ?: error("aucun réplica configuré")
             val res = relay.resolveAlias(name)
             if (!res.taken) return@runCatching AliasAddResult.Free
             val onion = res.by ?: error("résolution incomplète (alias pris sans détenteur)")

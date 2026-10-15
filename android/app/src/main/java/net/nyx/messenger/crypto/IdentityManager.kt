@@ -79,6 +79,38 @@ class IdentityManager private constructor(context: Context) {
         return KeystoreBox.open(Base64.getDecoder().decode(sealed))
     }
 
+    /**
+     * Graine ed25519 (32 octets — [0..32) du format libsodium stocké) :
+     * la clé de récupération du compte (v0.2.3). JAMAIS journalisée.
+     */
+    fun seed(): ByteArray = secretKey().copyOfRange(0, 32)
+
+    /**
+     * Restaure l'identité depuis une graine de récupération (v0.2.3) :
+     * re-dérive la paire (même adresse onion garantie), scelle et écrase les
+     * préférences locales. Retourne l'adresse restaurée.
+     */
+    @Synchronized
+    fun restoreFromSeed(seed: ByteArray): String {
+        require(seed.size == 32) { "graine ed25519 : ${seed.size} octets ≠ 32" }
+        val pk = ByteArray(Sign.ED25519_PUBLICKEYBYTES)
+        val sk = ByteArray(Sign.ED25519_SECRETKEYBYTES)
+        sodium.cryptoSignSeedKeypair(pk, sk, seed)
+
+        val onion = OnionCodec.pubKeyToOnion(pk)
+        val sealed = KeystoreBox.seal(sk)
+        val b64 = Base64.getEncoder()
+        prefs.edit()
+            .putString(KEY_ONION, onion)
+            .putString(KEY_PUB, b64.encodeToString(pk))
+            .putString(KEY_PRIV, b64.encodeToString(sealed))
+            .apply()
+
+        onionAddress = onion
+        publicKey = pk
+        return onion
+    }
+
     /** Enregistre l'alias choisi (vérifié avant appel — AliasValidator + réplica). */
     @Synchronized
     fun setAlias(name: String) {

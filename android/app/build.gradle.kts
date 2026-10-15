@@ -17,6 +17,25 @@ val keystoreProps = Properties().apply {
 }
 val hasReleaseKeystore = keystoreProps.getProperty("storeFile") != null
 
+// Build « test » (v0.2.2) : credentials Drive pour l'export de logs par le gros
+// bouton rouge — fichier GIT-IGNORÉ (jamais dans le dépôt), alimenté depuis le
+// dossier « Tokens » (RESTART.md §6). En son absence : build fonctionnel mais
+// le bouton affiche « credentials absents ».
+val testUploadProps = Properties().apply {
+    val f = rootProject.file("test-upload.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun testUpload(key: String): String = testUploadProps.getProperty(key) ?: ""
+
+// Réplicas d'amorçage (v0.2.3 — pont ADR-009 en attendant le rendezvous signé) :
+// liste « onion[,onion…] » GIT-IGNORÉE, embarquée dans le build. En son absence
+// l'app démarre sans réplica rattaché (l'onboarding l'indique explicitement).
+val replicaProps = Properties().apply {
+    val f = rootProject.file("replica-bootstrap.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val bootstrapReplicas = replicaProps.getProperty("replicas") ?: ""
+
 android {
     namespace = "net.nyx.messenger"
     compileSdk = 35
@@ -25,10 +44,37 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.2.1"
+        versionCode = 7
+        versionName = "0.2.3"
+        // Credentials Drive du build test (vides si test-upload.properties absent)
+        buildConfigField("String", "DRIVE_CLIENT_ID",     "\"${testUpload("drive.clientId")}\"")
+        buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${testUpload("drive.clientSecret")}\"")
+        buildConfigField("String", "DRIVE_REFRESH_TOKEN", "\"${testUpload("drive.refreshToken")}\"")
+        buildConfigField("String", "DRIVE_FOLDER_ID",     "\"${testUpload("drive.folderId")}\"")
+        // Réplicas d'amorçage embarqués (v0.2.3 — vide si replica-bootstrap.properties absent)
+        buildConfigField("String", "BOOTSTRAP_REPLICAS", "\"$bootstrapReplicas\"")
     }
 
+    // Deux livrables par release (règle v0.2.2) :
+    //  - « standard » : l'app publique, inchangée ;
+    //  - « diag »     : + gros bouton rouge (écran conversations) qui collecte
+    //    les logs et les dépose dans le dossier de travail Drive pour examen.
+    //    NB : le flavor s'appelle « diag » car AGP interdit les noms commençant
+    //    par « test » — l'UTILISATEUR voit toujours « Nyx TEST » / « -test ».
+    flavorDimensions += "mode"
+    productFlavors {
+        create("standard") {
+            dimension = "mode"
+            buildConfigField("boolean", "TEST_BUILD", "false")
+        }
+        create("diag") {
+            dimension = "mode"
+            applicationIdSuffix = ".test"          // cohabite avec l'app standard
+            versionNameSuffix = "-test"
+            resValue("string", "app_name", "Nyx TEST")
+            buildConfigField("boolean", "TEST_BUILD", "true")
+        }
+    }
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
@@ -59,6 +105,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"

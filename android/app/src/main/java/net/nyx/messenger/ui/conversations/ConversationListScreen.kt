@@ -3,8 +3,10 @@ package net.nyx.messenger.ui.conversations
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,10 +38,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import net.nyx.messenger.BuildConfig
 import net.nyx.messenger.R
 import net.nyx.messenger.crypto.AliasValidator
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.tor.TorManager
+import net.nyx.messenger.ui.diag.TestLogExportCard
 
 /**
  * Liste des conversations + ajout de contact (v0.2.0) :
@@ -108,6 +112,11 @@ fun ConversationListScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             TorBanner(torState)
+            // Build test : gros bouton rouge d'export de logs vers le Drive (v0.2.2).
+            if (BuildConfig.TEST_BUILD) {
+                Spacer(Modifier.height(8.dp))
+                TestLogExportCard()
+            }
             if (showAdd) {
                 // Un seul champ : alias (@pseudo) OU adresse onion — détection auto.
                 OutlinedTextField(

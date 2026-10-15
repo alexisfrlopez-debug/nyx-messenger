@@ -10,7 +10,31 @@
     <string name="copy">Copier</string>
     <string name="copied">Adresse copiée</string>
     <string name="continuer">Continuer</string>
-    <string name="restore_backup">Restaurer une sauvegarde (v0.2)</string>
+    <string name="restore_backup">Restaurer une sauvegarde</string>
+
+    <!-- v0.2.3 — attente d\'une connexion réplica valide AVANT création d\'identité -->
+    <string name="onboarding_gate_hint">La création de l\'identité attend que la connexion au réplica soit vérifiée.</string>
+    <string name="replica_checking">Vérification de la connexion au réplica…</string>
+    <string name="replica_ok">Réplica joignable — vous pouvez créer votre identité.</string>
+    <string name="replica_down">Réplica injoignable — nouvelle tentative automatique…</string>
+    <string name="replica_none_configured">Ce build n\'embarque aucun réplica d\'amorçage : la création d\'identité est bloquée jusqu\'à configuration (rendezvous).</string>
+
+    <!-- v0.2.3 — clé de récupération + sauvegarde/restauration (ADR-003) -->
+    <string name="recovery_title">Votre clé de récupération</string>
+    <string name="recovery_desc">Écrivez cette clé sur papier et conservez-la HORS de l\'appareil : elle seule recrée votre compte (même adresse) sur un autre téléphone. Qui la possède peut usurper votre identité.</string>
+    <string name="recovery_save">Enregistrer dans un fichier…</string>
+    <string name="restore_title">Restaurer une sauvegarde</string>
+    <string name="restore_desc">Collez votre clé de récupération « nyx1.… » ou importez le fichier de sauvegarde. Votre identité actuelle (si elle existe) sera remplacée.</string>
+    <string name="restore_paste_hint">nyx1.…</string>
+    <string name="restore_pick_file">Choisir un fichier de sauvegarde…</string>
+    <string name="restore_confirm">Restaurer cette identité</string>
+    <string name="cancel">Annuler</string>
+    <string name="restore_invalid">Clé invalide : %1$s</string>
+    <string name="settings_backup_title">Sauvegarde de l\'identité</string>
+    <string name="settings_backup_desc">Votre compte tient dans une clé : affichez-la, copiez-la ou exportez-la dans un fichier à conserver hors de l\'appareil.</string>
+    <string name="settings_backup_show">Afficher ma clé de récupération</string>
+    <string name="settings_backup_hide">Masquer la clé</string>
+    <string name="settings_backup_export">Exporter dans un fichier…</string>
     <string name="conversations">Conversations</string>
     <string name="add_contact">Ajouter un contact</string>
     <string name="add">Ajouter</string>
@@ -115,4 +139,14 @@
     <string name="add_contact_local_alias">Nom local (optionnel)</string>
     <string name="add_contact_added_alias">Contact ajouté : @%1$s</string>
     <string name="add_contact_alias_free">« @%1$s » n\'est pas réservé sur ce réplica — vérifiez l\'orthographe.</string>
+
+    <!-- Débogage — build « test » uniquement (bouton rouge, export logs vers le Drive) -->
+    <string name="debug_card_title">Build TEST — débogage</string>
+    <string name="debug_button">ENVOYER LES LOGS AU DÉBOGAGE</string>
+    <string name="debug_button_running">COLLECTE + ENVOI EN COURS…</string>
+    <string name="debug_collecting">Collecte des journaux système…</string>
+    <string name="debug_uploading">Envoi vers le dossier de travail Drive…</string>
+    <string name="debug_done">✔ Déposé dans le Drive : %1$s</string>
+    <string name="debug_failed">✗ Échec : %1$s</string>
+    <string name="debug_no_credentials">✗ Ce build n\'embarque pas de credentials Drive (test-upload.properties absent au moment de la compilation).</string>
 </resources>

@@ -52,9 +52,10 @@ class MainActivity : FragmentActivity() {
         requestNotificationPermissionIfNeeded()
         startEmbeddedTor()
         // Verrou biométrique opt-in (ADR-010 §3) : verrouillé à froid si activé.
-        AppLock.init(
-            ServiceLocator.identity.exists && SettingsManager.get(this).biometricLock
-        )
+        val biometricOptIn = SettingsManager.get(this).biometricLock
+        val identityExists = ServiceLocator.identity.exists
+        android.util.Log.i("nyx-lock", "onCreate : identité=$identityExists, opt-in=$biometricOptIn")
+        AppLock.init(identityExists && biometricOptIn)
 
         // Fermeture (v0.2.0) : interception du retour système — le dialogue
         // « réduire ou quitter » n'a de sens qu'une fois l'identité créée

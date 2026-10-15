@@ -180,6 +180,27 @@ class TorManager private constructor(context: Context) {
         }
     }
 
+    /**
+     * Fournit la clé d'identité et publie le service onion IMMÉDIATEMENT —
+     * v0.2.3 : Tor démarre dès l'onboarding (sans clé, rien à publier), la
+     * publication ne peut donc PAS repasser par [start] (le démon étant déjà
+     * lancé, NyxTorService ne re-déclenche pas reportStarted et l'état
+     * resterait bloqué à Starting). Appelé après création/restauration de
+     * l'identité sur un tor déjà Ready.
+     */
+    fun provideKeyAndPublish(provider: () -> ByteArray?) {
+        keyProvider = provider
+        scope.launch {
+            runCatching { publishOwnOnion() }
+                .onSuccess { addr -> android.util.Log.i("nyx-tor", "onion service publié : $addr") }
+                .onFailure { e ->
+                    android.util.Log.w("nyx-tor", "publication onion différée : ${e.message}")
+                    // La publication a peut-être mis Failed — tor lui-même est prêt.
+                    if (_state.value is TorState.Failed) _state.value = TorState.Ready
+                }
+        }
+    }
+
     companion object {
         const val DEFAULT_SOCKS_PORT = 9050
         private const val BOOTSTRAP_TIMEOUT_S = 180
