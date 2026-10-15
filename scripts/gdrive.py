@@ -44,6 +44,7 @@ class Drive:
     def __init__(self):
         self.token = None
         self.token_exp = 0
+        self._resolve_cache: dict[str, str] = {}  # chemin → ID dossier (par processus)
         self.client_id, self.client_secret, self.refresh_token = self._load_creds()
 
     @staticmethod
@@ -125,9 +126,18 @@ class Drive:
         return parent
 
     def resolve(self, path: str, create: bool = True) -> str:
-        """Résout un chemin « a/b/c » depuis le dossier projet « Messagerie » (création au besoin)."""
+        """Résout un chemin « a/b/c » depuis le dossier projet « Messagerie » (création au besoin).
+        Cache par processus : évite les requêtes redondantes (arbres de fichiers du miroir)."""
+        norm = "/".join(p for p in path.strip("/").split("/") if p)
+        if norm in self._resolve_cache:
+            return self._resolve_cache[norm]
         parent = self.root_folder_id()  # ancre : jamais « root »
-        for part in [p for p in path.strip("/").split("/") if p]:
+        prefix = ""
+        for part in [p for p in norm.split("/") if p]:
+            prefix = f"{prefix}/{part}" if prefix else part
+            if prefix in self._resolve_cache:
+                parent = self._resolve_cache[prefix]
+                continue
             q = (f"name = '{part}' and mimeType = '{FOLDER_MIME}' "
                  f"and '{parent}' in parents and trashed = false")
             res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,name)&pageSize=5")
@@ -141,6 +151,7 @@ class Drive:
                                    {"Content-Type": "application/json"})["id"]
             else:
                 raise SystemExit(f"Chemin introuvable : {part} dans {path}")
+            self._resolve_cache[prefix] = parent
         return parent
 
     def upload(self, local: Path, remote_dir: str, immutable: bool = False) -> str:
