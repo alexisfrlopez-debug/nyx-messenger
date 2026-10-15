@@ -37,7 +37,21 @@ class NyxTorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification(running = false))
+        // v0.2.7 : Android 15/16 REFUSE startForeground quand le quota du type
+        // FGS est épuisé (dataSync 6 h — logs device v0.2.6) → FATAL crash en
+        // boucle à chaque redémarrage du service. On dégrade proprement : tor
+        // continue en service ordinaire tant que le process vit (au premier
+        // plan à cet instant), sans notification persistante. Le manifest est
+        // par ailleurs passé à specialUse (pas de plafond de durée).
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification(running = false))
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "nyx-tor",
+                "startForeground refusé (${e.javaClass.simpleName}) — " +
+                    "tor continue sans notification de premier plan"
+            )
+        }
 
         val alreadyRunning = RUNNING_PROCESS.get() != null
         if (alreadyRunning) {

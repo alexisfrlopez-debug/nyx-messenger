@@ -44,8 +44,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.2.6"
+        versionCode = 11
+        versionName = "0.2.7"
         // Credentials Drive du build test (vides si test-upload.properties absent)
         buildConfigField("String", "DRIVE_CLIENT_ID",     "\"${testUpload("drive.clientId")}\"")
         buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${testUpload("drive.clientSecret")}\"")
@@ -106,6 +106,11 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    testOptions {
+        // Tests JVM : android.util.Log etc. renvoient des valeurs par défaut au
+        // lieu de lever « not mocked » (AppLockTest échouait à tort sur JVM).
+        unitTests.isReturnDefaultValues = true
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"

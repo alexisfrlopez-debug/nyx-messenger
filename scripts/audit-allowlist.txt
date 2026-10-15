@@ -1,3 +1,10 @@
 # Allowlist audit Nyx — une entrée par ligne, format « chemin/relatif:motif ».
 # Chaque entrée DOIT être justifiée par un commentaire ci-dessus.
 # Exemple : android/app/src/main/java/net/nyx/messenger/net/RelayClient.kt:socksProxyHost
+
+# v0.2.7 — le démon tor embarqué (ADR-007) ne correspond à aucun type FGS
+# prédéfini ; dataSync (ancien type) est plafonné à 6 h/24 h par Android 14+
+# et tuait l'app (ForegroundServiceDidNotStopInTimeException, logs device
+# v0.2.6). specialUse = type plateforme prévu pour ce cas, sous-type documenté
+# via PROPERTY_SPECIAL_USE_FGS_SUBTYPE dans le manifeste.
+android/app/src/main/AndroidManifest.xml:android.permission.FOREGROUND_SERVICE_SPECIAL_USE

@@ -4,9 +4,15 @@
     <!-- Réseau : tout le trafic passe par le Tor EMBARQUÉ de l'app (ADR-007). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Tor embarqué : service au premier plan (démon tor + notification persistante). -->
+    <!-- Tor embarqué : service au premier plan (démon tor + notification persistante).
+         v0.2.7 : type specialUse — le type dataSync est PLAFONNÉ à 6 h/24 h par
+         Android 14+ (crash ForegroundServiceDidNotStopInTimeException, puis
+         ForegroundServiceStartNotAllowedException en boucle au redémarrage —
+         logs device v0.2.6 Blackview 12:51/13:24/14:28). Aucun type prédéfini
+         ne correspond à un proxy Tor local ; specialUse est le type plateforme
+         prévu pour ce cas (pas de plafond de durée). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -43,6 +49,10 @@
         <service
             android:name=".tor.NyxTorService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Démon Tor embarqué : proxy SOCKS 127.0.0.1 local utilisé par TOUTE la messagerie et hébergeant le service onion personnel (ADR-007) ; fonctionnement continu requis, aucun transfert média." />
+        </service>
     </application>
 </manifest>

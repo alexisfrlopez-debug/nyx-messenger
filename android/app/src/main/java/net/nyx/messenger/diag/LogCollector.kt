@@ -55,7 +55,19 @@ object LogCollector {
         } catch (_: Exception) {
             sb.append("tor      : (état indisponible)\n")
         }
-        sb.append("réplicas : ").append(BuildConfig.BOOTSTRAP_REPLICAS.ifBlank { "(aucun)" }).append("\n")
+        // v0.2.7 : la VÉRITÉ sur les réplicas — l'entête v0.2.6 affichait la
+        // chaîne brute embarquée (toujours renseignée) alors que la liste
+        // ACTIVE du dépôt était vide (bug du filtre « .onion:80 ») → l'export
+        // laissait croire à un réplica configuré, sonde pourtant jamais lancée.
+        val activeReplicas = try {
+            net.nyx.messenger.di.ServiceLocator.repository.replicas
+        } catch (_: Exception) {
+            emptyList<String>()
+        }
+        sb.append("réplicas actifs    : ")
+            .append(if (activeReplicas.isEmpty()) "(AUCUN — sonde impossible)" else activeReplicas.joinToString(", "))
+            .append("\n")
+        sb.append("réplicas embarqués : ").append(BuildConfig.BOOTSTRAP_REPLICAS.ifBlank { "(aucun)" }).append("\n")
         sb.append("\n===== TOR.LOG (fin — progression réelle du bootstrap) =====\n")
         sb.append(torLogTail(context))
         sb.append("\n===== LOGCAT (fin de tampon) =====\n")
