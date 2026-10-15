@@ -43,6 +43,29 @@
     <string name="tor_starting">Tor embarqué : démarrage… %1$d%%</string>
     <string name="tor_ready">Tor embarqué actif — trafic anonymisé</string>
     <string name="tor_failed">Tor en échec — réseau indisponible (offline by design)</string>
+
+    <!-- v0.2.5 — écran CONNEXIONS (première page) : Tor puis réplica, barre de progression -->
+    <string name="connexions_title">Connexion</string>
+    <string name="connexions_intro">Nyx se connecte d\'abord au réseau Tor, puis au réplica qui héberge les messages. Une fois ces deux étapes validées, l\'application s\'ouvre.</string>
+    <string name="connexions_step_tor">Étape 1 sur 2 — Tor embarqué…</string>
+    <string name="connexions_step_replica">Étape 2 sur 2 — réplica d\'amorçage…</string>
+    <string name="connexions_step_done">Connecté — ouverture de l\'application…</string>
+    <string name="connexions_tor_title">Tor embarqué</string>
+    <string name="connexions_replica_title">Réplica</string>
+    <string name="connexions_ok">Prêt</string>
+    <string name="connexions_ko">Échec</string>
+    <string name="connexions_wait">En cours…</string>
+    <string name="connexions_percent">%1$d %%</string>
+    <string name="connexions_tor_starting">Bootstrap du démon Tor… (%1$d s)</string>
+    <string name="connexions_tor_ready">Tor est prêt — le trafic Nyx circule anonymisé.</string>
+    <string name="connexions_tor_stuck">Tor n\'avance pas depuis plus d\'une minute : réseau filtré ou bloqué ? Essayez une autre connexion (Wi-Fi ↔ données mobiles) puis « Réessayer ». Sur build test, envoyez les logs ci-dessous.</string>
+    <string name="connexions_retry">Réessayer</string>
+    <string name="connexions_pending_tor">en attente de Tor</string>
+    <string name="connexions_replica_waiting">Cette étape démarre dès que Tor est prêt.</string>
+    <string name="connexions_replica_ok">Réplica joignable (%1$d configuré(s)) — connexion vérifiée.</string>
+    <string name="connexions_replica_probing">Vérification du réplica via Tor… (répétée automatiquement)</string>
+    <string name="connexions_hint">Un échec persistant peut venir du serveur (éteint ?) ou du réseau local (Tor filtré). En build test, le bouton rouge ci-dessous dépose les journaux dans le dossier de travail Drive.</string>
+
     <string name="tor_offline">Tor hors ligne</string>
     <string name="sending">Envoi via Tor…</string>
     <string name="sent">Envoyé</string>

@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.security.AppLock
+import net.nyx.messenger.ui.connexions.ConnexionsScreen
 import net.nyx.messenger.ui.conversations.ChatScreen
 import net.nyx.messenger.ui.conversations.ConversationListScreen
 import net.nyx.messenger.ui.lock.LockScreen
@@ -38,6 +39,11 @@ import net.nyx.messenger.ui.settings.SettingsScreen
  * quitter = tout arrêter proprement) est fourni par MainActivity et composé
  * ici — un AlertDialog Compose se rend dans sa propre fenêtre, quelle que soit
  * sa position dans l'arbre.
+ *
+ * v0.2.5 (demande opérateur) : LA PREMIÈRE PAGE est désormais l'écran
+ * CONNEXIONS (barre de progression Tor puis Réplica, bouton rouge de logs sur
+ * le build test). Le reste (onboarding ou conversations) ne s'affiche qu'une
+ * fois les deux étapes validées — avance automatique, écran connexions démonté.
  */
 @Composable
 fun NyxNavHost(
@@ -47,10 +53,19 @@ fun NyxNavHost(
     val locked by AppLock.locked.collectAsState()
     val nav = rememberNavController()
     val hasIdentity = ServiceLocator.initialized && ServiceLocator.identity.exists
-    val start = if (hasIdentity) "conversations" else "onboarding"
 
     Box(modifier = Modifier.fillMaxSize()) {
-        NavHost(navController = nav, startDestination = start) {
+        NavHost(navController = nav, startDestination = "connexions") {
+            // v0.2.5 : porte d'entrée unique — Tor puis réplica validés AVANT tout.
+            composable("connexions") {
+                ConnexionsScreen(
+                    onConnected = {
+                        nav.navigate(if (hasIdentity) "conversations" else "onboarding") {
+                            popUpTo("connexions") { inclusive = true }
+                        }
+                    }
+                )
+            }
             composable("onboarding") {
                 OnboardingScreen(
                     onIdentityCreated = {

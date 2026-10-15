@@ -65,14 +65,38 @@ class RelayClient private constructor(
 
     private val base = "http://$replicaOnion"
 
-    /** GET /health */
-    suspend fun health(): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            client.newCall(Request.Builder().url("$base/health").build()).execute().use {
-                it.isSuccessful
+    /** Rapport d'une sonde /health (v0.2.5 — affiché sur l'écran Connexions). */
+    data class HealthReport(val ok: Boolean, val ms: Long, val detail: String?)
+
+    /**
+     * GET /health avec rapport complet (v0.2.5) : durée + cause d'échec.
+     * AVANT, les exceptions étaient avalées (getOrDefault(false)) — les logs
+     * device ne disaient RIEN de l'échec de la sonde réplica (« réplica
+     * injoignable » sans aucune trace). Chaque tentative est loguée nyx-conn.
+     */
+    suspend fun healthDetailed(): HealthReport = withContext(Dispatchers.IO) {
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        try {
+            client.newCall(Request.Builder().url("$base/health").build()).execute().use { resp ->
+                val ms = android.os.SystemClock.elapsedRealtime() - t0
+                val ok = resp.isSuccessful
+                if (ok) {
+                    android.util.Log.i("nyx-conn", "GET /health OK (${ms} ms)")
+                } else {
+                    android.util.Log.w("nyx-conn", "GET /health → HTTP ${resp.code} (${ms} ms)")
+                }
+                HealthReport(ok, ms, if (ok) null else "HTTP ${resp.code}")
             }
-        }.getOrDefault(false)
+        } catch (e: Exception) {
+            val ms = android.os.SystemClock.elapsedRealtime() - t0
+            val detail = "${e.javaClass.simpleName}: ${e.message ?: "erreur réseau"}"
+            android.util.Log.w("nyx-conn", "GET /health ÉCHEC (${ms} ms) : $detail")
+            HealthReport(false, ms, detail)
+        }
     }
+
+    /** GET /health */
+    suspend fun health(): Boolean = healthDetailed().ok
 
     /** POST /client/event — dépôt d'un événement signé. */
     suspend fun postEvent(event: WireEvent): Result<Unit> = withContext(Dispatchers.IO) {

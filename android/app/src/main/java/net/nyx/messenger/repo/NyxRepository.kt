@@ -2,6 +2,9 @@ package net.nyx.messenger.repo
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import net.nyx.messenger.crypto.B64
 import net.nyx.messenger.crypto.IdentityManager
@@ -64,8 +67,25 @@ class NyxRepository(
         return fresh
     }
 
-    /** Sonde de joignabilité du réplica rattaché (GET /health via Tor). */
-    suspend fun replicaHealth(): Boolean = relay()?.health() ?: false
+    /** Sonde de joignabilité du réplica rattaché (GET /health via Tor).
+     *
+     *  v0.2.5 : chaque sonde alimente [lastProbe] (durée + cause d'échec) —
+     *  l'écran Connexions affiche le détail au lieu d'un « injoignable » muet,
+     *  et l'export de logs contient les tentatives (tag nyx-conn). */
+    data class ReplicaProbeReport(val ok: Boolean, val ms: Long, val detail: String?)
+
+    private val _lastProbe = MutableStateFlow<ReplicaProbeReport?>(null)
+    val lastProbe: StateFlow<ReplicaProbeReport?> = _lastProbe.asStateFlow()
+
+    suspend fun replicaHealth(): Boolean {
+        val rep = relay()?.healthDetailed()
+        if (rep == null) {
+            _lastProbe.value = ReplicaProbeReport(false, 0, "aucun réplica configuré")
+            return false
+        }
+        _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail)
+        return rep.ok
+    }
 
     /* ---------------- envoi ---------------- */
 

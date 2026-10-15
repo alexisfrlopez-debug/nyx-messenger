@@ -69,6 +69,17 @@ class TorManager private constructor(context: Context) {
         _state.value = TorState.Checking
     }
 
+    /**
+     * Relance propre (v0.2.5, écran Connexions) : stop (tue le démon via
+     * onDestroy) puis start (le service relance un démon frais). Un simple
+     * « start » ne suffit pas quand le démon tourne encore : NyxTorService
+     * ne re-déclenche pas [reportStarted] si le process existe déjà.
+     */
+    fun retry() {
+        stop()
+        start(keyProvider)
+    }
+
     /** Publie (ou re-publie) le service onion de l'utilisateur. Auto après bootstrap. */
     suspend fun publishOwnOnion(localPort: Int? = null): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
@@ -150,9 +161,18 @@ class TorManager private constructor(context: Context) {
                 }
 
                 // 2. Suivi de progression jusqu'au bootstrap complet.
+                // v0.2.5 : chaque PALIER de pourcentage est logué (tag nyx-tor) —
+                // les « Bootstrapped X% » de tor vont dans tor.log (Log notice
+                // file) et NON dans logcat ; sans ce log rien ne dit dans
+                // l'export si le démon avance, stagne à 0 % ou est terminé.
+                var lastPct = -1
                 while (isActive) {
                     val phase = control.bootstrapPhase()
                     TorControlClient.parsePercent(phase)?.let { pct ->
+                        if (pct != lastPct) {
+                            android.util.Log.i("nyx-tor", "bootstrap tor : $pct%")
+                            lastPct = pct
+                        }
                         _state.value = TorState.Starting(pct.coerceAtMost(99))
                     }
                     if (TorControlClient.isDone(phase)) break

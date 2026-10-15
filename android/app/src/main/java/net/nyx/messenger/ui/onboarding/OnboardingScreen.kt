@@ -9,13 +9,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -43,7 +40,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.nyx.messenger.R
@@ -84,32 +80,28 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
     val torMgr = TorManager.get(context)
     val torState by torMgr.state.collectAsState()
 
-    // Sonde réplica (v0.2.3) : OK dès que GET /health répond via Tor.
-    var replicaOk by remember { mutableStateOf(false) }
-    var replicaNote by remember { mutableStateOf("") }
+    // Sonde réplica (v0.2.3) : bouton de création gaté sur GET /health via Tor.
+    // v0.2.5 : boucle partagée (ui/components/ReplicaProbeEffect — l'audit
+    // RED-DUP interdit les deux copies divergentes) ; note dérivée du résultat.
+    // NB : en flux v0.2.5 l'écran n'est atteint qu'APRÈS l'écran Connexions
+    // (déjà validé Tor + réplica) — le gate reste par sécurité si le serveur
+    // retombe entre-temps.
+    val repo = ServiceLocator.repository
+    val probe by repo.lastProbe.collectAsState()
 
     // Tor démarre dès l'onboarding — la sonde réplica en dépend.
     LaunchedEffect(Unit) { torMgr.start() }
+    val torReady = torState is TorManager.TorState.Ready
 
-    LaunchedEffect(torState) {
-        if (torState !is TorManager.TorState.Ready) { replicaOk = false; return@LaunchedEffect }
-        val repo = ServiceLocator.repository
-        while (true) {
-            if (repo.replicas.isEmpty()) {
-                replicaOk = false
-                replicaNote = context.getString(R.string.replica_none_configured)
-                break // rien à sonder : message explicite, pas de boucle infinie
-            }
-            replicaNote = context.getString(R.string.replica_checking)
-            if (repo.replicaHealth()) {
-                replicaOk = true
-                replicaNote = context.getString(R.string.replica_ok, repo.replicas.size)
-                break
-            }
-            replicaOk = false
-            replicaNote = context.getString(R.string.replica_down)
-            delay(8_000)
-        }
+    net.nyx.messenger.ui.components.ReplicaProbeEffect(torReady = torReady)
+
+    val replicaOk = torReady && probe?.ok == true
+    val replicaNote = when {
+        !torReady -> ""
+        repo.replicas.isEmpty() -> context.getString(R.string.replica_none_configured)
+        replicaOk -> context.getString(R.string.replica_ok, repo.replicas.size)
+        probe != null -> context.getString(R.string.replica_down)
+        else -> context.getString(R.string.replica_checking)
     }
 
     // Export du fichier de sauvegarde (SAF — aucune permission).
@@ -148,13 +140,7 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
+    net.nyx.messenger.ui.components.ScreenColumn {
         Text(stringResource(R.string.onboarding_title), style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(16.dp))
         Text(stringResource(R.string.onboarding_intro), style = MaterialTheme.typography.bodyLarge)
