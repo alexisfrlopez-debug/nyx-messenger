@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nyx — configuration de sécurité réseau (v0.2.6).
+
+  POURQUOI CE FICHIER (cause racine « réplica injoignable », logs v0.2.5 des
+  deux téléphones de l'opérateur, 2026-10-15) : la sonde réplica (GET /health
+  vers l'hôte onion, RelayClient) échouait systématiquement en 1 à 4 ms avec
+    UnknownServiceException: CLEARTEXT communication to …onion
+    not permitted by network security policy
+  Depuis Android 9 (targetSdk ≥ 28) le HTTP en clair est interdit PAR DÉFAUT,
+  et le contrôle porte sur le NOM D'HÔTE de l'URL AVANT toute connexion — y
+  compris quand un proxy SOCKS est posé sur le client OkHttp : la requête
+  n'atteignait donc jamais même le Tor embarqué (d'où l'échec instantané).
+
+  Les services onion ne se joignent PAS en TLS applicatif : le chiffrement est
+  déjà assuré de bout en bout par le circuit Tor lui-même (ADR-007, ADR-009) —
+  le flux ne sort JAMAIS du SOCKS5 local 127.0.0.1:9050 (garantie RelayClient :
+  proxy explicite au constructeur). On autorise donc le cleartext UNIQUEMENT :
+    - *.onion                réplicas (via Tor embarqué uniquement)
+    - localhost / 127.0.0.1  contrôle/diagnostic local (tor 9050/9051)
+  Tout le reste du trafic reste soumis à l'interdiction par défaut.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">onion</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>
