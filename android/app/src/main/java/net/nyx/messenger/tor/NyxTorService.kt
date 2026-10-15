@@ -44,13 +44,15 @@ class NyxTorService : Service() {
         // plan à cet instant), sans notification persistante. Le manifest est
         // par ailleurs passé à specialUse (pas de plafond de durée).
         try {
-            startForeground(NOTIFICATION_ID, buildNotification(running = false))
+            startForeground(NOTIFICATION_ID, buildNotification("Démarrage de Tor…", ready = false))
+            foregroundActive.set(true)
         } catch (e: Exception) {
             android.util.Log.w(
                 "nyx-tor",
                 "startForeground refusé (${e.javaClass.simpleName}) — " +
                     "tor continue sans notification de premier plan"
             )
+            foregroundActive.set(false)
         }
 
         val alreadyRunning = RUNNING_PROCESS.get() != null
@@ -111,6 +113,7 @@ class NyxTorService : Service() {
     }
 
     override fun onDestroy() {
+        foregroundActive.set(false)
         RUNNING_PROCESS.getAndSet(null)?.destroy()
         scope.cancel()
         TorManager.get(this).reportStopped()
@@ -127,21 +130,11 @@ class NyxTorService : Service() {
             .firstOrNull { it.exists() && it.canExecute() }
 
     private fun createChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID, "Tor embarqué", NotificationManager.IMPORTANCE_LOW
-        ).apply { description = "Démon Tor de Nyx (autonomie — ADR-007)" }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        ensureChannel(this)
     }
 
-    private fun buildNotification(running: Boolean): Notification {
-        val text = if (running) "Tor actif — trafic anonymisé" else "Démarrage de Tor…"
-        return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Nyx")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done.takeIf { running }
-                ?: android.R.drawable.stat_sys_download)
-            .setOngoing(true)
-            .build()
+    private fun buildNotification(text: String, ready: Boolean): Notification {
+        return buildNotification(this, text, ready)
     }
 
     companion object {
@@ -157,6 +150,13 @@ class NyxTorService : Service() {
 
         private val RUNNING_PROCESS = AtomicReference<Process?>(null)
 
+        /**
+         * v0.2.8 — true tant que la notification de premier plan est affichée.
+         * startForeground peut être REFUSÉ (quota FGS épuisé, cf. onStartCommand) :
+         * dans ce cas [pushState] ne doit PAS créer de notification fantôme.
+         */
+        private val foregroundActive = java.util.concurrent.atomic.AtomicBoolean(false)
+
         /** Démarre le service au premier plan (safe : no-op si permission notification absente). */
         fun start(context: Context) {
             val intent = Intent(context, NyxTorService::class.java)
@@ -165,6 +165,47 @@ class NyxTorService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, NyxTorService::class.java))
+        }
+
+        /** Canal idempotent (créé par le service et re-créé sans risque par [pushState]). */
+        private fun ensureChannel(context: Context) {
+            val channel = NotificationChannel(
+                CHANNEL_ID, "Tor embarqué", NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "Démon Tor de Nyx (autonomie — ADR-007)" }
+            context.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+
+        private fun buildNotification(context: Context, text: String, ready: Boolean): Notification {
+            return Notification.Builder(context, CHANNEL_ID)
+                .setContentTitle("Nyx")
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done.takeIf { ready }
+                    ?: android.R.drawable.stat_sys_download)
+                .setOngoing(true)
+                .build()
+        }
+
+        /**
+         * v0.2.8 — Statut RÉEL de la connexion Tor dans la notification de
+         * premier plan (retour opérateur : « Démarrage de TOR » restait affiché
+         * en permanence, même tor opérationnel — la notification n'était JAMAIS
+         * mise à jour après startForeground). Appelé par TorManager à chaque
+         * transition d'état : progression du bootstrap, succès, échec.
+         *
+         * No-op si le service n'est pas au premier plan (quota FGS épuisé —
+         * mode dégradé v0.2.7) ou si le système refuse la mise à jour.
+         */
+        fun pushState(context: Context, text: String, ready: Boolean) {
+            if (!foregroundActive.get()) return
+            runCatching {
+                val app = context.applicationContext
+                ensureChannel(app)
+                app.getSystemService(NotificationManager::class.java)
+                    .notify(NOTIFICATION_ID, buildNotification(app, text, ready))
+            }.onFailure {
+                android.util.Log.w("nyx-tor", "maj notification : ${it.message}")
+            }
         }
     }
 }

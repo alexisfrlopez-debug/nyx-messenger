@@ -58,7 +58,7 @@ class TorManager private constructor(context: Context) {
      */
     fun start(onionPrivateKeyProvider: (() -> ByteArray?)? = null) {
         keyProvider = onionPrivateKeyProvider
-        _state.value = TorState.Starting(0)
+        setState(TorState.Starting(0))
         NyxTorService.start(appContext)
     }
 
@@ -66,7 +66,7 @@ class TorManager private constructor(context: Context) {
     fun stop() {
         bootstrapJob?.cancel()
         NyxTorService.stop(appContext)
-        _state.value = TorState.Checking
+        setState(TorState.Checking)
     }
 
     /**
@@ -100,7 +100,7 @@ class TorManager private constructor(context: Context) {
                 }
                 published
             }
-        }.onFailure { _state.value = TorState.Failed("publication onion : ${it.message}") }
+        }.onFailure { setState(TorState.Failed("publication onion : ${it.message}")) }
     }
 
     suspend fun unpublishOwnOnion() {
@@ -117,7 +117,7 @@ class TorManager private constructor(context: Context) {
     fun attachConfig(cfg: NyxTorConfig) {
         config = cfg
         activeSocksPort = cfg.socksPort
-        _state.value = TorState.Starting(0)
+        setState(TorState.Starting(0))
     }
 
     fun reportStarted(cfg: NyxTorConfig) {
@@ -126,13 +126,39 @@ class TorManager private constructor(context: Context) {
     }
 
     fun reportFailure(reason: String) {
-        _state.value = TorState.Failed(reason)
+        setState(TorState.Failed(reason))
     }
 
     fun reportStopped() {
         if (_state.value is TorState.Starting || _state.value == TorState.Ready) {
-            _state.value = TorState.Failed("démon tor arrêté")
+            setState(TorState.Failed("démon tor arrêté"))
         }
+    }
+
+    /**
+     * v0.2.8 — Mise à jour centralisée de l'état Tor : le StateFlow (écran
+     * Connexions) ET la notification de premier plan (statut réel exigé par
+     * l'opérateur — « Démarrage de TOR » restait affiché en permanence car
+     * personne ne rafraîchissait la notification après startForeground).
+     */
+    private fun setState(s: TorState) {
+        _state.value = s
+        val text: String
+        val ready: Boolean
+        when (s) {
+            TorState.Checking -> { text = "Vérification de Tor…"; ready = false }
+            is TorState.Starting -> {
+                text = if (s.percent in 1..99) "Connexion Tor… ${s.percent} %"
+                       else "Démarrage de Tor…"
+                ready = false
+            }
+            TorState.Ready -> { text = "Tor actif — trafic anonymisé"; ready = true }
+            is TorState.Failed -> {
+                text = "Tor en échec — ${s.reason.take(90)}"
+                ready = false
+            }
+        }
+        NyxTorService.pushState(appContext, text, ready)
     }
 
     /** Surveille le control port jusqu'à la fin du bootstrap, puis publie l'onion. */
@@ -156,7 +182,7 @@ class TorManager private constructor(context: Context) {
                     }
                 }
                 if (!authenticated) {
-                    _state.value = TorState.Failed("control port Tor injoignable (${cfg.controlPort})")
+                    setState(TorState.Failed("control port Tor injoignable (${cfg.controlPort})"))
                     return@launch
                 }
 
@@ -172,8 +198,9 @@ class TorManager private constructor(context: Context) {
                         if (pct != lastPct) {
                             android.util.Log.i("nyx-tor", "bootstrap tor : $pct%")
                             lastPct = pct
+                            // Notification mise à jour sur CHAQUE palier (v0.2.8).
+                            setState(TorState.Starting(pct.coerceAtMost(99)))
                         }
-                        _state.value = TorState.Starting(pct.coerceAtMost(99))
                     }
                     if (TorControlClient.isDone(phase)) break
                     delay(POLL_INTERVAL_MS)
@@ -191,9 +218,9 @@ class TorManager private constructor(context: Context) {
                             android.util.Log.w("nyx-tor", "publication onion différée : ${e.message}")
                         }
                 }
-                _state.value = TorState.Ready
+                setState(TorState.Ready)
             } catch (e: Exception) {
-                _state.value = TorState.Failed("bootstrap : ${e.message}")
+                setState(TorState.Failed("bootstrap : ${e.message}"))
             } finally {
                 control.close()
             }
@@ -214,9 +241,9 @@ class TorManager private constructor(context: Context) {
             runCatching { publishOwnOnion() }
                 .onSuccess { addr -> android.util.Log.i("nyx-tor", "onion service publié : $addr") }
                 .onFailure { e ->
-                    android.util.Log.w("nyx-tor", "publication onion différée : ${e.message}")
+                    android.util.Log.w("nyx-tor", "publication différée : ${e.message}")
                     // La publication a peut-être mis Failed — tor lui-même est prêt.
-                    if (_state.value is TorState.Failed) _state.value = TorState.Ready
+                    if (_state.value is TorState.Failed) setState(TorState.Ready)
                 }
         }
     }
