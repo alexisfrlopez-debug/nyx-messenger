@@ -286,6 +286,18 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
                 onClick = { showRestore = true },
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
             ) { Text(stringResource(R.string.restore_backup)) }
+
+            // Carte diagnostic (v0.2.4, build test uniquement) : le gros bouton
+            // rouge doit être accessible AUSSI depuis l'onboarding — c'est
+            // exactement quand l'app est bloquée ici (réplica injoignable) qu'il
+            // faut pouvoir exporter les logs vers le Drive. (La carte n'existait
+            // que sur l'écran Conversations, inatteignable tant que la sonde
+            // réplica ne passe pas.)
+            if (net.nyx.messenger.BuildConfig.TEST_BUILD) {
+                Spacer(Modifier.height(24.dp))
+                net.nyx.messenger.ui.diag.TestLogExportCard()
+            }
+
             error?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, color = MaterialTheme.colorScheme.error)
