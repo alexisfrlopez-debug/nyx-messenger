@@ -162,6 +162,8 @@
     <string name="add_contact_local_alias">Nom local (optionnel)</string>
     <string name="add_contact_added_alias">Contact ajouté : @%1$s</string>
     <string name="add_contact_alias_free">« @%1$s » n\'est pas réservé sur ce réplica — vérifiez l\'orthographe.</string>
+    <string name="add_contact_notified">Demande de contact transmise — votre contact vous verra dès son prochain rafraîchissement.</string>
+    <string name="add_contact_deferred">Contact ajouté localement — la demande partira dès que le réplica sera joignable.</string>
 
     <!-- Débogage — build « test » uniquement (bouton rouge, export logs vers le Drive) -->
     <string name="debug_card_title">Build TEST — débogage</string>

@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import net.nyx.messenger.crypto.B64
 import net.nyx.messenger.crypto.IdentityManager
@@ -16,6 +18,8 @@ import net.nyx.messenger.data.db.MessageDao
 import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.data.db.PollStateDao
 import net.nyx.messenger.data.db.PollStateEntity
+import net.nyx.messenger.data.db.SeqStateDao
+import net.nyx.messenger.data.db.SeqStateEntity
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.net.RelayClient
 import net.nyx.messenger.net.WireEvent
@@ -32,6 +36,7 @@ class NyxRepository(
     private val messageDao: MessageDao,
     private val contactDao: ContactDao,
     private val pollStateDao: PollStateDao,
+    private val seqStateDao: SeqStateDao,
 ) {
     /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation.
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
@@ -109,12 +114,12 @@ class NyxRepository(
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
 
-            // 3. Stockage local (en attente) puis dépôt
+            // 3. Stockage local (en attente) puis dépôt (auto-réparation seq v0.2.10)
             val id = eventIdOf(canonical)
             messageDao.insert(
                 MessageEntity(id, peerOnion, outgoing = true, text, ev.ts, ev.ts, STATE_PENDING)
             )
-            relay.postEvent(signed).fold(
+            postSigned(relay, me, signed, canonical, priv).fold(
                 onSuccess = { messageDao.updateState(id, STATE_SENT) },
                 onFailure = { e ->
                     messageDao.updateState(id, STATE_FAILED)
@@ -124,13 +129,49 @@ class NyxRepository(
         }
     }
 
-    private suspend fun nextSeqFor(author: String): Long {
-        // v0.1 : compteur local en mémoire (persisté via les événements eux-mêmes) ;
-        // TODO : persister (fichier scellé) pour survivre aux redémarrages
-        return seqCounter++
+    /**
+     * v0.2.10 — réservation de séquence PERSISTÉE (table seq_state, v2).
+     * Le compteur en mémoire de v0.1 repartait à 1 à chaque relance alors que le
+     * journal exige seq = dernier+1 : les premiers événements après un
+     * redémarrage étaient rejetés et les messages ne partaient jamais.
+     * Le mutex sérialise les réservations concurrentes (envoi + claim alias…).
+     */
+    private val seqMutex = Mutex()
+
+    private suspend fun nextSeqFor(author: String): Long = seqMutex.withLock {
+        val next = (seqStateDao.get(author)?.seq ?: 0L) + 1
+        seqStateDao.upsert(SeqStateEntity(author, next))
+        next
     }
 
-    private var seqCounter: Long = 1
+    /**
+     * Dépôt d'un événement signé avec auto-réparation de séquence :
+     *  - 409 « déjà connu » = l'événement était déjà dans le journal → succès ;
+     *  - rejet de seq (« en attente (attendu N) » / « déjà dépassée (dernière N) »)
+     *    → la table seq_state est recadrée sur le réplica puis l'événement est
+     *    re-signé et redéposé UNE fois (dérive après restauration de base…).
+     */
+    private suspend fun postSigned(
+        relay: RelayClient,
+        author: String,
+        ev: WireEvent,
+        canonical: String,
+        priv: ByteArray,
+    ): Result<Unit> {
+        val first = relay.postEvent(ev)
+        if (first.isSuccess) return first
+        val msg = first.exceptionOrNull()?.message ?: return first
+        if (msg.contains("HTTP 409")) return Result.success(Unit) // idempotent
+        val expected = Regex("attendu (\\d+)").find(msg)?.groupValues?.get(1)?.toLongOrNull()
+            ?: (Regex("dernière (\\d+)").find(msg)?.groupValues?.get(1)?.toLongOrNull()?.plus(1))
+            ?: return first
+        seqMutex.withLock { seqStateDao.upsert(SeqStateEntity(author, expected)) }
+        val retried = ev.copy(seq = expected)
+        val canonical2 = MessageCipher.canonical(
+            retried.type, retried.author, retried.seq, retried.ts, retried.ttl, retried.to ?: "", retried.body
+        )
+        return relay.postEvent(retried.copy(sig = cipher.signEvent(canonical2, priv)))
+    }
 
     /* ---------------- réception ---------------- */
 
@@ -154,14 +195,44 @@ class NyxRepository(
             val plain = cipher.decryptForSelf(priv, ev.body)
                 ?.toString(Charsets.UTF_8) ?: continue
 
-            // 3. Stockage local
+            // 3. Demande de contact (v0.2.10) : l'auteur s'annonce ("alias" chiffré).
+            if (ev.type == "contact") {
+                val declared = Regex("\"alias\"\\s*:\\s*\"([^\"]*)\"").find(plain)
+                    ?.groupValues?.get(1).orEmpty()
+                val already = contactDao.get(ev.author)
+                if (already == null) {
+                    contactDao.upsert(
+                        ContactEntity(
+                            ev.author.lowercase(),
+                            declared.ifBlank { ev.author.take(10) + "…" },
+                            System.currentTimeMillis()
+                        )
+                    )
+                    // Message d'information dans la conversation — la carte du
+                    // contact apparaît dans la liste (contacts = conversations).
+                    val label = declared.ifBlank { ev.author.take(10) + "…" }
+                    messageDao.insert(
+                        MessageEntity(
+                            eventIdOf(canonical), ev.author, outgoing = false,
+                            "$label vous a ajouté comme contact.",
+                            ev.ts, System.currentTimeMillis(), STATE_RECEIVED
+                        )
+                    )
+                    inserted++
+                }
+                continue
+            }
+
+            // 4. Stockage local
             val id = eventIdOf(canonical)
             messageDao.insert(
                 MessageEntity(id, ev.author, outgoing = false, plain, ev.ts, System.currentTimeMillis(), STATE_RECEIVED)
             )
-            contactDao.upsert(
-                ContactEntity(ev.author, ev.author.take(10) + "…", System.currentTimeMillis())
-            )
+            if (contactDao.get(ev.author) == null) {
+                contactDao.upsert(
+                    ContactEntity(ev.author, ev.author.take(10) + "…", System.currentTimeMillis())
+                )
+            }
             inserted++
         }
         pollStateDao.upsert(PollStateEntity(replicas.first(), resp.cursor))
@@ -221,7 +292,7 @@ class NyxRepository(
                 to = null, body = body, sig = ""
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
-            relay.postEvent(ev.copy(sig = cipher.signEvent(canonical, priv))).getOrThrow()
+            postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
         }
     }
 
@@ -236,9 +307,52 @@ class NyxRepository(
         claimAlias(name).onSuccess { identity.markAliasClaimed() }
     }
 
-    suspend fun addContact(onion: String, alias: String): Result<Unit> = runCatching {
+    /**
+     * v0.2.10 — ANNONCE DE CONTACT : l'ajout d'un contact n'est plus purement
+     * local, un événement signé type « contact » (type standard du journal,
+     * body chiffré {"alias":…} pour le destinataire) est déposé sur le réplica :
+     * le pair voit la demande apparaître chez lui (carte + message d'info).
+     * Si le réplica est injoignable, notifyPending=1 mémorise le devoir —
+     * [ensureContactNotified] le repartage à la prochaine entrée sur la liste.
+     */
+    private suspend fun sendContactNotification(onionLower: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val relay = relay() ?: error("aucun réplica configuré")
+                val me = identity.onionAddress ?: error("identité absente")
+                val priv = identity.secretKey()
+                val peerPub = OnionCodec.onionToPubKey(onionLower)
+                val bodyJson = "{\"alias\":\"${identity.alias ?: ""}\"}"
+                val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "contact", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, ttl = 0,
+                    to = onionLower, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            }
+        }
+
+    /** Repartage des annonces de contact restées en attente (réplica injoignable). */
+    suspend fun ensureContactNotified(): Unit = withContext(Dispatchers.IO) {
+        if (replicas.isEmpty()) return@withContext
+        for (c in contactDao.pendingNotify()) {
+            if (sendContactNotification(c.onion).isSuccess) {
+                contactDao.setNotifyPending(c.onion, 0)
+            }
+        }
+    }
+
+    suspend fun addContact(onion: String, alias: String): Result<Boolean> = runCatching {
         OnionCodec.onionToPubKey(onion) // validation de l'adresse
-        contactDao.upsert(ContactEntity(onion.lowercase(), alias.ifBlank { onion.take(10) + "…" }, System.currentTimeMillis()))
+        val lower = onion.lowercase()
+        contactDao.upsert(ContactEntity(lower, alias.ifBlank { onion.take(10) + "…" }, System.currentTimeMillis()))
+        // Annonce au pair — l'échec n'annule PAS l'ajout local : il sera reparti.
+        val transmise = sendContactNotification(lower).isSuccess
+        contactDao.setNotifyPending(lower, if (transmise) 0 else 1)
+        transmise
     }
 
     /* ---------------- profil (v0.2.0 — wire-format.md §7) ---------------- */
@@ -268,7 +382,7 @@ class NyxRepository(
                     to = null, body = body, sig = ""
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
-                relay.postEvent(ev.copy(sig = cipher.signEvent(canonical, priv))).getOrThrow()
+                postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
             }
         }
 
@@ -288,8 +402,8 @@ class NyxRepository(
 
     /** Résultat d'un ajout de contact par pseudonyme unique. */
     sealed class AliasAddResult {
-        /** Contact ajouté (alias résolu → [onion]). */
-        data class Added(val onion: String, val alias: String) : AliasAddResult()
+        /** Contact ajouté (alias résolu → [onion]). [notified] : annonce transmise au pair. */
+        data class Added(val onion: String, val alias: String, val notified: Boolean) : AliasAddResult()
         /** Alias libre sur le réplica : personne ne le détenteur. */
         data object Free : AliasAddResult()
     }
@@ -309,8 +423,12 @@ class NyxRepository(
             if (!res.taken) return@runCatching AliasAddResult.Free
             val onion = res.by ?: error("résolution incomplète (alias pris sans détenteur)")
             OnionCodec.onionToPubKey(onion) // cohérence (l'adresse est la clé publique)
-            contactDao.upsert(ContactEntity(onion.lowercase(), name, System.currentTimeMillis()))
-            AliasAddResult.Added(onion, name)
+            val lower = onion.lowercase()
+            contactDao.upsert(ContactEntity(lower, name, System.currentTimeMillis()))
+            // Annonce au pair (v0.2.10) — différée si le réplica ne répond pas.
+            val notified = sendContactNotification(lower).isSuccess
+            contactDao.setNotifyPending(lower, if (notified) 0 else 1)
+            AliasAddResult.Added(lower, name, notified)
         }
     }
 

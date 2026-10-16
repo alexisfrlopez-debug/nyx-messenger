@@ -1,15 +1,14 @@
-# Audit pré-compilation Nyx — 2026-10-16T00:01:34
+# Audit pré-compilation Nyx — 2026-10-16T00:57:33
 
-**Verdict : ✅ AUDIT PASSED — CRIT: 0 · MAJOR: 0 · MINOR: 3**
+**Verdict : ✅ AUDIT PASSED — CRIT: 0 · MAJOR: 0 · MINOR: 2**
 
 | Catégorie | Nombre | Bloquant |
 |---|---|---|
 | CRIT | 0 | toujours |
 | MAJOR | 0 | en --strict |
-| MINOR | 3 | jamais |
+| MINOR | 2 | jamais |
 
 ## MINOR · OPT-TODO
 
 - TODO/FIXME build.gradle.kts:96 — // TODO v1.0 : signature reproductible (F-Droid), build deterministe — `android/app/build.gradle.kts`
-- TODO/FIXME NyxRepository.kt:36 — /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation. — `android/app/src/main/java/net/nyx/messenger/repo/NyxRepository.kt`
-- TODO/FIXME NyxRepository.kt:129 — // TODO : persister (fichier scellé) pour survivre aux redémarrages — `android/app/src/main/java/net/nyx/messenger/repo/NyxRepository.kt`
+- TODO/FIXME NyxRepository.kt:41 — /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation. — `android/app/src/main/java/net/nyx/messenger/repo/NyxRepository.kt`

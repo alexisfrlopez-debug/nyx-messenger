@@ -79,9 +79,13 @@ fun ConversationListScreen(
 
     // Claim d'alias différé : si l'alias choisi à l'onboarding n'a pas pu être
     // réservé (aucun réplica joignable), il part dès que le Tor embarqué est prêt.
+    // v0.2.10 : les annonces de contact restées en attente (réplica injoignable à
+    // l'ajout) repartent au même moment — et un premier poll est déclenché.
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(2_000) // laisse le bootstrap Tor démarrer
         repo.ensureAliasClaimed()
+        repo.ensureContactNotified()
+        runCatching { repo.pollInbox() }
     }
 
     Scaffold(
@@ -141,10 +145,16 @@ fun ConversationListScreen(
                         if (value.isEmpty()) return@Button
                         scope.launch {
                             if (value.contains(".onion")) {
-                                // Adresse directe
+                                // Adresse directe — Result<Boolean> : annonce
+                                // transmise (true) ou différée (false, réplica
+                                // injoignable — repartira via ensureContactNotified).
                                 repo.addContact(value, aliasInput)
-                                    .onSuccess {
+                                    .onSuccess { transmise ->
                                         showAdd = false; input = ""; aliasInput = ""
+                                        addInfo = context.getString(
+                                            if (transmise) R.string.add_contact_notified
+                                            else R.string.add_contact_deferred
+                                        )
                                     }
                                     .onFailure { addError = it.message }
                             } else {
@@ -155,6 +165,10 @@ fun ConversationListScreen(
                                             is net.nyx.messenger.repo.NyxRepository.AliasAddResult.Added -> {
                                                 showAdd = false; input = ""; aliasInput = ""
                                                 addInfo = context.getString(R.string.add_contact_added_alias, res.alias)
+                                                addInfo = addInfo + " — " + context.getString(
+                                                    if (res.notified) R.string.add_contact_notified
+                                                    else R.string.add_contact_deferred
+                                                )
                                             }
                                             is net.nyx.messenger.repo.NyxRepository.AliasAddResult.Free ->
                                                 addError = context.getString(R.string.add_contact_alias_free, AliasValidator.normalize(value))

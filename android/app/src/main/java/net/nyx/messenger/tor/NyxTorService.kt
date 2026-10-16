@@ -27,7 +27,15 @@ import java.util.concurrent.atomic.AtomicReference
  */
 class NyxTorService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // v0.2.10 : handler explicite — une exception résiduelle des coroutines
+    // d'infrastructure (drain, watcher) ne doit JAMAIS tuer le process
+    // (FATAL « read interrupted by close() » constaté en v0.2.9 à la fermeture).
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO +
+            kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+                android.util.Log.w("nyx-tor", "coroutine d'infrastructure terminée : ${e.message}")
+            }
+    )
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,14 +106,22 @@ class NyxTorService : Service() {
             TorManager.get(this).reportStarted(config)
 
             // Draine la sortie du process (sinon le pipe se remplit et tor se bloque).
+            // v0.2.10 : drain BEST-EFFORT — à la fermeture, process.destroy() referme
+            // le pipe pendant le readLine bloqué : InterruptedIOException dans une
+            // coroutine déjà annulée = exception non-Cancellation → FATAL (process
+            // tué brutalement au lieu de s'arrêter proprement). Le drain est
+            // accessoire (les notices vont déjà dans tor.log via le torrc) : toute
+            // erreur y compris la coupure du flux est silencieusement attendue.
             scope.launch {
-                process.inputStream.bufferedReader().useLines { lines ->
-                    lines.forEach { line ->
-                        // Les logs de notice vont déjà dans tor.log (torrc) ; on garde
-                        // un écho limité dans logcat pour le debug device.
-                        android.util.Log.d("nyx-tor", line.take(400))
+                runCatching {
+                    process.inputStream.bufferedReader().useLines { lines ->
+                        lines.forEach { line ->
+                            // Les logs de notice vont déjà dans tor.log (torrc) ; on garde
+                            // un écho limité dans logcat pour le debug device.
+                            android.util.Log.d("nyx-tor", line.take(400))
+                        }
                     }
-                }
+                } // fin de flux = arrêt du démon : cas normal, rien à faire
             }
 
             // Surveillance de l'arrêt du process (crash tor) → état Failed.

@@ -105,7 +105,13 @@ class RelayClient private constructor(
                 .toRequestBody("application/json".toMediaType())
             val req = Request.Builder().url("$base/client/event").post(body).build()
             client.newCall(req).execute().use { resp ->
-                check(resp.code == 200) { "POST /client/event → HTTP ${resp.code}" }
+                // v0.2.10 : le corps d'erreur du réplica (ex. « seq 3 en attente
+                // (attendu 2) ») est remonté dans le message — il alimente
+                // l'auto-réparation de séquence côté [NyxRepository.postSigned].
+                check(resp.code == 200) {
+                    "POST /client/event → HTTP ${resp.code} : " +
+                        resp.body?.string()?.take(300).orEmpty()
+                }
             }
         }
     }

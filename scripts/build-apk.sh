@@ -48,7 +48,7 @@ echo "${YLW}═══ 2/4 BUILD RELEASE SIGNÉ — variants standard + test ═�
 # qui porte -Xmx2g) : conteneur 4,1 Go — sans borne, le JVM culmine à ~2,3 Go RSS
 # et l'OOM-killer du noyau tue le build (session 15). Kotlin in-process + 1 worker.
 ( cd android && ./gradlew :app:assembleStandardRelease :app:assembleDiagRelease --console=plain -q --no-daemon \
-    -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=448m -Dfile.encoding=UTF-8" \
+    -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
     -Dorg.gradle.workers.max=1 )
 APK_STD=$(ls -t android/app/build/outputs/apk/standard/release/*.apk | head -1)
 APK_TEST=$(ls -t android/app/build/outputs/apk/diag/release/*.apk | head -1)

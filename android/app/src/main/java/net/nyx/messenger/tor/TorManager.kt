@@ -27,7 +27,14 @@ import kotlinx.coroutines.withContext
 class TorManager private constructor(context: Context) {
 
     private val appContext = context.applicationContext
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // v0.2.10 : idem NyxTorService — les coroutines d'infrastructure (watchBootstrap,
+    // publication onion) ne doivent jamais remonter au handler par défaut (FATAL).
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO +
+            kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+                android.util.Log.w("nyx-tor", "coroutine manager terminée : ${e.message}")
+            }
+    )
 
     private val _state = MutableStateFlow<TorState>(TorState.Checking)
     val state: StateFlow<TorState> = _state

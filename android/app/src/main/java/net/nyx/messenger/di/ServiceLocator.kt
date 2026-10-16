@@ -5,6 +5,12 @@ import android.util.Base64
 import androidx.room.Room
 import com.goterl.lazysodium.LazySodiumAndroid
 import com.goterl.lazysodium.SodiumAndroid
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import net.nyx.messenger.crypto.IdentityManager
 import net.nyx.messenger.crypto.MessageCipher
 import net.nyx.messenger.data.db.NyxDatabase
@@ -45,18 +51,48 @@ object ServiceLocator {
             val dbPassphrase = dbPassphrase(context)
             database = Room.databaseBuilder(context, NyxDatabase::class.java, NyxDatabase.NAME)
                 .openHelperFactory(SupportFactory(dbPassphrase, null, false))
+                .addMigrations(NyxDatabase.MIGRATION_1_2)
                 .build()
 
             // Repository unique partagé par tous les écrans (supprime la construction
             // redondante dans Onboarding/ConversationList/Chat — audit cycle 1).
             repository = NyxRepository(
                 identity, cipher,
-                database.messageDao(), database.contactDao(), database.pollStateDao()
+                database.messageDao(), database.contactDao(), database.pollStateDao(),
+                database.seqStateDao()
             )
+
+            startInboxPolling()
 
             initialized = true
         }
     }
+
+    /**
+     * v0.2.10 — POLL GLOBAL DE L'INBOX (30 s) — correctif de LIVRAISON.
+     * Jusqu'ici le poll ne vivait QUE dans l'écran de conversation : un appareil
+     * sans conversation ouverte (ex. destinataire d'une première demande de
+     * contact) ne récupérait JAMAIS ses événements — messages et annonces de
+     * contact n'arrivaient jamais. La boucle vit au niveau application :
+     *  - tourne dès le lancement (no-op tant que Tor/l'identité ne sont pas
+     *    prêts — pollInbox renvoie 0) ;
+     *  - s'ajoute au poll fin (10 s) de l'écran de conversation ouvert ;
+     *  - fonctionne au premier plan — aucune synchro en arrière-plan v0.1
+     *    (process tué = pas de poll, cf. RESTART.md décision 17).
+     */
+    private fun startInboxPolling() {
+        val handler = CoroutineExceptionHandler { _, e ->
+            android.util.Log.w("nyx-poll", "boucle inbox interrompue : ${e.message}")
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
+            while (true) {
+                runCatching { repository.pollInbox() }
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private const val POLL_INTERVAL_MS = 30_000L
 
     /** Clé de base SQLCipher : 32 octets aléatoires, scellés via KeystoreBox dès le 1er lancement. */
     private fun dbPassphrase(context: Context): ByteArray {
