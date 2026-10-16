@@ -171,6 +171,16 @@
     <string name="delete_contact_text">« %1$s » et toute sa conversation seront supprimés de cet appareil. Votre contact, lui, conserve sa copie — il pourra toujours vous écrire.</string>
     <string name="delete_contact_confirm">Supprimer</string>
 
+    <!-- v0.2.12 — statut des invitations de contact (demande opérateur :
+         « indiquer à un client qui ajoute un contact si son invitation est
+         toujours en attente, acceptée ou déclinée ») -->
+    <string name="invitation_status_unsent">Annonce en attente d\'envoi — relance automatique dès que le réplica répond.</string>
+    <string name="invitation_status_pending">Invitation en attente de réponse.</string>
+    <string name="invitation_status_incoming">Vous a ajouté comme contact.</string>
+    <string name="invitation_status_declined">Invitation déclinée.</string>
+    <string name="invitation_accept">Accepter</string>
+    <string name="invitation_decline">Refuser</string>
+
     <!-- Débogage — build « test » uniquement (bouton rouge, export logs vers le Drive) -->
     <string name="debug_card_title">Build TEST — débogage</string>
     <string name="debug_button">ENVOYER LES LOGS AU DÉBOGAGE</string>

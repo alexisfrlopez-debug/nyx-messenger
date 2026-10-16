@@ -14,6 +14,7 @@ import net.nyx.messenger.crypto.MessageCipher
 import net.nyx.messenger.crypto.OnionCodec
 import net.nyx.messenger.data.db.ContactDao
 import net.nyx.messenger.data.db.ContactEntity
+import net.nyx.messenger.data.db.ContactStatus
 import net.nyx.messenger.data.db.MessageDao
 import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.data.db.PollStateDao
@@ -96,6 +97,10 @@ class NyxRepository(
 
     suspend fun send(peerOnion: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            // v0.2.12 : le log d'entrée passe EN PREMIER — le terrain a montré un
+            // échec SANS aucune trace du cycle (04:26:43, export Xiaomi v0.2.11) :
+            // tout ce qui échoue ici (réplica/identité/clé) était invisible.
+            android.util.Log.i("nyx-send", "→ msg peer=${peerOnion.trim().take(16)}… len=${text.length}")
             // v0.2.11 : normalisation DÉFENSIVE de l'adresse — un onion collé avec
             // espace/retour de ligne rendait le champ `to` illisible pour la inbox
             // du pair (accepté HTTP 200 par le réplica, jamais délivré — e2e S3).
@@ -103,7 +108,6 @@ class NyxRepository(
             val relay = relay() ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
-            android.util.Log.i("nyx-send", "→ msg peer=${peer.take(16)}… len=${text.length}")
             val peerPub = OnionCodec.onionToPubKey(peer)
 
             // 1. Chiffrement E2E (sealed box, v0.1)
@@ -218,23 +222,53 @@ class NyxRepository(
                 continue
             }
 
-            // 3. Demande de contact (v0.2.10) : l'auteur s'annonce ("alias" chiffré).
+            // 3. Demande de contact (v0.2.10) + ACK (v0.2.12) : body chiffré
+            //    {"alias":…} = invitation ; {"alias":…,"ack":"accepted|declined"}
+            //    = réponse du destinataire à NOTRE invitation.
             if (ev.type == "contact") {
                 val declared = Regex("\"alias\"\\s*:\\s*\"([^\"]*)\"").find(plain)
                     ?.groupValues?.get(1).orEmpty()
+                val ack = Regex("\"ack\"\\s*:\\s*\"([^\"]*)\"").find(plain)
+                    ?.groupValues?.get(1).orEmpty()
+                val label = declared.ifBlank { author.take(10) + "…" }
                 val already = contactDao.get(author)
-                if (already == null) {
-                    contactDao.upsert(
-                        ContactEntity(
-                            author,
-                            declared.ifBlank { author.take(10) + "…" },
-                            System.currentTimeMillis(),
-                            notifiedAt = System.currentTimeMillis() // l'annonce du PAIR — pas de contre-annonce
+                if (ack == "accepted" || ack == "declined") {
+                    // — v0.2.12 : RÉPONSE du pair à notre invitation —
+                    val newStatus =
+                        if (ack == "accepted") ContactStatus.ACCEPTED else ContactStatus.DECLINED
+                    if (already != null) {
+                        contactDao.setStatus(author, newStatus)
+                    } else {
+                        contactDao.upsert(
+                            ContactEntity(
+                                author, label, System.currentTimeMillis(),
+                                notifiedAt = System.currentTimeMillis(),
+                                status = newStatus
+                            )
+                        )
+                    }
+                    val phrase = if (ack == "accepted")
+                        "$label a accepté votre invitation."
+                    else
+                        "$label a décliné votre invitation."
+                    messageDao.insert(
+                        MessageEntity(
+                            eventIdOf(canonical), author, outgoing = false,
+                            phrase, ev.ts, System.currentTimeMillis(), STATE_RECEIVED
                         )
                     )
-                    // Message d'information dans la conversation — la carte du
-                    // contact apparaît dans la liste (contacts = conversations).
-                    val label = declared.ifBlank { author.take(10) + "…" }
+                    android.util.Log.i("nyx-recv", "   ✓ ack « $ack » de ${author.take(16)}… ($label)")
+                    inserted++
+                } else if (already == null) {
+                    // — INVITATION reçue (v0.2.10) : à accepter/refuser par
+                    //   l'opérateur (v0.2.12 : statut « incoming » + boutons). —
+                    contactDao.upsert(
+                        ContactEntity(
+                            author, label, System.currentTimeMillis(),
+                            notifiedAt = System.currentTimeMillis(), // l'annonce du PAIR — pas de contre-annonce
+                            status = ContactStatus.INCOMING
+                        )
+                    )
                     messageDao.insert(
                         MessageEntity(
                             eventIdOf(canonical), author, outgoing = false,
@@ -244,6 +278,34 @@ class NyxRepository(
                     )
                     android.util.Log.i("nyx-recv", "   ✓ demande de contact de ${author.take(16)}… ($label)")
                     inserted++
+                } else if (already.status == ContactStatus.PENDING) {
+                    // — v0.2.12 : AJOUT MUTUEL — nous avions invité ce pair (statut
+                    //   « pending ») et il s'annonce à son tour : équivalent d'un
+                    //   accept, on qualifie directement « accepted » + ACK explicite
+                    //   au pair (sinon il resterait « pending » à vie — l'e2e S3
+                    //   a attrapé l'asymétrie).
+                    contactDao.setStatus(author, ContactStatus.ACCEPTED)
+                    contactDao.setAckPending(author, 1)
+                    messageDao.insert(
+                        MessageEntity(
+                            eventIdOf(canonical), author, outgoing = false,
+                            "$label vous a ajouté en retour : invitation acceptée.",
+                            ev.ts, System.currentTimeMillis(), STATE_RECEIVED
+                        )
+                    )
+                    android.util.Log.i("nyx-recv", "   ✓ ajout mutuel de ${author.take(16)}… ($label) → ack reparti")
+                    inserted++
+                } else {
+                    // Doublon d'annonce (relances) ou contact reçu sous v0.2.10/11
+                    // (status='' issu de migration) : requalifie en « incoming »
+                    // pour que l'invitation devienne enfin actionnable.
+                    if (already.status == ContactStatus.NONE) {
+                        contactDao.setStatus(author, ContactStatus.INCOMING)
+                        android.util.Log.i("nyx-recv", "   ✓ annonce connue de ${author.take(16)}… → invitation reçue")
+                        inserted++
+                    } else {
+                        android.util.Log.i("nyx-recv", "   · annonce déjà traitée de ${author.take(16)}… (${already.status})")
+                    }
                 }
                 continue
             }
@@ -364,25 +426,132 @@ class NyxRepository(
 
     /** Repartage des annonces de contact restées en attente OU jamais déposées
      *  (contacts migrés de v0.2.9 : notifiedAt=0 — l'annonce n'a jamais pu partir,
-     *  la fonctionnalité n'existait pas ; le pair n'avait donc JAMAIS d'invitation). */
+     *  la fonctionnalité n'existait pas ; le pair n'avait donc JAMAIS d'invitation).
+     *
+     *  v0.2.12 — deux correctifs de LIVRAISON (retour terrain v0.2.11 : l'invitation
+     *  v0.2.9 n'est TOUJOURS pas arrivée) :
+     *   1. l'échec n'est plus MUET — il était avalé sans log ni statut, la seule
+     *      tentative partant à +2 s en pleine course avec le bootstrap Tor
+     *      (22–47 s) : elle échouait systématiquement, invisiblement ;
+     *   2. les ACK d'acceptation/refus en attente (ackPending=1) repartent ici
+     *      aussi — même mécanique que les annonces. */
     suspend fun ensureContactNotified(): Unit = withContext(Dispatchers.IO) {
         if (replicas.isEmpty()) return@withContext
         for (c in contactDao.pendingNotify()) {
-            if (sendContactNotification(c.onion).isSuccess) {
-                contactDao.markNotified(c.onion, System.currentTimeMillis())
-                android.util.Log.i("nyx-send", "✓ annonce contact déposée pour ${c.onion.take(16)}…")
+            sendContactNotification(c.onion).fold(
+                onSuccess = {
+                    contactDao.markNotified(c.onion, System.currentTimeMillis())
+                    android.util.Log.i("nyx-send", "✓ annonce contact déposée pour ${c.onion.take(16)}…")
+                },
+                onFailure = { e ->
+                    // v0.2.12 : ÉCHEC VISIBLE — le statut local reste « annonce en
+                    // attente d'envoi » et la relance périodique (boucle 30 s du
+                    // ServiceLocator, cf. pollAnnouncements) repartira l'annonce.
+                    android.util.Log.w("nyx-send", "✗ annonce contact ÉCHOUÉE pour ${c.onion.take(16)}… : ${e.message}")
+                }
+            )
+        }
+        for (c in contactDao.pendingAcks()) {
+            sendContactAck(c.onion, ackOf(c.status)).fold(
+                onSuccess = {
+                    contactDao.setAckPending(c.onion, 0)
+                    android.util.Log.i("nyx-send", "✓ ack « ${ackOf(c.status)} » déposé pour ${c.onion.take(16)}…")
+                },
+                onFailure = { e ->
+                    android.util.Log.w("nyx-send", "✗ ack « ${ackOf(c.status)} » ÉCHOUÉ pour ${c.onion.take(16)}… : ${e.message}")
+                }
+            )
+        }
+    }
+
+    /** v0.2.12 — ACK d'invitation : le destinataire accepte ou refuse, un événement
+     *  signé type « contact » (type standard déjà accepté par le réplica v0.2.0 —
+     *  AUCUN changement serveur) avec body chiffré {"alias":…,"ack":"accepted"} est
+     *  déposé à l'intention de l'invitant, qui voit son statut passer à
+     *  « acceptée » ou « déclinée » (demande opérateur). */
+    private fun ackOf(status: String): String =
+        if (status == ContactStatus.DECLINED) "declined" else "accepted"
+
+    private suspend fun sendContactAck(onionLower: String, ack: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val relay = relay() ?: error("aucun réplica configuré")
+                val me = identity.onionAddress ?: error("identité absente")
+                val priv = identity.secretKey()
+                val peerPub = OnionCodec.onionToPubKey(onionLower)
+                val bodyJson = "{\"alias\":\"${identity.alias ?: ""}\",\"ack\":\"$ack\"}"
+                val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "contact", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, ttl = 0,
+                    to = onionLower, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
             }
+        }
+
+    /** v0.2.12 — le destinataire ACCEPTE l'invitation reçue : statut local
+     *  « accepted » immédiat + ack au pair (différé si le réplica est injoignable —
+     *  reparti par [ensureContactNotified] via la boucle 30 s). */
+    suspend fun acceptContact(onion: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val clean = onion.trim().lowercase()
+            contactDao.setStatus(clean, ContactStatus.ACCEPTED)
+            contactDao.setAckPending(clean, 1)
+            sendContactAck(clean, "accepted").onSuccess {
+                contactDao.setAckPending(clean, 0)
+            }
+            Unit
+        }
+    }
+
+    /** v0.2.12 — le destinataire REFUSE l'invitation reçue : statut « declined »
+     *  + ack ; le contact reste visible (supprimable par pression longue). */
+    suspend fun declineContact(onion: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val clean = onion.trim().lowercase()
+            contactDao.setStatus(clean, ContactStatus.DECLINED)
+            contactDao.setAckPending(clean, 1)
+            sendContactAck(clean, "declined").onSuccess {
+                contactDao.setAckPending(clean, 0)
+            }
+            Unit
         }
     }
 
     suspend fun addContact(onion: String, alias: String): Result<Boolean> = runCatching {
         val clean = onion.trim().lowercase() // v0.2.11 : normalisation AVANT validation/stockage
         OnionCodec.onionToPubKey(clean) // validation de l'adresse
-        contactDao.upsert(ContactEntity(clean, alias.ifBlank { clean.take(10) + "…" }, System.currentTimeMillis()))
-        // Annonce au pair — l'échec n'annule PAS l'ajout local : il sera reparti.
-        val transmise = sendContactNotification(clean).isSuccess
-        if (transmise) contactDao.markNotified(clean, System.currentTimeMillis())
-        else contactDao.setNotifyPending(clean, 1)
+        val existing = contactDao.get(clean)
+        // v0.2.12 : ré-ajouter quelqu'un qui nous a déjà invités (statut
+        // « incoming ») = ACCEPTER son invitation — ack au pair, pas d'annonce.
+        if (existing?.status == ContactStatus.INCOMING) {
+            contactDao.setStatus(clean, ContactStatus.ACCEPTED)
+            contactDao.setAckPending(clean, 1)
+            val ackOk = sendContactAck(clean, "accepted").isSuccess
+            if (ackOk) contactDao.setAckPending(clean, 0)
+            return@runCatching ackOk
+        }
+        if (existing == null) {
+            contactDao.upsert(ContactEntity(clean, alias.ifBlank { clean.take(10) + "…" }, System.currentTimeMillis()))
+        } else if (alias.isNotBlank()) {
+            // rafraîchit l'alias local SANS écraser l'état d'invitation (REPLACE)
+            contactDao.upsert(existing.copy(alias = alias))
+        }
+        // Annonce au pair — UNIQUEMENT si aucune invitation wire n'existe encore
+        // (status='' : jamais annoncée ni reçue ; pending/accepted/declined/incoming
+        // = le pair nous connaît déjà, re-annoncer ne ferait que consommer des seq).
+        // L'échec n'annule PAS l'ajout local : reparti par la boucle 30 s.
+        // v0.2.12 : en cas de succès le statut passe à « pending » (markNotified),
+        // sinon il reste « annonce en attente d'envoi » (status='' + notifyPending).
+        val transmise = if (existing == null || existing.status == ContactStatus.NONE) {
+            val ok = sendContactNotification(clean).isSuccess
+            if (ok) contactDao.markNotified(clean, System.currentTimeMillis())
+            else contactDao.setNotifyPending(clean, 1)
+            ok
+        } else true
         transmise
     }
 
@@ -471,11 +640,27 @@ class NyxRepository(
             val onion = res.by ?: error("résolution incomplète (alias pris sans détenteur)")
             OnionCodec.onionToPubKey(onion) // cohérence (l'adresse est la clé publique)
             val lower = onion.trim().lowercase() // v0.2.11 : normalisation défensive
-            contactDao.upsert(ContactEntity(lower, name, System.currentTimeMillis()))
-            // Annonce au pair (v0.2.10) — différée si le réplica ne répond pas.
-            val notified = sendContactNotification(lower).isSuccess
-            if (notified) contactDao.markNotified(lower, System.currentTimeMillis())
-            else contactDao.setNotifyPending(lower, 1)
+            // v0.2.12 : mêmes gardes que addContact — accepter l'invitation
+            // « incoming » existante, sinon préserver l'état (REPLACE = perte).
+            val existing = contactDao.get(lower)
+            if (existing?.status == ContactStatus.INCOMING) {
+                contactDao.setStatus(lower, ContactStatus.ACCEPTED)
+                contactDao.setAckPending(lower, 1)
+                val ackOk = sendContactAck(lower, "accepted").isSuccess
+                if (ackOk) contactDao.setAckPending(lower, 0)
+                return@runCatching AliasAddResult.Added(lower, name, ackOk)
+            }
+            if (existing == null) {
+                contactDao.upsert(ContactEntity(lower, name, System.currentTimeMillis()))
+            }
+            // Annonce au pair (v0.2.10) — uniquement si aucun lien wire n'existe ;
+            // différée si le réplica ne répond pas (repartie par la boucle 30 s).
+            val notified = if (existing == null || existing.status == ContactStatus.NONE) {
+                val ok = sendContactNotification(lower).isSuccess
+                if (ok) contactDao.markNotified(lower, System.currentTimeMillis())
+                else contactDao.setNotifyPending(lower, 1)
+                ok
+            } else true
             AliasAddResult.Added(lower, name, notified)
         }
     }

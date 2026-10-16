@@ -211,6 +211,29 @@ fun ConversationListScreen(
                                 c.onion.take(20) + "…",
                                 style = MaterialTheme.typography.bodySmall
                             )
+                            // v0.2.12 : STATUT DE L'INVITATION (demande opérateur —
+                            // « indiquer si son invitation est en attente, acceptée
+                            // ou déclinée »). Rien pour « accepted » (conversation
+                            // normale) ; pour « incoming », boutons Accepter/Refuser.
+                            InvitationStatusLine(c)
+                            if (c.status == net.nyx.messenger.data.db.ContactStatus.INCOMING) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    TextButton(onClick = {
+                                        scope.launch { repo.acceptContact(c.onion) }
+                                    }) { Text(stringResource(R.string.invitation_accept)) }
+                                    TextButton(onClick = {
+                                        scope.launch { repo.declineContact(c.onion) }
+                                    }) {
+                                        Text(
+                                            stringResource(R.string.invitation_decline),
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     if (askDelete) {
@@ -260,4 +283,30 @@ private fun TorBanner(state: TorManager.TorState) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
+}
+
+/**
+ * v0.2.12 — libellé du statut d'invitation sous l'adresse (demande opérateur).
+ * « accepted » n'affiche rien : la conversation est normale.
+ */
+@Composable
+private fun InvitationStatusLine(c: net.nyx.messenger.data.db.ContactEntity) {
+    val (resId, color) = when {
+        c.status == net.nyx.messenger.data.db.ContactStatus.PENDING ->
+            R.string.invitation_status_pending to MaterialTheme.colorScheme.tertiary
+        c.status == net.nyx.messenger.data.db.ContactStatus.INCOMING ->
+            R.string.invitation_status_incoming to MaterialTheme.colorScheme.primary
+        c.status == net.nyx.messenger.data.db.ContactStatus.DECLINED ->
+            R.string.invitation_status_declined to MaterialTheme.colorScheme.error
+        c.status == net.nyx.messenger.data.db.ContactStatus.NONE &&
+            (c.notifyPending == 1 || c.notifiedAt == 0L) ->
+            R.string.invitation_status_unsent to MaterialTheme.colorScheme.secondary
+        else -> return // accepted (ou cas ambigu) : pas d'étiquette
+    }
+    Text(
+        stringResource(resId),
+        color = color,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(top = 4.dp)
+    )
 }

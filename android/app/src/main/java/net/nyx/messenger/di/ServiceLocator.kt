@@ -51,7 +51,10 @@ object ServiceLocator {
             val dbPassphrase = dbPassphrase(context)
             database = Room.databaseBuilder(context, NyxDatabase::class.java, NyxDatabase.NAME)
                 .openHelperFactory(SupportFactory(dbPassphrase, null, false))
-                .addMigrations(NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3)
+                .addMigrations(
+                    NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3,
+                    NyxDatabase.MIGRATION_3_4
+                )
                 .build()
 
             // Repository unique partagé par tous les écrans (supprime la construction
@@ -86,7 +89,13 @@ object ServiceLocator {
         }
         CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
             while (true) {
+                // v0.2.12 : la boucle porte AUSSI les annonces/ACK de contact en
+                // attente — le terrain v0.2.11 a montré l'annonce partant UNE fois
+                // à +2 s (course avec Tor : échec muet systématique, l'invitation
+                // n'arrivait jamais). Désormais elle repart toutes les 30 s tant
+                // qu'elle n'est pas déposée, dès que Tor est prêt.
                 runCatching { repository.pollInbox() }
+                runCatching { repository.ensureContactNotified() }
                 delay(POLL_INTERVAL_MS)
             }
         }
