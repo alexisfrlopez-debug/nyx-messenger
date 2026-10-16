@@ -22,8 +22,25 @@ class IdentityManager private constructor(context: Context) {
     private val prefs = context.getSharedPreferences("nyx_identity", Context.MODE_PRIVATE)
     private val sodium = LazySodiumAndroid(SodiumAndroid())
 
-    var onionAddress: String? = null; private set
-    var publicKey: ByteArray? = null; private set
+    /* v0.2.13 — CORRECTIF TERRAIN CRITIQUE : ces deux champs n'étaient remplis
+     * qu'en mémoire (createIfNeeded / restoreFromSeed), appelés UNIQUEMENT depuis
+     * l'onboarding. Après CHAQUE relance du processus, onionAddress restait null
+     * → « identité absente » sur TOUS les envois/annonces/acks + pollInbox muet
+     * (logs v0.2.12 : ✗ annonce contact ÉCHOUÉE … identité absente, les 2
+     * téléphones, toutes les 30 s) — c'est LA cause du blocage invitations/messages
+     * constaté depuis la v0.2.9. Désormais les getters retombent sur les
+     * préférences (même pattern que alias ci-dessous) : l'identité survit à toute
+     * relance sans dépendre de l'onboarding. secretKey() lisait déjà les prefs —
+     * c'est pourquoi Tor publiait l'onion pendant que le dépôt échouait. */
+    var onionAddress: String? = null
+        get() = field ?: prefs.getString(KEY_ONION, null)?.also { field = it }
+        private set
+
+    var publicKey: ByteArray? = null
+        get() = field ?: prefs.getString(KEY_PUB, null)?.let {
+            Base64.getDecoder().decode(it).also { pk -> field = pk }
+        }
+        private set
 
     val exists: Boolean get() = prefs.getString(KEY_PRIV, null) != null
 
