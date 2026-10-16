@@ -62,6 +62,9 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
     /** v0.2.11 : dernier échec d'envoi (null = rien à afficher). */
     val sendError = MutableStateFlow<String?>(null)
 
+    /** v0.2.14 : ligne contact du pair (alias + statut — bannière non mutuel). */
+    val contact = db.contactDao().byOnion(peerOnion.trim().lowercase())
+
     init {
         viewModelScope.launch {
             while (true) {
@@ -94,6 +97,8 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     // met à jour IMMÉDIATEMENT après l'insertion locale (envoi ou réception).
     val messages by vm.messages.collectAsState(initial = emptyList())
     val sendError by vm.sendError.collectAsState()
+    // v0.2.14 : contact observable — alias en titre, bannière si non mutuel.
+    val contact by vm.contact.collectAsState(initial = null)
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -104,7 +109,14 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(peerOnion.take(20) + "…") },
+                // v0.2.14 : le titre affiche l'ALIAS du contact (jamais l'adresse
+                // onion — visible uniquement dans la fiche, demande opérateur).
+                title = {
+                    Text(
+                        contact?.alias?.ifBlank { null }
+                            ?: (peerOnion.take(12) + "…")
+                    )
+                },
                 actions = {
                     IconButton(onClick = { onOpenProfile(peerOnion) }) {
                         Icon(Icons.Filled.Person, contentDescription = stringResource(R.string.contact_profile_title))
@@ -114,6 +126,16 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            // v0.2.14 : bannière si l'échange n'est pas (encore) mutuel —
+            // l'envoi est de toute façon bloqué côté repository (verrou mutuel).
+            if (contact?.status != net.nyx.messenger.data.db.ContactStatus.ACCEPTED) {
+                Text(
+                    stringResource(R.string.chat_not_mutual),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp)

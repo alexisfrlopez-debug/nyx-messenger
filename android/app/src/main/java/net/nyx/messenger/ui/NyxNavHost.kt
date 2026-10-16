@@ -81,6 +81,11 @@ fun NyxNavHost(
                         // adresse ne doit jamais casser la route de navigation.
                         nav.navigate("chat/${java.net.URLEncoder.encode(peer, "UTF-8").replace("+", "%20")}")
                     },
+                    // v0.2.14 : fiche du contact accessible DEPUIS LA LISTE (bouton
+                    // ⓘ) — l'adresse onion n'y est visible QUE dans cette fiche.
+                    onOpenContactProfile = { peer ->
+                        nav.navigate("contactprofile/${java.net.URLEncoder.encode(peer, "UTF-8").replace("+", "%20")}")
+                    },
                     onOpenMyOnion = { nav.navigate("myonion") },
                     onOpenMyProfile = { nav.navigate("myprofile") },
                     onOpenSettings = { nav.navigate("settings") }

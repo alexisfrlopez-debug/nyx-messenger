@@ -54,5 +54,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Démon Tor embarqué : proxy SOCKS 127.0.0.1 local utilisé par TOUTE la messagerie et hébergeant le service onion personnel (ADR-007) ; fonctionnement continu requis, aucun transfert média." />
         </service>
+
+        <!-- v0.2.14 : actions Accepter/Refuser des notifications d'invitation.
+             exported=false : déclenchable UNIQUEMENT par nos propres
+             PendingIntents (aucune app externe ne peut forger le choix). -->
+        <receiver
+            android:name=".notify.ContactActionReceiver"
+            android:exported="false" />
     </application>
 </manifest>

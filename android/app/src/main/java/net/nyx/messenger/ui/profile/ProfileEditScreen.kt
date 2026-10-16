@@ -243,12 +243,17 @@ fun ProfileEditScreen(onBack: () -> Unit) {
                         // 2. Publication de la SEULE partie publique (diffusion)
                         repo.publishProfile(store).fold(
                             onSuccess = {
+                                store.clearPublishPending()
                                 publishState = context.getString(R.string.profile_saved)
                                 publishError = null
                             },
                             onFailure = { e ->
                                 // La carte reste sauvegardée localement ; la
                                 // publication réessayera à la prochaine sauvegarde.
+                                // v0.2.14 : ET désormais par la boucle 30 s
+                                // (ensureProfilePublished) — un profil public rendu
+                                // hors-ligne ne restera plus jamais privé à vie.
+                                store.markPublishPending()
                                 publishState = context.getString(R.string.profile_saved_local_only)
                                 publishError = e.message
                             }

@@ -38,11 +38,17 @@ object ServiceLocator {
 
     @Volatile var initialized = false; private set
 
+    /** v0.2.14 : contexte application — accès plumbing (notifications, profil). */
+    private var appCtx: Context? = null
+    fun appContext(): Context =
+        appCtx ?: error("ServiceLocator non initialisé")
+
     fun init(context: Context) {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
 
+            appCtx = context.applicationContext
             sodium = LazySodiumAndroid(SodiumAndroid())
             cipher = MessageCipher(sodium)
             identity = IdentityManager.get(context)
@@ -64,6 +70,10 @@ object ServiceLocator {
                 database.messageDao(), database.contactDao(), database.pollStateDao(),
                 database.seqStateDao()
             )
+
+            // v0.2.14 : notifications système du cycle de vie des contacts
+            // (invitation avec actions Accepter/Refuser, refus, suppression).
+            net.nyx.messenger.notify.ContactNotifier.init(context)
 
             startInboxPolling()
 
@@ -96,6 +106,11 @@ object ServiceLocator {
                 // qu'elle n'est pas déposée, dès que Tor est prêt.
                 runCatching { repository.pollInbox() }
                 runCatching { repository.ensureContactNotified() }
+                // v0.2.14 : publication de profil FIABLE (demande opérateur :
+                // « vérifie que les infos publiques soient bien partagées entre
+                // les contacts ») — un profil rendu public alors que le réplica
+                // était injoignable ne partait JAMAIS (échec muet au save).
+                runCatching { repository.ensureProfilePublished() }
                 delay(POLL_INTERVAL_MS)
             }
         }

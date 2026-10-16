@@ -105,6 +105,17 @@ class NyxRepository(
             // espace/retour de ligne rendait le champ `to` illisible pour la inbox
             // du pair (accepté HTTP 200 par le réplica, jamais délivré — e2e S3).
             val peer = peerOnion.trim().lowercase()
+            // v0.2.14 — VERROU MUTUEL (demande opérateur : « les contacts ne
+            // peuvent s'envoyer de message s'ils ne figurent pas dans les listes
+            // de contact mutuelles ») : l'envoi n'est possible que si le pair est
+            // un contact ACCEPTÉ chez nous. L'échec est affiché dans l'UI (v0.2.11).
+            val link = contactDao.get(peer)
+            if (link?.status != ContactStatus.ACCEPTED) {
+                error(
+                    if (link == null) "ce destinataire n'est pas dans vos contacts"
+                    else "échange possible uniquement une fois l'invitation acceptée des deux côtés"
+                )
+            }
             val relay = relay() ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
@@ -225,6 +236,10 @@ class NyxRepository(
             // 3. Demande de contact (v0.2.10) + ACK (v0.2.12) : body chiffré
             //    {"alias":…} = invitation ; {"alias":…,"ack":"accepted|declined"}
             //    = réponse du destinataire à NOTRE invitation.
+            //    v0.2.14 : ack « removed » = le pair nous a supprimés — le contact
+            //    est ARCHIVÉ côté invitant avec notification (demande opérateur :
+            //    « le contact qui refuse ou supprime doit être supprimé du côté du
+            //    téléphone qui invite, avec une notification selon le cas »).
             if (ev.type == "contact") {
                 val declared = Regex("\"alias\"\\s*:\\s*\"([^\"]*)\"").find(plain)
                     ?.groupValues?.get(1).orEmpty()
@@ -232,53 +247,79 @@ class NyxRepository(
                     ?.groupValues?.get(1).orEmpty()
                 val label = declared.ifBlank { author.take(10) + "…" }
                 val already = contactDao.get(author)
-                if (ack == "accepted" || ack == "declined") {
-                    // — v0.2.12 : RÉPONSE du pair à notre invitation —
-                    val newStatus =
-                        if (ack == "accepted") ContactStatus.ACCEPTED else ContactStatus.DECLINED
-                    if (already != null) {
-                        contactDao.setStatus(author, newStatus)
-                    } else {
+                when {
+                    ack == "accepted" || ack == "declined" || ack == "removed" -> {
+                        // — RÉPONSE du pair à notre invitation (ou avis de suppression) —
+                        // v0.2.14 : un refus/suppression d'un pair INCONNU (aucune
+                        // ligne locale — ex. base effacée) ne crée RIEN : sans lien,
+                        // il n'y a rien à archiver ni à notifier.
+                        if (already == null && ack != "accepted") {
+                            android.util.Log.i(
+                                "nyx-recv",
+                                "   · ack « $ack » d'un pair inconnu ${author.take(16)}… — ignoré"
+                            )
+                            continue
+                        }
+                        val newStatus = when (ack) {
+                            "accepted" -> ContactStatus.ACCEPTED
+                            "declined" -> ContactStatus.DECLINED
+                            else -> ContactStatus.REMOVED
+                        }
+                        if (already != null) {
+                            contactDao.setStatus(author, newStatus)
+                            contactDao.setNotifyPending(author, 0)
+                        } else {
+                            contactDao.upsert(
+                                ContactEntity(
+                                    author, label, System.currentTimeMillis(),
+                                    notifiedAt = System.currentTimeMillis(),
+                                    status = newStatus
+                                )
+                            )
+                        }
+                        val phrase = when (ack) {
+                            "accepted" -> "$label a accepté votre invitation."
+                            "declined" -> "$label a décliné votre invitation."
+                            else -> "$label vous a supprimé de sa liste de contacts."
+                        }
+                        messageDao.insert(
+                            MessageEntity(
+                                eventIdOf(canonical), author, outgoing = false,
+                                phrase, ev.ts, System.currentTimeMillis(), STATE_RECEIVED
+                            )
+                        )
+                        // v0.2.14 : NOTIFICATION système selon le cas (refus ou
+                        // suppression — l'acceptation n'en demande pas).
+                        when (ack) {
+                            "declined" -> net.nyx.messenger.notify.ContactNotifier.declined(author, label)
+                            "removed" -> net.nyx.messenger.notify.ContactNotifier.removed(author, label)
+                        }
+                        android.util.Log.i("nyx-recv", "   ✓ ack « $ack » de ${author.take(16)}… ($label)")
+                        inserted++
+                    }
+                    already == null -> {
+                        // — INVITATION reçue (v0.2.10) : à accepter/refuser par
+                        //   l'opérateur (v0.2.12 : statut « incoming » + boutons ;
+                        //   v0.2.14 : NOTIFICATION système avec actions). —
                         contactDao.upsert(
                             ContactEntity(
                                 author, label, System.currentTimeMillis(),
-                                notifiedAt = System.currentTimeMillis(),
-                                status = newStatus
+                                notifiedAt = System.currentTimeMillis(), // l'annonce du PAIR — pas de contre-annonce
+                                status = ContactStatus.INCOMING
                             )
                         )
+                        messageDao.insert(
+                            MessageEntity(
+                                eventIdOf(canonical), author, outgoing = false,
+                                "$label vous a ajouté comme contact.",
+                                ev.ts, System.currentTimeMillis(), STATE_RECEIVED
+                            )
+                        )
+                        net.nyx.messenger.notify.ContactNotifier.invitation(author, label)
+                        android.util.Log.i("nyx-recv", "   ✓ demande de contact de ${author.take(16)}… ($label)")
+                        inserted++
                     }
-                    val phrase = if (ack == "accepted")
-                        "$label a accepté votre invitation."
-                    else
-                        "$label a décliné votre invitation."
-                    messageDao.insert(
-                        MessageEntity(
-                            eventIdOf(canonical), author, outgoing = false,
-                            phrase, ev.ts, System.currentTimeMillis(), STATE_RECEIVED
-                        )
-                    )
-                    android.util.Log.i("nyx-recv", "   ✓ ack « $ack » de ${author.take(16)}… ($label)")
-                    inserted++
-                } else if (already == null) {
-                    // — INVITATION reçue (v0.2.10) : à accepter/refuser par
-                    //   l'opérateur (v0.2.12 : statut « incoming » + boutons). —
-                    contactDao.upsert(
-                        ContactEntity(
-                            author, label, System.currentTimeMillis(),
-                            notifiedAt = System.currentTimeMillis(), // l'annonce du PAIR — pas de contre-annonce
-                            status = ContactStatus.INCOMING
-                        )
-                    )
-                    messageDao.insert(
-                        MessageEntity(
-                            eventIdOf(canonical), author, outgoing = false,
-                            "$label vous a ajouté comme contact.",
-                            ev.ts, System.currentTimeMillis(), STATE_RECEIVED
-                        )
-                    )
-                    android.util.Log.i("nyx-recv", "   ✓ demande de contact de ${author.take(16)}… ($label)")
-                    inserted++
-                } else if (already.status == ContactStatus.PENDING) {
+                    already.status == ContactStatus.PENDING -> {
                     // — v0.2.12 : AJOUT MUTUEL — nous avions invité ce pair (statut
                     //   « pending ») et il s'annonce à son tour : équivalent d'un
                     //   accept, on qualifie directement « accepted » + ACK explicite
@@ -295,18 +336,40 @@ class NyxRepository(
                     )
                     android.util.Log.i("nyx-recv", "   ✓ ajout mutuel de ${author.take(16)}… ($label) → ack reparti")
                     inserted++
-                } else {
-                    // Doublon d'annonce (relances) ou contact reçu sous v0.2.10/11
-                    // (status='' issu de migration) : requalifie en « incoming »
-                    // pour que l'invitation devienne enfin actionnable.
-                    if (already.status == ContactStatus.NONE) {
-                        contactDao.setStatus(author, ContactStatus.INCOMING)
-                        android.util.Log.i("nyx-recv", "   ✓ annonce connue de ${author.take(16)}… → invitation reçue")
-                        inserted++
-                    } else {
-                        android.util.Log.i("nyx-recv", "   · annonce déjà traitée de ${author.take(16)}… (${already.status})")
+                    }
+                    else -> {
+                        // Doublon d'annonce (relances) ou contact reçu sous v0.2.10/11
+                        // (status='' issu de migration) : requalifie en « incoming »
+                        // pour que l'invitation devienne enfin actionnable.
+                        // v0.2.14 : une annonce reçue d'un pair ARCHIVÉ (declined/
+                        // removed/removed_by_me) = RE-INVITATION du pair — on repart
+                        // d'une invitation fraîche (incoming).
+                        if (already.status == ContactStatus.NONE ||
+                            net.nyx.messenger.data.db.ContactStatus.archived(already.status)
+                        ) {
+                            contactDao.setStatus(author, ContactStatus.INCOMING)
+                            net.nyx.messenger.notify.ContactNotifier.invitation(author, label)
+                            android.util.Log.i("nyx-recv", "   ✓ annonce connue de ${author.take(16)}… → invitation reçue")
+                            inserted++
+                        } else {
+                            android.util.Log.i("nyx-recv", "   · annonce déjà traitée de ${author.take(16)}… (${already.status})")
+                        }
                     }
                 }
+                continue
+            }
+
+            // 3bis. v0.2.14 — MESSAGE : échange RÉSERVÉ aux contacts MUTUELS
+            // (demande opérateur : « les contacts ne peuvent s'envoyer de message
+            // s'ils ne figurent pas dans les listes de contact mutuelles »). Un
+            // message d'un pair qui n'est pas un contact accepté chez nous est
+            // DÉTUIT (jamais stocké, jamais affiché) — l'expéditeur légitime est
+            // de toute façon bloqué par le même verrou chez lui.
+            if (ev.type == "msg" && contactDao.get(author)?.status != ContactStatus.ACCEPTED) {
+                android.util.Log.w(
+                    "nyx-recv",
+                    "   ✗ msg de ${author.take(16)}… ignoré (pas un contact mutuel)"
+                )
                 continue
             }
 
@@ -468,9 +531,14 @@ class NyxRepository(
      *  signé type « contact » (type standard déjà accepté par le réplica v0.2.0 —
      *  AUCUN changement serveur) avec body chiffré {"alias":…,"ack":"accepted"} est
      *  déposé à l'intention de l'invitant, qui voit son statut passer à
-     *  « acceptée » ou « déclinée » (demande opérateur). */
+     *  « acceptée » ou « déclinée » (demande opérateur).
+     *  v0.2.14 : « removed » = avis de suppression de contact (même canal). */
     private fun ackOf(status: String): String =
-        if (status == ContactStatus.DECLINED) "declined" else "accepted"
+        when (status) {
+            ContactStatus.DECLINED -> "declined"
+            ContactStatus.REMOVED_BY_ME -> "removed"
+            else -> "accepted"
+        }
 
     private suspend fun sendContactAck(onionLower: String, ack: String): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -534,19 +602,23 @@ class NyxRepository(
             if (ackOk) contactDao.setAckPending(clean, 0)
             return@runCatching ackOk
         }
+        // v0.2.14 : ré-inviter un contact ARCHIVÉ (refusé/supprimé — demande
+        // opérateur : « un contact supprimé peut être re-invité ») = NOUVELLE
+        // annonce : remise à zéro du lien wire, puis branche annonce normale.
+        val wasArchived = existing != null && net.nyx.messenger.data.db.ContactStatus.archived(existing.status)
+        if (wasArchived) contactDao.resetForReinvite(clean)
         if (existing == null) {
             contactDao.upsert(ContactEntity(clean, alias.ifBlank { clean.take(10) + "…" }, System.currentTimeMillis()))
-        } else if (alias.isNotBlank()) {
+        } else if (alias.isNotBlank() && !wasArchived) {
             // rafraîchit l'alias local SANS écraser l'état d'invitation (REPLACE)
             contactDao.upsert(existing.copy(alias = alias))
         }
-        // Annonce au pair — UNIQUEMENT si aucune invitation wire n'existe encore
-        // (status='' : jamais annoncée ni reçue ; pending/accepted/declined/incoming
-        // = le pair nous connaît déjà, re-annoncer ne ferait que consommer des seq).
+        // Annonce au pair — UNIQUEMENT si aucun lien wire n'existe encore
+        // (status='' : jamais annoncée ni reçue ; pending/accepted = le pair nous
+        // connaît déjà, re-annoncer ne ferait que consommer des seq).
+        // v0.2.14 : un lien ARCHIVÉ redevient une annonce fraîche.
         // L'échec n'annule PAS l'ajout local : reparti par la boucle 30 s.
-        // v0.2.12 : en cas de succès le statut passe à « pending » (markNotified),
-        // sinon il reste « annonce en attente d'envoi » (status='' + notifyPending).
-        val transmise = if (existing == null || existing.status == ContactStatus.NONE) {
+        val transmise = if (existing == null || existing.status == ContactStatus.NONE || wasArchived) {
             val ok = sendContactNotification(clean).isSuccess
             if (ok) contactDao.markNotified(clean, System.currentTimeMillis())
             else contactDao.setNotifyPending(clean, 1)
@@ -556,17 +628,66 @@ class NyxRepository(
     }
 
     /**
-     * v0.2.11 — SUPPRESSION D'UN CONTACT (demande opérateur) : retire le contact
-     * ET toute sa conversation locale. Aucun événement wire : la suppression est
-     * strictement locale (le pair, lui, garde sa copie — à symétriser plus tard
-     * par un événement « uncontact » si besoin).
+     * v0.2.14 — SUPPRESSION D'UN CONTACT PROPAGÉE AU PAIR (demande opérateur :
+     * « si un contact est supprimé… il doit être supprimé du côté du téléphone
+     * qui invite, avec une notification »).
+     *
+     * Sémantique :
+     *  - si un LIEN wire existe (contact annoncé ou accepté) : événement signé
+     *    type « contact » body chiffré {"alias":…,"ack":"removed"} au pair (type
+     *    DÉJÀ whitelisté serveur — zéro changement) ; le pair archivera le
+     *    contact et sera notifié. Échec réplica = différé (ackPending), reparti
+     *    par la boucle 30 s comme les acks.
+     *  - la ligne locale est ARCHIVÉE (status « removed_by_me ») et NON détruite :
+     *    « les anciennes conversations doivent toujours être accessibles » — la
+     *    conversation reste lisible (section Anciennes conversations), le contact
+     *    disparaît de la liste active, et la re-invitation est possible.
+     *  - pas de lien wire (ajout local jamais déposé, invitation jamais traitée)
+     *    : archivage pur et simple, rien à signaler au pair.
+     *  - la CONVERSATION n'est PAS touchée ici : sa suppression est une action
+     *    distincte et strictement locale ([deleteConversation]).
      */
     suspend fun deleteContact(onion: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val clean = onion.trim().lowercase()
+            val c = contactDao.get(clean)
+            if (c == null) {
+                android.util.Log.i("nyx-repo", "contact absent (déjà supprimé) : ${clean.take(16)}…")
+                return@runCatching
+            }
+            val lie = when (c.status) {
+                ContactStatus.ACCEPTED, ContactStatus.PENDING -> true
+                // v0.2.14 : une annonce JAMAIS déposée (notifyPending, announcedAt=0)
+                // = le pair ne nous connaît pas — rien à lui signaler, archivage pur.
+                else -> false
+            }
+            if (lie) {
+                contactDao.setStatus(clean, ContactStatus.REMOVED_BY_ME)
+                contactDao.setAckPending(clean, 1)
+                // Dépôt immédiat ; en cas d'échec, la boucle 30 s repartira l'avis
+                // (ensureContactNotified → pendingAcks → ackOf(REMOVED_BY_ME)).
+                sendContactAck(clean, "removed").onSuccess {
+                    contactDao.setAckPending(clean, 0)
+                }.onFailure { e ->
+                    android.util.Log.w("nyx-send", "✗ avis suppression DIFFÉRÉ pour ${clean.take(16)}… : ${e.message}")
+                }
+            } else {
+                contactDao.setStatus(clean, ContactStatus.REMOVED_BY_ME)
+            }
+            net.nyx.messenger.notify.ContactNotifier.cancelInvitation(clean)
+            android.util.Log.i("nyx-repo", "contact supprimé (archivé, conversation conservée) : ${clean.take(16)}…")
+            Unit
+        }
+    }
+
+    /** v0.2.14 — SUPPRESSION LOCALE D'UNE CONVERSATION (demande opérateur :
+     *  « uniquement le téléphone qui supprime une conversation n'y a plus accès »).
+     *  Strictement locale — aucun événement wire, le pair conserve SA copie. */
+    suspend fun deleteConversation(onion: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val clean = onion.trim().lowercase()
             messageDao.deleteConversation(clean)
-            contactDao.delete(clean)
-            android.util.Log.i("nyx-repo", "contact supprimé : ${clean.take(16)}…")
+            android.util.Log.i("nyx-repo", "conversation supprimée (local) : ${clean.take(16)}…")
             Unit
         }
     }
@@ -614,6 +735,29 @@ class NyxRepository(
             }
         }
 
+    /**
+     * v0.2.14 — PUBLICATION DE PROFIL FIABLE (demande opérateur : « vérifie que
+     * les infos publiques soient bien partagées entre les contacts »).
+     * Jusqu'ici la carte publique ne partait qu'AU MOMENT du save : un profil
+     * rendu public avant que le réplica ne réponde restait invisible pour les
+     * contacts pour toujours. Désormais : si une publication est en attente
+     * (échec au save), la boucle 30 s la redépose dès que possible — même
+     * mécanique que les annonces/acks de contact.
+     */
+    suspend fun ensureProfilePublished(): Unit = withContext(Dispatchers.IO) {
+        val store = net.nyx.messenger.profile.ProfileStore.get(ServiceLocator.appContext())
+        if (!store.isPublishPending()) return@withContext
+        publishProfile(store).fold(
+            onSuccess = {
+                store.clearPublishPending()
+                android.util.Log.i("nyx-send", "✓ profil public (re)publié (différé rattrapé)")
+            },
+            onFailure = { e ->
+                android.util.Log.w("nyx-send", "✗ publication profil différée : ${e.message}")
+            }
+        )
+    }
+
     /* ---------------- contacts par alias (v0.2.0) ---------------- */
 
     /** Résultat d'un ajout de contact par pseudonyme unique. */
@@ -650,12 +794,17 @@ class NyxRepository(
                 if (ackOk) contactDao.setAckPending(lower, 0)
                 return@runCatching AliasAddResult.Added(lower, name, ackOk)
             }
+            // v0.2.14 : re-invitation d'un lien archivé — remise à zéro + annonce.
+            val wasArchived = existing != null &&
+                net.nyx.messenger.data.db.ContactStatus.archived(existing.status)
+            if (wasArchived) contactDao.resetForReinvite(lower)
             if (existing == null) {
                 contactDao.upsert(ContactEntity(lower, name, System.currentTimeMillis()))
             }
             // Annonce au pair (v0.2.10) — uniquement si aucun lien wire n'existe ;
             // différée si le réplica ne répond pas (repartie par la boucle 30 s).
-            val notified = if (existing == null || existing.status == ContactStatus.NONE) {
+            // v0.2.14 : un lien archivé repart comme une annonce fraîche.
+            val notified = if (existing == null || existing.status == ContactStatus.NONE || wasArchived) {
                 val ok = sendContactNotification(lower).isSuccess
                 if (ok) contactDao.markNotified(lower, System.currentTimeMillis())
                 else contactDao.setNotifyPending(lower, 1)

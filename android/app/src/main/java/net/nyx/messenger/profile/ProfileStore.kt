@@ -19,6 +19,12 @@ class ProfileStore private constructor(context: Context) {
 
     private val prefs = context.getSharedPreferences("nyx_profile", Context.MODE_PRIVATE)
 
+    // v0.2.14 : 1 = une carte publique attend d'être PUBLIÉE (le save initial
+    // a échoué — réplica injoignable) ; reparti par la boucle 30 s via
+    // [NyxRepository.ensureProfilePublished] puis remis à zéro.
+    private val publishPending
+        get() = prefs.getBoolean(KEY_PUBLISH_PENDING, false)
+
     /** Carte complète (privée + publique) — jamais transmise telle quelle. */
     fun load(): OwnProfile =
         prefs.getString(KEY_PROFILE, null)?.let { ProfileCodec.decode(it) }?.let {
@@ -55,8 +61,24 @@ class ProfileStore private constructor(context: Context) {
         return ProfileBody(pub) to null
     }
 
+    /** v0.2.14 : une publication de la carte publique est en attente. */
+    fun isPublishPending(): Boolean = publishPending
+
+    /** v0.2.14 : marque la publication comme à refaire (échec réseau au save). */
+    @Synchronized
+    fun markPublishPending() {
+        prefs.edit().putBoolean(KEY_PUBLISH_PENDING, true).apply()
+    }
+
+    /** v0.2.14 : publication déposée avec succès. */
+    @Synchronized
+    fun clearPublishPending() {
+        prefs.edit().putBoolean(KEY_PUBLISH_PENDING, false).apply()
+    }
+
     companion object {
         private const val KEY_PROFILE = "profile_json"
+        private const val KEY_PUBLISH_PENDING = "publish_pending"
 
         @Volatile private var instance: ProfileStore? = null
         fun get(context: Context): ProfileStore =

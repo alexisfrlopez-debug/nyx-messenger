@@ -19,13 +19,27 @@ import kotlinx.coroutines.flow.Flow
  * v0.2.12 — statuts d'invitation partagés (DB + UI). Demande opérateur :
  * « indiquer à un client qui ajoute un contact si son invitation est toujours
  * en attente, acceptée ou déclinée ».
+ *
+ * v0.2.14 — cycle de vie complet (demande opérateur) : refus et suppression
+ * PROPAGÉS au pair, conversations archivées accessibles, re-invitation.
+ * AUCUN changement de schéma : les nouveaux états sont des VALEURS de la
+ * colonne `status` (TEXT) — Room version inchangée, zéro migration.
  */
 object ContactStatus {
     const val NONE = ""             // annonce pas encore déposée
     const val PENDING = "pending"       // annonce déposée, attente du pair
     const val INCOMING = "incoming"     // invitation reçue, à traiter
-    const val ACCEPTED = "accepted"     // mutuel / ack accepté
-    const val DECLINED = "declined"     // le pair a refusé
+    const val ACCEPTED = "accepted"     // mutuel / ack accepté — SEUL état messageable
+    const val DECLINED = "declined"     // le pair a refusé (archivé — conversation accessible)
+    // v0.2.14 : le pair m'a supprimé (archivé — conversation accessible).
+    const val REMOVED = "removed"
+    // v0.2.14 : j'ai supprimé ce contact (archivé en attendant le dépôt de
+    // l'avis « removed » au pair — reparti par la boucle 30 s comme les acks).
+    const val REMOVED_BY_ME = "removed_by_me"
+
+    /** Archivé = plus un contact actif : conversation accessible, re-invitable. */
+    fun archived(status: String): Boolean =
+        status == DECLINED || status == REMOVED || status == REMOVED_BY_ME
 }
 
 @Entity(tableName = "contacts")
@@ -103,7 +117,12 @@ interface ContactDao {
     @Query("SELECT * FROM contacts WHERE onion = :onion")
     suspend fun get(onion: String): ContactEntity?
 
-    @Query("SELECT * FROM contacts WHERE notifyPending = 1 OR notifiedAt = 0")
+    /** v0.2.14 : contact observable (alias dans les titres, bannière non mutuel). */
+    @Query("SELECT * FROM contacts WHERE onion = :onion")
+    fun byOnion(onion: String): Flow<ContactEntity?>
+
+    @Query("SELECT * FROM contacts WHERE (notifyPending = 1 OR notifiedAt = 0) " +
+        "AND status NOT IN ('declined', 'removed', 'removed_by_me')")
     suspend fun pendingNotify(): List<ContactEntity>
 
     @Query("UPDATE contacts SET notifyPending = :pending WHERE onion = :onion")
@@ -126,9 +145,25 @@ interface ContactDao {
     @Query("UPDATE contacts SET ackPending = :pending WHERE onion = :onion")
     suspend fun setAckPending(onion: String, pending: Int)
 
-    /** v0.2.11 : suppression d'un contact (fonction demandée en test terrain). */
+    /** v0.2.11 : suppression d'un contact (fonction demandée en test terrain).
+     *  v0.2.14 : la suppression N'EFFACE PLUS la ligne (archivage) — cette
+     *  requête ne sert plus qu'aux cas sans historique. */
     @Query("DELETE FROM contacts WHERE onion = :onion")
     suspend fun delete(onion: String)
+
+    /** v0.2.14 — RE-INVITATION d'un contact archivé (refusé/supprimé) : remise
+     *  à zéro du lien wire — une NOUVELLE annonce partira (inline ou boucle 30 s).
+     *  Requête pure : AUCUN changement de schéma. */
+    @Query("UPDATE contacts SET status = '', notifyPending = 1, notifiedAt = 0 WHERE onion = :onion")
+    suspend fun resetForReinvite(onion: String)
+
+    /** v0.2.14 : contacts ACTIFS (non archivés) — liste principale. */
+    @Query("SELECT * FROM contacts WHERE status NOT IN ('declined', 'removed', 'removed_by_me') ORDER BY alias")
+    fun allActive(): Flow<List<ContactEntity>>
+
+    /** v0.2.14 : contacts archivés (refusés/supprimés) — anciennes conversations. */
+    @Query("SELECT * FROM contacts WHERE status IN ('declined', 'removed', 'removed_by_me') ORDER BY alias")
+    fun allArchived(): Flow<List<ContactEntity>>
 }
 
 @Dao

@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,11 @@ fun ContactProfileScreen(peerOnion: String, onBack: () -> Unit) {
     var profile by remember { mutableStateOf<ProfileResponse?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    // v0.2.14 : l'ALIAS local du contact en tête de fiche (demande opérateur :
+    // l'adresse onion n'est visible que ICI, dans la fiche ouverte).
+    val contactRow by ServiceLocator.database.contactDao()
+        .byOnion(peerOnion.trim().lowercase())
+        .collectAsState(initial = null)
 
     LaunchedEffect(peerOnion) {
         ServiceLocator.repository.contactProfile(peerOnion).fold(
@@ -55,7 +61,14 @@ fun ContactProfileScreen(peerOnion: String, onBack: () -> Unit) {
     val avatarB64 = profile?.fields?.get("avatar")?.value
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text(stringResource(R.string.contact_profile_title)) })
+        TopAppBar(
+            title = {
+                Text(
+                    contactRow?.alias?.ifBlank { null }
+                        ?: stringResource(R.string.contact_profile_title)
+                )
+            }
+        )
     }) { padding ->
         net.nyx.messenger.ui.components.CenteredScrollColumn(Modifier.padding(padding)) {
             net.nyx.messenger.ui.components.AvatarView(avatarB64)
@@ -66,6 +79,13 @@ fun ContactProfileScreen(peerOnion: String, onBack: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
             }
 
+            contactRow?.alias?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    stringResource(R.string.contact_profile_alias, it),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(4.dp))
+            }
             Text(
                 peerOnion,
                 fontFamily = FontFamily.Monospace,

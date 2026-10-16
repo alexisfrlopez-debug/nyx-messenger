@@ -1,5 +1,10 @@
 package net.nyx.messenger.ui.conversations
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +51,7 @@ import kotlinx.coroutines.launch
 import net.nyx.messenger.BuildConfig
 import net.nyx.messenger.R
 import net.nyx.messenger.crypto.AliasValidator
+import net.nyx.messenger.data.db.ContactStatus
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.tor.TorManager
 import net.nyx.messenger.ui.diag.TestLogExportCard
@@ -55,20 +62,32 @@ import net.nyx.messenger.ui.diag.TestLogExportCard
  *  - par adresse onion collée (56 caractères) ou lien nyx://add.
  * Une bannière reflète l'état du Tor embarqué (ADR-007) — jamais de trafic hors Tor.
  * Le menu (⋮) ouvre : Mon adresse Nyx · Mon profil · Paramètres.
- * v0.2.11 : pression longue sur un contact = suppression (contact + conversation).
+ *
+ * v0.2.14 (demande opérateur) :
+ *  - la liste n'affiche QUE l'ALIAS — l'adresse onion n'est visible QUE dans la
+ *    fiche du contact (bouton ⓘ par carte) ;
+ *  - deux sections : contacts actifs, puis « Anciennes conversations »
+ *    (contacts refusés/supprimés — l'historique reste accessible, re-invitation
+ *    possible en ré-ajoutant l'alias/l'adresse) ;
+ *  - pression longue = choix : Supprimer le contact (propage l'avis au pair)
+ *    ou Supprimer la conversation (strictement local) ;
+ *  - demande runtime POST_NOTIFICATIONS (Android 13+ : sans elle, les
+ *    notifications d'invitation — avec actions Accepter/Refuser — sont muettes).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationListScreen(
     pendingAdd: String? = null,
     onOpenConversation: (String) -> Unit,
+    onOpenContactProfile: (String) -> Unit = {},
     onOpenMyOnion: () -> Unit = {},
     onOpenMyProfile: () -> Unit = {},
     onOpenSettings: () -> Unit = {}
 ) {
     val db = ServiceLocator.database
     val scope = rememberCoroutineScope()
-    val contacts by db.contactDao().all().collectAsState(initial = emptyList())
+    val contacts by db.contactDao().allActive().collectAsState(initial = emptyList())
+    val archived by db.contactDao().allArchived().collectAsState(initial = emptyList())
 
     var showAdd by remember { mutableStateOf(pendingAdd != null) }
     var input by remember { mutableStateOf(pendingAdd ?: "") }
@@ -81,6 +100,22 @@ fun ConversationListScreen(
     val context = LocalContext.current
 
     val torState by TorManager.get(LocalContext.current).state.collectAsState()
+
+    // v0.2.14 : permission des notifications (Android 13+) — demandée une fois
+    // à l'entrée sur la liste ; refusée = notifications muettes (jamais bloquant).
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        android.util.Log.i("nyx-notify", "POST_NOTIFICATIONS accordée : $granted")
+    }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     // Claim d'alias différé : si l'alias choisi à l'onboarding n'a pas pu être
     // réservé (aucun réplica joignable), il part dès que le Tor embarqué est prêt.
@@ -195,70 +230,125 @@ fun ConversationListScreen(
             }
 
             LazyColumn(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                // ── Contacts actifs ──
                 items(contacts, key = { it.onion }) { c ->
-                    // v0.2.11 : suppression de contact — pression longue sur la carte
-                    // (confirmation avant destruction locale du contact + conversation).
-                    var askDelete by remember { mutableStateOf(false) }
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Column(
-                            Modifier.combinedClickable(
-                                onClick = { onOpenConversation(c.onion) },
-                                onLongClick = { askDelete = true }
-                            ).padding(16.dp)
-                        ) {
-                            Text(c.alias, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                c.onion.take(20) + "…",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            // v0.2.12 : STATUT DE L'INVITATION (demande opérateur —
-                            // « indiquer si son invitation est en attente, acceptée
-                            // ou déclinée »). Rien pour « accepted » (conversation
-                            // normale) ; pour « incoming », boutons Accepter/Refuser.
-                            InvitationStatusLine(c)
-                            if (c.status == net.nyx.messenger.data.db.ContactStatus.INCOMING) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.padding(top = 4.dp)
-                                ) {
-                                    TextButton(onClick = {
-                                        scope.launch { repo.acceptContact(c.onion) }
-                                    }) { Text(stringResource(R.string.invitation_accept)) }
-                                    TextButton(onClick = {
-                                        scope.launch { repo.declineContact(c.onion) }
-                                    }) {
-                                        Text(
-                                            stringResource(R.string.invitation_decline),
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                    ContactCard(
+                        c = c,
+                        archived = false,
+                        onOpenConversation = onOpenConversation,
+                        onOpenContactProfile = onOpenContactProfile
+                    )
+                }
+                // ── Anciennes conversations (refusés/supprimés) ──
+                if (archived.isNotEmpty()) {
+                    item(key = "archived_header") {
+                        Text(
+                            stringResource(R.string.list_archived_header),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                        )
                     }
-                    if (askDelete) {
-                        AlertDialog(
-                            onDismissRequest = { askDelete = false },
-                            title = { Text(stringResource(R.string.delete_contact_title)) },
-                            text = {
-                                Text(stringResource(R.string.delete_contact_text, c.alias))
-                            },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    askDelete = false
-                                    scope.launch { repo.deleteContact(c.onion) }
-                                }) { Text(stringResource(R.string.delete_contact_confirm)) }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { askDelete = false }) {
-                                    Text(stringResource(R.string.cancel))
-                                }
-                            }
+                    items(archived, key = { "a_" + it.onion }) { c ->
+                        ContactCard(
+                            c = c,
+                            archived = true,
+                            onOpenConversation = onOpenConversation,
+                            onOpenContactProfile = onOpenContactProfile
                         )
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * v0.2.14 — carte d'un contact (actif ou archivé) : ALIAS seul (l'adresse
+ * onion n'est visible QUE dans la fiche — bouton ⓘ), statut d'invitation,
+ * boutons Accepter/Refuser sur les invitations reçues, et pression longue
+ * proposant Supprimer le contact / Supprimer la conversation.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ContactCard(
+    c: net.nyx.messenger.data.db.ContactEntity,
+    archived: Boolean,
+    onOpenConversation: (String) -> Unit,
+    onOpenContactProfile: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val repo = remember { ServiceLocator.repository }
+    var askDelete by remember { mutableStateOf(false) }
+    val incoming = c.status == ContactStatus.INCOMING
+
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .combinedClickable(
+                    onClick = { onOpenConversation(c.onion) },
+                    onLongClick = { askDelete = true }
+                )
+                .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(c.alias, style = MaterialTheme.typography.titleMedium)
+                // v0.2.14 : PLUS d'aperçu d'adresse onion ici — visible uniquement
+                // dans la fiche du contact (bouton ⓘ), demande opérateur.
+                InvitationStatusLine(c)
+            }
+            IconButton(onClick = { onOpenContactProfile(c.onion) }) {
+                Icon(
+                    Icons.Filled.Info,
+                    contentDescription = stringResource(R.string.contact_profile_open)
+                )
+            }
+        }
+        if (incoming) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
+            ) {
+                TextButton(onClick = {
+                    net.nyx.messenger.notify.ContactNotifier.cancelInvitation(c.onion)
+                    scope.launch { repo.acceptContact(c.onion) }
+                }) { Text(stringResource(R.string.invitation_accept)) }
+                TextButton(onClick = {
+                    net.nyx.messenger.notify.ContactNotifier.cancelInvitation(c.onion)
+                    scope.launch { repo.declineContact(c.onion) }
+                }) {
+                    Text(
+                        stringResource(R.string.invitation_decline),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+    }
+    if (askDelete) {
+        AlertDialog(
+            onDismissRequest = { askDelete = false },
+            title = { Text(stringResource(R.string.delete_contact_title)) },
+            text = { Text(stringResource(R.string.delete_contact_text, c.alias)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    askDelete = false
+                    scope.launch { repo.deleteContact(c.onion) }
+                }) { Text(stringResource(R.string.delete_contact_confirm)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        askDelete = false
+                        scope.launch { repo.deleteConversation(c.onion) }
+                    }) { Text(stringResource(R.string.delete_conversation_confirm)) }
+                    TextButton(onClick = { askDelete = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -288,17 +378,22 @@ private fun TorBanner(state: TorManager.TorState) {
 /**
  * v0.2.12 — libellé du statut d'invitation sous l'adresse (demande opérateur).
  * « accepted » n'affiche rien : la conversation est normale.
+ * v0.2.14 : les états archivés affichent un libellé discret (refusé/supprimé).
  */
 @Composable
 private fun InvitationStatusLine(c: net.nyx.messenger.data.db.ContactEntity) {
     val (resId, color) = when {
-        c.status == net.nyx.messenger.data.db.ContactStatus.PENDING ->
+        c.status == ContactStatus.PENDING ->
             R.string.invitation_status_pending to MaterialTheme.colorScheme.tertiary
-        c.status == net.nyx.messenger.data.db.ContactStatus.INCOMING ->
+        c.status == ContactStatus.INCOMING ->
             R.string.invitation_status_incoming to MaterialTheme.colorScheme.primary
-        c.status == net.nyx.messenger.data.db.ContactStatus.DECLINED ->
+        c.status == ContactStatus.DECLINED ->
             R.string.invitation_status_declined to MaterialTheme.colorScheme.error
-        c.status == net.nyx.messenger.data.db.ContactStatus.NONE &&
+        c.status == ContactStatus.REMOVED ->
+            R.string.invitation_status_removed to MaterialTheme.colorScheme.secondary
+        c.status == ContactStatus.REMOVED_BY_ME ->
+            R.string.invitation_status_removed_by_me to MaterialTheme.colorScheme.secondary
+        c.status == ContactStatus.NONE &&
             (c.notifyPending == 1 || c.notifiedAt == 0L) ->
             R.string.invitation_status_unsent to MaterialTheme.colorScheme.secondary
         else -> return // accepted (ou cas ambigu) : pas d'étiquette

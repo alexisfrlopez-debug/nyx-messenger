@@ -192,4 +192,20 @@
     <string name="debug_no_credentials">✗ Ce build n\'embarque pas de credentials Drive (test-upload.properties absent au moment de la compilation).</string>
     <string name="debug_share">PARTAGER LES LOGS (sans Drive)</string>
     <string name="debug_share_running">COLLECTE… CHOISISSEZ UNE CIBLE</string>
+
+    <!-- v0.2.14 — cycle de vie des contacts (demande opérateur) -->
+    <string name="notif_channel_contacts">Contacts et invitations</string>
+    <string name="notif_invitation_title">Invitation de contact</string>
+    <string name="notif_invitation_text">%1$s souhaite vous ajouter comme contact.</string>
+    <string name="notif_declined_title">Invitation refusée</string>
+    <string name="notif_declined_text">Votre invitation a été refusée par %1$s.</string>
+    <string name="notif_removed_title">Supprimé des contacts</string>
+    <string name="notif_removed_text">Vous avez été supprimé de la liste de contacts de %1$s.</string>
+    <string name="list_archived_header">Anciennes conversations</string>
+    <string name="invitation_status_removed">supprimé par ce contact</string>
+    <string name="invitation_status_removed_by_me">contact supprimé</string>
+    <string name="delete_conversation_confirm">Supprimer la conversation</string>
+    <string name="chat_not_mutual">L\'échange de messages sera possible une fois l\'invitation acceptée des deux côtés.</string>
+    <string name="contact_profile_open">Voir la fiche du contact</string>
+    <string name="contact_profile_alias">Alias local : %1$s</string>
 </resources>
