@@ -260,6 +260,18 @@ class NyxRepository(
                             )
                             continue
                         }
+                        // v0.2.14 : lien ARCHIVÉ chez moi (je l'ai supprimé, refusé,
+                        // ou il m'a supprimé) — un ack arrivé APRÈS (en vol au moment
+                        // de la suppression) ne doit PAS ressusciter le lien : la
+                        // suppression la plus récente l'emporte. La reprise ne passe
+                        // QUE par la re-invitation (annonce requalifiée incoming).
+                        if (already != null && ContactStatus.archived(already.status)) {
+                            android.util.Log.i(
+                                "nyx-recv",
+                                "   · ack « $ack » ignoré — lien archivé (${already.status}) pour ${author.take(16)}…"
+                            )
+                            continue
+                        }
                         val newStatus = when (ack) {
                             "accepted" -> ContactStatus.ACCEPTED
                             "declined" -> ContactStatus.DECLINED
@@ -362,13 +374,21 @@ class NyxRepository(
             // 3bis. v0.2.14 — MESSAGE : échange RÉSERVÉ aux contacts MUTUELS
             // (demande opérateur : « les contacts ne peuvent s'envoyer de message
             // s'ils ne figurent pas dans les listes de contact mutuelles »). Un
-            // message d'un pair qui n'est pas un contact accepté chez nous est
-            // DÉTUIT (jamais stocké, jamais affiché) — l'expéditeur légitime est
-            // de toute façon bloqué par le même verrou chez lui.
-            if (ev.type == "msg" && contactDao.get(author)?.status != ContactStatus.ACCEPTED) {
+            // message d'un pair sans lien accepté est DÉTRUIT (jamais stocké,
+            // jamais affiché) — l'expéditeur légitime est de toute façon bloqué
+            // par le même verrou chez lui.
+            // EXCEPTION « pending » : mon invitation a été acceptée par le pair
+            // (il m'a ACKé de son côté et peut m'écrire) mais son ack est encore
+            // en vol (~30 s de poll) — détruire ce message reproduirait le
+            // « rien reçu » du terrain v0.2.13 ; la poignée de main en cours
+            // prouve la relation, on stocke.
+            val linkStatus = contactDao.get(author)?.status
+            if (ev.type == "msg" && linkStatus != ContactStatus.ACCEPTED &&
+                linkStatus != ContactStatus.PENDING
+            ) {
                 android.util.Log.w(
                     "nyx-recv",
-                    "   ✗ msg de ${author.take(16)}… ignoré (pas un contact mutuel)"
+                    "   ✗ msg de ${author.take(16)}… ignoré (pas un contact mutuel — statut: ${linkStatus ?: "aucun"})"
                 )
                 continue
             }
