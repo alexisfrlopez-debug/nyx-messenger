@@ -33,6 +33,28 @@ export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/home/z/my-project/gradle-home}"
 [ -d "$ANDROID_HOME/platforms/android-35" ] || { echo "${RED}SDK android-35 introuvable ($ANDROID_HOME)${NC}"; exit 1; }
 command -v python3 >/dev/null || { echo "${RED}python3 requis${NC}"; exit 1; }
 
+# ---------- 1bis. GARDE-FOU réplica d'amorçage (session 29) ----------
+# Incident v0.2.14 (16/10 11:03) : replica-bootstrap.properties (GIT-IGNORÉ —
+# règle zéro ID d'infra sur le dépôt public) perdu au reset du bac à sable →
+# build compilé avec BOOTSTRAP_REPLICAS="" → APK livré SANS réplica d'amorçage
+# → « aucun réplica d'amorçage embarqué — réseau en attente de configuration »
+# sur le terrain. L'audit et les tests JVM ne voient pas un BuildConfig vide.
+if [ "${NYX_ALLOW_NO_REPLICA:-0}" != "1" ]; then
+  PROP="$ROOT/android/replica-bootstrap.properties"
+  if [ ! -f "$PROP" ]; then
+    echo "${RED}✗ android/replica-bootstrap.properties ABSENT${NC}"
+    echo "  → l'APK serait livré sans réplica d'amorçage (incident v0.2.14, session 29)."
+    echo "  → restaurer le fichier (Drive, dossier de travail racine) ou :"
+    echo "     printf 'replicas=<onion>:80\n' > android/replica-bootstrap.properties"
+    echo "  → build de dev pur SANS réplica : NYX_ALLOW_NO_REPLICA=1 $0"
+    exit 1
+  fi
+  grep -q "^replicas=.*\.onion" "$PROP" || {
+    echo "${RED}✗ replica-bootstrap.properties sans entrée onion (clé 'replicas')${NC}"; exit 1
+  }
+  echo "réplica d'amorçage : $(grep '^replicas=' "$PROP" | head -1 | cut -d= -f2 | cut -c1-16)…"
+fi
+
 # ---------- 1. audit (bloquant) ----------
 if [ "${1:-}" != "--skip-audit" ]; then
   echo "${YLW}═══ 1/4 AUDIT PRÉ-COMPILATION (strict) ═══${NC}"
