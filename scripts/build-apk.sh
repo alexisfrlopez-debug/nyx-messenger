@@ -53,6 +53,10 @@ if [ "${NYX_ALLOW_NO_REPLICA:-0}" != "1" ]; then
     echo "${RED}✗ replica-bootstrap.properties sans entrée onion (clé 'replicas')${NC}"; exit 1
   }
   echo "réplica d'amorçage : $(grep '^replicas=' "$PROP" | head -1 | cut -d= -f2 | cut -c1-16)…"
+  # test-upload.properties (git-ignoré aussi) : son absence = build test sans
+  # upload Drive (message visible dans l'app, mais différé silencieux au build).
+  [ -f "$ROOT/android/test-upload.properties" ] || \
+    echo "${YLW}⚠ android/test-upload.properties ABSENT — l'APK test n'embarquera PAS d'upload Drive (restaurer du Drive, racine du dossier de travail)${NC}"
 fi
 
 # ---------- 1. audit (bloquant) ----------
