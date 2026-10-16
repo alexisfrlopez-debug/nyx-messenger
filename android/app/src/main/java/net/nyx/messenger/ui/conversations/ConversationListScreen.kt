@@ -1,5 +1,7 @@
 package net.nyx.messenger.ui.conversations
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -21,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -51,8 +55,9 @@ import net.nyx.messenger.ui.diag.TestLogExportCard
  *  - par adresse onion collée (56 caractères) ou lien nyx://add.
  * Une bannière reflète l'état du Tor embarqué (ADR-007) — jamais de trafic hors Tor.
  * Le menu (⋮) ouvre : Mon adresse Nyx · Mon profil · Paramètres.
+ * v0.2.11 : pression longue sur un contact = suppression (contact + conversation).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationListScreen(
     pendingAdd: String? = null,
@@ -191,17 +196,42 @@ fun ConversationListScreen(
 
             LazyColumn(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                 items(contacts, key = { it.onion }) { c ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        onClick = { onOpenConversation(c.onion) }
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
+                    // v0.2.11 : suppression de contact — pression longue sur la carte
+                    // (confirmation avant destruction locale du contact + conversation).
+                    var askDelete by remember { mutableStateOf(false) }
+                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Column(
+                            Modifier.combinedClickable(
+                                onClick = { onOpenConversation(c.onion) },
+                                onLongClick = { askDelete = true }
+                            ).padding(16.dp)
+                        ) {
                             Text(c.alias, style = MaterialTheme.typography.titleMedium)
                             Text(
                                 c.onion.take(20) + "…",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
+                    }
+                    if (askDelete) {
+                        AlertDialog(
+                            onDismissRequest = { askDelete = false },
+                            title = { Text(stringResource(R.string.delete_contact_title)) },
+                            text = {
+                                Text(stringResource(R.string.delete_contact_text, c.alias))
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    askDelete = false
+                                    scope.launch { repo.deleteContact(c.onion) }
+                                }) { Text(stringResource(R.string.delete_contact_confirm)) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { askDelete = false }) {
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            }
+                        )
                     }
                 }
             }

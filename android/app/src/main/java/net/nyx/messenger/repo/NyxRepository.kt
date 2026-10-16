@@ -96,10 +96,15 @@ class NyxRepository(
 
     suspend fun send(peerOnion: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            // v0.2.11 : normalisation DÉFENSIVE de l'adresse — un onion collé avec
+            // espace/retour de ligne rendait le champ `to` illisible pour la inbox
+            // du pair (accepté HTTP 200 par le réplica, jamais délivré — e2e S3).
+            val peer = peerOnion.trim().lowercase()
             val relay = relay() ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
-            val peerPub = OnionCodec.onionToPubKey(peerOnion)
+            android.util.Log.i("nyx-send", "→ msg peer=${peer.take(16)}… len=${text.length}")
+            val peerPub = OnionCodec.onionToPubKey(peer)
 
             // 1. Chiffrement E2E (sealed box, v0.1)
             val body = cipher.encryptFor(peerPub, text.toByteArray(Charsets.UTF_8))
@@ -109,7 +114,7 @@ class NyxRepository(
             val ev = WireEvent(
                 type = "msg", author = me, seq = seq,
                 ts = System.currentTimeMillis() / 1000, ttl = 0,
-                to = peerOnion, body = body, sig = ""
+                to = peer, body = body, sig = ""
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
@@ -117,12 +122,18 @@ class NyxRepository(
             // 3. Stockage local (en attente) puis dépôt (auto-réparation seq v0.2.10)
             val id = eventIdOf(canonical)
             messageDao.insert(
-                MessageEntity(id, peerOnion, outgoing = true, text, ev.ts, ev.ts, STATE_PENDING)
+                MessageEntity(id, peer, outgoing = true, text, ev.ts, ev.ts, STATE_PENDING)
             )
+            android.util.Log.i("nyx-send", "   stocké local id=${id.take(12)}… seq=$seq → dépôt réplica")
             postSigned(relay, me, signed, canonical, priv).fold(
-                onSuccess = { messageDao.updateState(id, STATE_SENT) },
+                onSuccess = {
+                    messageDao.updateState(id, STATE_SENT)
+                    android.util.Log.i("nyx-send", "   ✓ déposé (seq=$seq)")
+                    Unit
+                },
                 onFailure = { e ->
                     messageDao.updateState(id, STATE_FAILED)
+                    android.util.Log.w("nyx-send", "   ✗ dépôt ÉCHOUÉ (seq=$seq) : ${e.message}")
                     throw e
                 }
             )
@@ -183,41 +194,55 @@ class NyxRepository(
 
         val cursor = pollStateDao.get(replicas.first())?.cursor ?: 0L
         val resp = relay.inbox(me, cursor)
+        if (resp.events.isNotEmpty()) {
+            android.util.Log.i("nyx-recv", "← inbox ${resp.events.size} évts (after=$cursor)")
+        }
         var inserted = 0
         for (ev in resp.events) {
+            // v0.2.11 : l'auteur est normalisé (trim+minuscules) — la clé locale
+            // (contacts/messages) doit matcher la clé utilisée à l'envoi.
+            val author = ev.author.trim().lowercase()
             // 1. Vérification de la signature de l'auteur
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
-            val authorPub = runCatching { OnionCodec.onionToPubKey(ev.author) }.getOrNull()
+            val authorPub = runCatching { OnionCodec.onionToPubKey(author) }.getOrNull()
             val okSig = authorPub != null && verifySignature(canonical, ev.sig, authorPub)
-            if (!okSig) continue
+            if (!okSig) {
+                android.util.Log.w("nyx-recv", "   signature invalide type=${ev.type} author=${author.take(16)}…")
+                continue
+            }
 
             // 2. Déchiffrement (sealed box v0.1)
-            val plain = cipher.decryptForSelf(priv, ev.body)
-                ?.toString(Charsets.UTF_8) ?: continue
+            val plain = cipher.decryptForSelf(priv, ev.body)?.toString(Charsets.UTF_8)
+            if (plain == null) {
+                android.util.Log.w("nyx-recv", "   déchiffrement impossible type=${ev.type} author=${author.take(16)}…")
+                continue
+            }
 
             // 3. Demande de contact (v0.2.10) : l'auteur s'annonce ("alias" chiffré).
             if (ev.type == "contact") {
                 val declared = Regex("\"alias\"\\s*:\\s*\"([^\"]*)\"").find(plain)
                     ?.groupValues?.get(1).orEmpty()
-                val already = contactDao.get(ev.author)
+                val already = contactDao.get(author)
                 if (already == null) {
                     contactDao.upsert(
                         ContactEntity(
-                            ev.author.lowercase(),
-                            declared.ifBlank { ev.author.take(10) + "…" },
-                            System.currentTimeMillis()
+                            author,
+                            declared.ifBlank { author.take(10) + "…" },
+                            System.currentTimeMillis(),
+                            notifiedAt = System.currentTimeMillis() // l'annonce du PAIR — pas de contre-annonce
                         )
                     )
                     // Message d'information dans la conversation — la carte du
                     // contact apparaît dans la liste (contacts = conversations).
-                    val label = declared.ifBlank { ev.author.take(10) + "…" }
+                    val label = declared.ifBlank { author.take(10) + "…" }
                     messageDao.insert(
                         MessageEntity(
-                            eventIdOf(canonical), ev.author, outgoing = false,
+                            eventIdOf(canonical), author, outgoing = false,
                             "$label vous a ajouté comme contact.",
                             ev.ts, System.currentTimeMillis(), STATE_RECEIVED
                         )
                     )
+                    android.util.Log.i("nyx-recv", "   ✓ demande de contact de ${author.take(16)}… ($label)")
                     inserted++
                 }
                 continue
@@ -226,13 +251,15 @@ class NyxRepository(
             // 4. Stockage local
             val id = eventIdOf(canonical)
             messageDao.insert(
-                MessageEntity(id, ev.author, outgoing = false, plain, ev.ts, System.currentTimeMillis(), STATE_RECEIVED)
+                MessageEntity(id, author, outgoing = false, plain, ev.ts, System.currentTimeMillis(), STATE_RECEIVED)
             )
-            if (contactDao.get(ev.author) == null) {
+            if (contactDao.get(author) == null) {
                 contactDao.upsert(
-                    ContactEntity(ev.author, ev.author.take(10) + "…", System.currentTimeMillis())
+                    ContactEntity(author, author.take(10) + "…", System.currentTimeMillis(),
+                        notifiedAt = System.currentTimeMillis())
                 )
             }
+            android.util.Log.i("nyx-recv", "   ✓ ${ev.type} de ${author.take(16)}… stocké")
             inserted++
         }
         pollStateDao.upsert(PollStateEntity(replicas.first(), resp.cursor))
@@ -335,24 +362,44 @@ class NyxRepository(
             }
         }
 
-    /** Repartage des annonces de contact restées en attente (réplica injoignable). */
+    /** Repartage des annonces de contact restées en attente OU jamais déposées
+     *  (contacts migrés de v0.2.9 : notifiedAt=0 — l'annonce n'a jamais pu partir,
+     *  la fonctionnalité n'existait pas ; le pair n'avait donc JAMAIS d'invitation). */
     suspend fun ensureContactNotified(): Unit = withContext(Dispatchers.IO) {
         if (replicas.isEmpty()) return@withContext
         for (c in contactDao.pendingNotify()) {
             if (sendContactNotification(c.onion).isSuccess) {
-                contactDao.setNotifyPending(c.onion, 0)
+                contactDao.markNotified(c.onion, System.currentTimeMillis())
+                android.util.Log.i("nyx-send", "✓ annonce contact déposée pour ${c.onion.take(16)}…")
             }
         }
     }
 
     suspend fun addContact(onion: String, alias: String): Result<Boolean> = runCatching {
-        OnionCodec.onionToPubKey(onion) // validation de l'adresse
-        val lower = onion.lowercase()
-        contactDao.upsert(ContactEntity(lower, alias.ifBlank { onion.take(10) + "…" }, System.currentTimeMillis()))
+        val clean = onion.trim().lowercase() // v0.2.11 : normalisation AVANT validation/stockage
+        OnionCodec.onionToPubKey(clean) // validation de l'adresse
+        contactDao.upsert(ContactEntity(clean, alias.ifBlank { clean.take(10) + "…" }, System.currentTimeMillis()))
         // Annonce au pair — l'échec n'annule PAS l'ajout local : il sera reparti.
-        val transmise = sendContactNotification(lower).isSuccess
-        contactDao.setNotifyPending(lower, if (transmise) 0 else 1)
+        val transmise = sendContactNotification(clean).isSuccess
+        if (transmise) contactDao.markNotified(clean, System.currentTimeMillis())
+        else contactDao.setNotifyPending(clean, 1)
         transmise
+    }
+
+    /**
+     * v0.2.11 — SUPPRESSION D'UN CONTACT (demande opérateur) : retire le contact
+     * ET toute sa conversation locale. Aucun événement wire : la suppression est
+     * strictement locale (le pair, lui, garde sa copie — à symétriser plus tard
+     * par un événement « uncontact » si besoin).
+     */
+    suspend fun deleteContact(onion: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val clean = onion.trim().lowercase()
+            messageDao.deleteConversation(clean)
+            contactDao.delete(clean)
+            android.util.Log.i("nyx-repo", "contact supprimé : ${clean.take(16)}…")
+            Unit
+        }
     }
 
     /* ---------------- profil (v0.2.0 — wire-format.md §7) ---------------- */
@@ -423,11 +470,12 @@ class NyxRepository(
             if (!res.taken) return@runCatching AliasAddResult.Free
             val onion = res.by ?: error("résolution incomplète (alias pris sans détenteur)")
             OnionCodec.onionToPubKey(onion) // cohérence (l'adresse est la clé publique)
-            val lower = onion.lowercase()
+            val lower = onion.trim().lowercase() // v0.2.11 : normalisation défensive
             contactDao.upsert(ContactEntity(lower, name, System.currentTimeMillis()))
             // Annonce au pair (v0.2.10) — différée si le réplica ne répond pas.
             val notified = sendContactNotification(lower).isSuccess
-            contactDao.setNotifyPending(lower, if (notified) 0 else 1)
+            if (notified) contactDao.markNotified(lower, System.currentTimeMillis())
+            else contactDao.setNotifyPending(lower, 1)
             AliasAddResult.Added(lower, name, notified)
         }
     }

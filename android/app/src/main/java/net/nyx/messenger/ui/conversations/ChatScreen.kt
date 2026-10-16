@@ -35,8 +35,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import net.nyx.messenger.R
 import net.nyx.messenger.data.db.MessageEntity
@@ -47,16 +47,20 @@ import net.nyx.messenger.repo.NyxRepository
  * Écran de chat — l'envoi et la réception passent par [NyxRepository]
  * (chiffrement E2E + dépôt via Tor). Poll inbox toutes les 10 s (v0.1).
  * v0.2.0 : accès au profil public du contact (icône — GET /client/profile).
+ * v0.2.11 : (a) le Flow Room est collecté de façon canonique — l'ancien
+ * wrapper MutableStateFlow+collect ne rafraîchissait PAS l'écran en session
+ * (constat terrain : le message tapé n'apparaissait qu'après relance) ;
+ * (b) un échec d'envoi est AFFICHÉ (avant : callback vide = silence total).
  */
 class ChatViewModel(peerOnion: String) : ViewModel() {
     private val db = ServiceLocator.database
     val repo = ServiceLocator.repository
 
-    val messages: StateFlow<List<MessageEntity>> =
-        db.messageDao().conversation(peerOnion)
-            .let { flow -> MutableStateFlow<List<MessageEntity>>(emptyList()).also { out ->
-                viewModelScope.launch { flow.collect { out.value = it } }
-            } }
+    /** Conversation observable — re-émet à chaque écriture dans `messages`. */
+    val messages: Flow<List<MessageEntity>> = db.messageDao().conversation(peerOnion)
+
+    /** v0.2.11 : dernier échec d'envoi (null = rien à afficher). */
+    val sendError = MutableStateFlow<String?>(null)
 
     init {
         viewModelScope.launch {
@@ -69,7 +73,13 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
 
     fun send(peer: String, text: String, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
-            repo.send(peer, text).fold({ onDone(true) }, { onDone(false) })
+            repo.send(peer, text).fold(
+                onSuccess = { sendError.value = null; onDone(true) },
+                onFailure = { e ->
+                    sendError.value = e.message ?: "envoi impossible"
+                    onDone(false)
+                }
+            )
         }
     }
 }
@@ -80,7 +90,10 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     val vm: ChatViewModel = viewModel(key = peerOnion, factory = viewModelFactory {
         ChatViewModel(peerOnion)
     })
-    val messages by vm.messages.collectAsState()
+    // v0.2.11 : collectAsState(initial) sur le Flow Room canonique — la liste se
+    // met à jour IMMÉDIATEMENT après l'insertion locale (envoi ou réception).
+    val messages by vm.messages.collectAsState(initial = emptyList())
+    val sendError by vm.sendError.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -143,12 +156,23 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                         val text = input.trim()
                         if (text.isNotEmpty()) {
                             input = ""
-                            vm.send(peerOnion, text) {}
+                            vm.send(peerOnion.trim().lowercase(), text) { ok ->
+                                if (!ok) android.util.Log.w("nyx-send", "envoi signalé en échec à l'UI")
+                            }
                         }
                     }
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
                 }
+            }
+            // v0.2.11 : l'échec d'envoi n'est plus muet — l'opérateur voit POURQUOI.
+            sendError?.let {
+                Text(
+                    stringResource(R.string.send_error_prefix) + " " + it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                )
             }
         }
     }

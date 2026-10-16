@@ -76,7 +76,11 @@ fun NyxNavHost(
             composable("conversations") {
                 ConversationListScreen(
                     pendingAdd = initialAddRequest,
-                    onOpenConversation = { peer -> nav.navigate("chat/$peer") },
+                    onOpenConversation = { peer ->
+                        // v0.2.11 : encodage URI — un caractère exotique dans une
+                        // adresse ne doit jamais casser la route de navigation.
+                        nav.navigate("chat/${java.net.URLEncoder.encode(peer, "UTF-8").replace("+", "%20")}")
+                    },
                     onOpenMyOnion = { nav.navigate("myonion") },
                     onOpenMyProfile = { nav.navigate("myprofile") },
                     onOpenSettings = { nav.navigate("settings") }
@@ -85,7 +89,9 @@ fun NyxNavHost(
             composable("chat/{peer}") { entry ->
                 ChatScreen(
                     peerOnion = entry.arguments?.getString("peer").orEmpty(),
-                    onOpenProfile = { peer -> nav.navigate("contactprofile/$peer") }
+                    onOpenProfile = { peer ->
+                        nav.navigate("contactprofile/${java.net.URLEncoder.encode(peer, "UTF-8").replace("+", "%20")}")
+                    }
                 )
             }
             composable("myonion") {

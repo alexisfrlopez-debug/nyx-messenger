@@ -51,7 +51,7 @@ object ServiceLocator {
             val dbPassphrase = dbPassphrase(context)
             database = Room.databaseBuilder(context, NyxDatabase::class.java, NyxDatabase.NAME)
                 .openHelperFactory(SupportFactory(dbPassphrase, null, false))
-                .addMigrations(NyxDatabase.MIGRATION_1_2)
+                .addMigrations(NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3)
                 .build()
 
             // Repository unique partagé par tous les écrans (supprime la construction

@@ -106,22 +106,25 @@ class NyxTorService : Service() {
             TorManager.get(this).reportStarted(config)
 
             // Draine la sortie du process (sinon le pipe se remplit et tor se bloque).
-            // v0.2.10 : drain BEST-EFFORT — à la fermeture, process.destroy() referme
-            // le pipe pendant le readLine bloqué : InterruptedIOException dans une
-            // coroutine déjà annulée = exception non-Cancellation → FATAL (process
-            // tué brutalement au lieu de s'arrêter proprement). Le drain est
-            // accessoire (les notices vont déjà dans tor.log via le torrc) : toute
-            // erreur y compris la coupure du flux est silencieusement attendue.
-            scope.launch {
+            // v0.2.11 : drain sur THREAD DÉMON dédié — la version coroutine (v0.2.10)
+            // laissait passer un FATAL « read interrupted by close() » quand l'annulation
+            // du scope croisait la fermeture du pipe par process.destroy() (une coroutine
+            // en état Cancelling qui lève une exception non-Cancellation remonte au fil
+            // par défaut malgré le handler). Un thread n'est JAMAIS annulé : à la
+            // fermeture le read lève, le runCatching l'avale, le thread meurt — point.
+            // Le drain reste accessoire (les notices vont déjà dans tor.log via torrc).
+            Thread {
                 runCatching {
                     process.inputStream.bufferedReader().useLines { lines ->
                         lines.forEach { line ->
-                            // Les logs de notice vont déjà dans tor.log (torrc) ; on garde
-                            // un écho limité dans logcat pour le debug device.
                             android.util.Log.d("nyx-tor", line.take(400))
                         }
                     }
                 } // fin de flux = arrêt du démon : cas normal, rien à faire
+            }.apply {
+                name = "nyx-tor-drain"
+                isDaemon = true
+                start()
             }
 
             // Surveillance de l'arrêt du process (crash tor) → état Failed.
