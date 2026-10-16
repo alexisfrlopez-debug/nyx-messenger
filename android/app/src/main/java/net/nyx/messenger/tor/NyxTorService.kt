@@ -57,9 +57,23 @@ class NyxTorService : Service() {
 
         val alreadyRunning = RUNNING_PROCESS.get() != null
         if (alreadyRunning) {
-            // Service redémarré (ex. changement de config écran) : ne pas dupliquer le démon.
+            // Service redémarré (ex. changement de config écran, écran revisté,
+            // retour dans l'app) : ne pas dupliquer le démon. v0.2.9 : on
+            // RE-ATTACHE le manager au démon existant — sinon l'état reste
+            // coincé (Starting(0) posé par TorManager.start(), jamais remplacé
+            // puisque personne ne re-notifie) et les écrans gatés (bouton
+            // « Créer mon identité », sonde réplica) restent bloqués.
+            TorManager.get(this).reattachRunning()
             return START_STICKY
         }
+
+        // v0.2.9 — Filet de sécurité : un démon d'un process PRÉCÉDENT peut
+        // survivre quelques secondes (SIGKILL du process : pas de onDestroy,
+        // tor attend __OwningControllerProcess). S'il tient encore le verrou
+        // DataDirectory, le nouveau démon meurt immédiatement (« usually
+        // controlled by another process ») → « TOR ne veut plus se connecter ».
+        // On tue tout tor orphelin de NOTRE uid avant de repartir.
+        killLeftoverTor()
 
         val config = NyxTorConfig.create(this)
         val binary = resolveTorBinary()
@@ -114,10 +128,57 @@ class NyxTorService : Service() {
 
     override fun onDestroy() {
         foregroundActive.set(false)
-        RUNNING_PROCESS.getAndSet(null)?.destroy()
+        RUNNING_PROCESS.getAndSet(null)?.let { killBounded(it) }
         scope.cancel()
         TorManager.get(this).reportStopped()
         super.onDestroy()
+    }
+
+    /**
+     * v0.2.9 — Kill borné : SIGTERM puis, si le démon ne meurt pas dans les
+     * 3 s, SIGKILL. Lancé sur un thread dédié (onDestroy est sur le thread
+     * principal — waitFor y est interdit) ; le thread survit à scope.cancel
+     * et garantit que le verrou DataDirectory + les ports sont libérés même
+     * si tor traîne à s'arrêter (bootstrap en cours). Rien n'est attendu sur
+     * le thread appelant — le nouveau démon, lui, est protégé par
+     * [killLeftoverTor] au cas où le SIGTERM traînerait.
+     */
+    private fun killBounded(process: Process) {
+        process.destroy()  // SIGTERM — tor flush et libère le verrou proprement
+        Thread {
+            try {
+                if (!process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                    android.util.Log.w("nyx-tor", "SIGTERM sans effet — SIGKILL du démon")
+                    process.destroyForcibly()
+                    process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            } catch (e: InterruptedException) {
+                process.destroyForcibly()
+            }
+        }.apply { name = "nyx-tor-kill" }.start()
+    }
+
+    /**
+     * v0.2.9 — Tue tout démon tor ORPHELIN de notre uid (process précédent
+     * tué par le système sans onDestroy : tor ignore encore la mort du
+     * propriétaire). Recherche par cmdline dans /proc (même uid ⇒ lisibles).
+     * Idempotent, silencieux s'il n'y a rien à faire.
+     */
+    private fun killLeftoverTor() {
+        val myPid = android.os.Process.myPid()
+        val procDir = java.io.File("/proc")
+        val candidates = procDir.listFiles { f -> f.name.all { it.isDigit() } } ?: return
+        for (p in candidates) {
+            val pid = p.name.toIntOrNull() ?: continue
+            if (pid == myPid) continue
+            val cmdline = runCatching {
+                java.io.File(p, "cmdline").readText()
+            }.getOrNull() ?: continue
+            if (cmdline.contains("libTor.so") || cmdline.contains("libtor.so")) {
+                android.util.Log.w("nyx-tor", "démon tor orphelin détecté (pid $pid) — arrêt")
+                runCatching { android.os.Process.killProcess(pid) }
+            }
+        }
     }
 
     /**
@@ -165,6 +226,29 @@ class NyxTorService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, NyxTorService::class.java))
+        }
+
+        /**
+         * v0.2.9 — Kill SYNCHRONE et borné du démon courant (hors thread UI) :
+         * SIGTERM → 3 s → SIGKILL → 2 s. Utilisé par TorManager.stopNow()
+         * (fermeture « Quitter complètement » et premier pas d'onboarding) :
+         * au retour de cet appel, le verrou DataDirectory et les ports sont
+         * libérés — un redémarrage immédiat de tor ne peut plus échouer sur
+         * « usually controlled by another process ».
+         */
+        fun stopDaemonSync() {
+            RUNNING_PROCESS.getAndSet(null)?.let { p ->
+                p.destroy()
+                try {
+                    if (!p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                        p.destroyForcibly()
+                        p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                    }
+                } catch (e: InterruptedException) {
+                    p.destroyForcibly()
+                    Thread.currentThread().interrupt()
+                }
+            }
         }
 
         /** Canal idempotent (créé par le service et re-créé sans risque par [pushState]). */

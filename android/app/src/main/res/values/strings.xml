@@ -172,4 +172,6 @@
     <string name="debug_done">✔ Déposé dans le Drive : %1$s</string>
     <string name="debug_failed">✗ Échec : %1$s</string>
     <string name="debug_no_credentials">✗ Ce build n\'embarque pas de credentials Drive (test-upload.properties absent au moment de la compilation).</string>
+    <string name="debug_share">PARTAGER LES LOGS (sans Drive)</string>
+    <string name="debug_share_running">COLLECTE… CHOISISSEZ UNE CIBLE</string>
 </resources>

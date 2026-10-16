@@ -15,7 +15,6 @@ import net.nyx.messenger.tor.TorManager
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -60,18 +59,19 @@ object ExitController {
     }
 
     /**
-     * Quitter complètement et PROPREMENT :
-     *  1. arrêt du service au premier plan (onDestroy → process.destroy() du
-     *     démon tor enfant — invariant ADR-007 : tor meurt avec son service) ;
-     *  2. petit délai pour laisser l'arrêt partir ;
+     * Quitter complètement et PROPREMENT (v0.2.9) :
+     *  1. arrêt BLOQUANT du démon tor ([TorManager.stopNow] — SIGTERM, attente
+     *     bornée, SIGKILL : verrou DataDirectory + ports libérés AVANT de
+     *     quitter ; c'est la fermeture propre exigée dès la première étape) ;
+     *  2. arrêt du service au premier plan (inclus dans stopNow) ;
      *  3. fin de la tâche puis sortie du processus (aucun thread résiduel).
+     * Le kill borné est hors thread UI — l'activité reste réactive pendant.
      */
     fun exitCompletely(activity: android.app.Activity) {
         showDialog = false
         val appContext = activity.applicationContext
-        TorManager.get(appContext).stop()
         CoroutineScope(Dispatchers.Default).launch {
-            delay(300)
+            runCatching { TorManager.get(appContext).stopNow() }
             activity.finishAffinity()
             Runtime.getRuntime().exit(0)
         }

@@ -57,14 +57,17 @@ class MainActivity : FragmentActivity() {
         android.util.Log.i("nyx-lock", "onCreate : identité=$identityExists, opt-in=$biometricOptIn")
         AppLock.init(identityExists && biometricOptIn)
 
-        // Fermeture (v0.2.0) : interception du retour système — le dialogue
-        // « réduire ou quitter » n'a de sens qu'une fois l'identité créée
-        // (sans identité, aucun service Tor ne tourne : retour standard).
+        // Fermeture (v0.2.0, rév. v0.2.9) : SANS identité (première étape de
+        // connexion), le retour système QUITTE avec arrêt PROPRE du démon tor
+        // (il tourne pourtant dès l'onboarding depuis v0.2.3 — l'ancien code
+        // le laissait orphelin, d'où des tor fantômes au relancement) ;
+        // avec identité, dialogue « réduire ou quitter » ([ExitController]).
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val identityExists = ServiceLocator.initialized && ServiceLocator.identity.exists
-                if (!identityExists || !ExitController.handleBack(this@MainActivity)) {
-                    finish()
+                when {
+                    !identityExists -> ExitController.exitCompletely(this@MainActivity)
+                    !ExitController.handleBack(this@MainActivity) -> finish()
                 }
             }
         })

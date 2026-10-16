@@ -1,6 +1,7 @@
 package net.nyx.messenger.ui.diag
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -10,6 +11,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,8 +52,11 @@ fun TestLogExportCard() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var ok by remember { mutableStateOf<Boolean?>(null) }
+
+    fun stamp(): String = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -78,7 +84,7 @@ fun TestLogExportCard() {
                             return@launch
                         }
                         status = context.getString(R.string.debug_collecting)
-                        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                        val stamp = stamp()
                         val name = "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-$stamp.txt"
                         val content = withContext(Dispatchers.IO) {
                             LogCollector.collect(context).toByteArray(Charsets.UTF_8)
@@ -120,6 +126,40 @@ fun TestLogExportCard() {
                         null -> MaterialTheme.colorScheme.onSurface
                     }
                 )
+            }
+
+            // v0.2.9 — Recours SANS Drive (retour opérateur : « j'ai voulu
+            // envoyer le log mais message d'erreur » — le refresh token
+            // embarqué à la compilation peut expirer/révoquer, l'envoi Drive
+            // n'est pas garanti) : le partage système (ACTION_SEND) fonctionne
+            // toujours — e-mail, fichier, cloud de l'utilisateur…
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    if (sharing) return@OutlinedButton
+                    sharing = true
+                    scope.launch {
+                        val text = withContext(Dispatchers.IO) {
+                            LogCollector.collect(context)
+                        }
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT,
+                                "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-${stamp()}")
+                            putExtra(Intent.EXTRA_TEXT, text)
+                        }
+                        context.startActivity(
+                            Intent.createChooser(send, null).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                        )
+                        sharing = false
+                    }
+                },
+                enabled = !sharing,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(if (sharing) R.string.debug_share_running else R.string.debug_share))
             }
         }
     }

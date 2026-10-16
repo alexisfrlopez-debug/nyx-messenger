@@ -55,16 +55,60 @@ class TorManager private constructor(context: Context) {
      * Démarre Tor embarqué. [onionPrivateKeyProvider] : renvoie la clé privée
      * ed25519 (64 octets) de l'identité si elle existe — le service onion de
      * l'utilisateur est alors publié dès la fin du bootstrap.
+     *
+     * v0.2.9 — IDEMPOTENT côté manager aussi (retour opérateur : le bouton
+     * « Créer mon identité » restait inerte) : [ConnexionsScreen] et
+     * [OnboardingScreen] appellent start() à chaque entrée sur l'écran ; quand
+     * le démon tourne déjà, l'ancien code réinitialisait l'état à Starting(0)
+     * alors que le service ne re-notifie JAMAIS (alreadyRunning) → état
+     * coincé, sonde réplica jamais relancée, bouton désactivé pour toujours.
+     * Désormais : Ready/Starting en cours = on ne touche à rien (le service
+     * re-attache lui-même via [reattachRunning] si besoin).
      */
     fun start(onionPrivateKeyProvider: (() -> ByteArray?)? = null) {
-        keyProvider = onionPrivateKeyProvider
+        if (onionPrivateKeyProvider != null) keyProvider = onionPrivateKeyProvider
+        when (_state.value) {
+            is TorState.Ready, is TorState.Starting -> {
+                NyxTorService.start(appContext)  // no-op si le démon tourne déjà
+                return
+            }
+            else -> {}
+        }
         setState(TorState.Starting(0))
         NyxTorService.start(appContext)
     }
 
-    /** Arrêt propre : démon tor inclus. */
+    /**
+     * v0.2.9 — Re-attachement à un démon DÉJÀ EN COURS (service redémarré,
+     * écran revisté, retour dans l'app) : on repart de la config connue et on
+     * re-surveille le bootstrap — si tor est déjà prêt, la boucle le constate
+     * en un poll et repasse Ready. Ne réinitialise JAMAIS un état Ready.
+     */
+    fun reattachRunning() {
+        val cfg = config ?: return
+        if (_state.value is TorState.Ready) return
+        setState(TorState.Starting(0))
+        reportStarted(cfg)
+    }
+
+    /** Arrêt demandé (UI) : démon tué via le service ; non bloquant. */
     fun stop() {
         bootstrapJob?.cancel()
+        NyxTorService.stop(appContext)
+        setState(TorState.Checking)
+    }
+
+    /**
+     * v0.2.9 — Arrêt COMPLET et BLOQUANT (demande opérateur : « tuer le
+     * processus TOR proprement en fermeture de l'application dès la première
+     * étape de connexion »). Séquence : annulation de la surveillance → kill
+     * direct borné du démon (SIGTERM, attente, SIGKILL — le verrou DataDirectory
+     * et les ports sont libérés AVANT le retour) → arrêt du service (son
+     * onDestroy ne re-tue plus rien). À appeler HORS thread UI.
+     */
+    fun stopNow() {
+        bootstrapJob?.cancel()
+        NyxTorService.stopDaemonSync()
         NyxTorService.stop(appContext)
         setState(TorState.Checking)
     }
@@ -74,10 +118,17 @@ class TorManager private constructor(context: Context) {
      * onDestroy) puis start (le service relance un démon frais). Un simple
      * « start » ne suffit pas quand le démon tourne encore : NyxTorService
      * ne re-déclenche pas [reportStarted] si le process existe déjà.
+     *
+     * v0.2.9 : exécuté HORS thread UI avec [stopNow] — l'attente de la mort
+     * du démon garantit le relâchement du verrou DataDirectory avant que le
+     * nouveau démon ne démarre (sinon il meurt sur « usually controlled by
+     * another process » et l'écran passe Failed).
      */
     fun retry() {
-        stop()
-        start(keyProvider)
+        scope.launch {
+            stopNow()
+            start(keyProvider)
+        }
     }
 
     /** Publie (ou re-publie) le service onion de l'utilisateur. Auto après bootstrap. */
