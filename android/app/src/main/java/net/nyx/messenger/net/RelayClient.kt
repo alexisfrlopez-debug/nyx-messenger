@@ -58,7 +58,13 @@ class RelayClient private constructor(
 
     private val client = OkHttpClient.Builder()
         .proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort)))
-        .connectTimeout(60, TimeUnit.SECONDS)
+        // v0.2.16 : 60 s → 25 s — le connect via SOCKS inclut la construction du
+        // circuit onion ; un circuit réussissant typiquement en 5-15 s, une
+        // tentative qui n'a pas abouti en 25 s ne passera pas en 60 s : mieux
+        // vaut échouer tôt et RETENTER (terrain v0.2.15 : la sonde restait
+        // bloquée 60 s par tentative, l'écran ne se rafraîchissait qu'une
+        // fois par minute et tout paraissait figé).
+        .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
         .build()

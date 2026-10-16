@@ -215,4 +215,12 @@
     <string name="chat_not_mutual">L\'échange de messages sera possible une fois l\'invitation acceptée des deux côtés.</string>
     <string name="contact_profile_open">Voir la fiche du contact</string>
     <string name="contact_profile_alias">Alias local : %1$s</string>
+
+    <!-- v0.2.16 — état réplica visible sur la liste des conversations (retour
+         terrain : « après fermeture/réouverture, le client ne se connecte plus
+         au réplica » — l\'utilisateur doit savoir si la connexion est en cours,
+         réussie, ou en échec avec la cause). -->
+    <string name="replica_status_ok">Réplica connecté (%1$d ms)</string>
+    <string name="replica_status_fail">Réplica injoignable — %1$s (essai à %2$s)</string>
+    <string name="replica_status_waiting">Réplica : connexion en cours…</string>
 </resources>

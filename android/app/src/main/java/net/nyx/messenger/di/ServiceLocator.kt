@@ -83,11 +83,12 @@ object ServiceLocator {
     }
 
     /**
-     * v0.2.10 — POLL GLOBAL DE L'INBOX (v0.2.15 : 15 s) — correctif de LIVRAISON.
-     * Jusqu'ici le poll ne vivait QUE dans l'écran de conversation : un appareil
-     * sans conversation ouverte (ex. destinataire d'une première demande de
-     * contact) ne récupérait JAMAIS ses événements — messages et annonces de
-     * contact n'arrivaient jamais. La boucle vit au niveau application :
+     * v0.2.10 — POLL GLOBAL DE L'INBOX (v0.2.16 : boucle pilotée par l'état Tor) —
+     * correctif de LIVRAISON. Jusqu'ici le poll ne vivait QUE dans l'écran de
+     * conversation : un appareil sans conversation ouverte (ex. destinataire
+     * d'une première demande de contact) ne récupérait JAMAIS ses événements —
+     * messages et annonces de contact n'arrivaient jamais. La boucle vit au
+     * niveau application :
      *  - tourne dès le lancement (no-op tant que Tor/l'identité ne sont pas
      *    prêts — pollInbox renvoie 0) ;
      *  - s'ajoute au poll fin (10 s) de l'écran de conversation ouvert ;
@@ -98,34 +99,78 @@ object ServiceLocator {
      * d'invitation un peu longs ») : le délai perçu = intervalle de poll × 2
      * (dépôt chez l'invitant + récupération chez l'invité) + latence Tor.
      * La boucle porte AUSSI les accusés de réception/lecture (v0.2.15).
+     *
+     * v0.2.16 — DEUX correctifs du retour terrain « après fermeture/réouverture,
+     * le client ne se connecte plus au réplica » (export Xiaomi 18:30:25 :
+     * tor bootstrap 100 % en 2 s MAIS sonde /health « Connect timed out » 60 s) :
+     *
+     *  1. REPRISE RAPIDE : la boucle suit l'état de Tor (StateFlow). Chaque
+     *     passage à Ready ouvre une fenêtre de 2 min à 5 s d'intervalle —
+     *     les premières secondes après le bootstrap ne sont plus perdues (la
+     *     boucle 15 s pouvait attendre un cycle complet avant la première
+     *     vraie tentative). Hors Ready, AUCUNE tentative : les connexions
+     *     lancées pendant le bootstrap pendaient jusqu'au timeout OkHttp
+     *     (25 s depuis v0.2.16) et encombraient le pool de connexions.
+     *
+     *  2. LES ÉCHECS SONT TRACÉS : le runCatching silencieux ne disait RIEN
+     *     de pourquoi le réplica restait injoignable — le diagnostic terrain
+     *     reposait uniquement sur la sonde /health de l'écran Connexions.
+     *     Désormais chaque échec est loggé nyx-poll (classe + message + durée)
+     *     avec throttle : cause inchangée → 1 ligne/min, cause nouvelle → immédiat.
      */
     private fun startInboxPolling() {
         val handler = CoroutineExceptionHandler { _, e ->
             android.util.Log.w("nyx-poll", "boucle inbox interrompue : ${e.message}")
         }
         CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
+            var nextPollAt = 0L
+            var fastUntil = 0L          // fin de la fenêtre accélérée (elapsedRealtime)
+            var lastFailKey: String? = null
+            var lastFailLog = 0L
             while (true) {
-                // v0.2.12 : la boucle porte AUSSI les annonces/ACK de contact en
-                // attente — le terrain v0.2.11 a montré l'annonce partant UNE fois
-                // à +2 s (course avec Tor : échec muet systématique, l'invitation
-                // n'arrivait jamais). Désormais elle repart toutes les 15 s tant
-                // qu'elle n'est pas déposée, dès que Tor est prêt.
-                runCatching { repository.pollInbox() } // v0.2.15 : flushe AUSSI les accusés en fin de poll
-                runCatching { repository.ensureContactNotified() }
-                // v0.2.14 : publication de profil FIABLE (demande opérateur :
-                // « vérifie que les infos publiques soient bien partagées entre
-                // les contacts ») — un profil rendu public alors que le réplica
-                // était injoignable ne partait JAMAIS (échec muet au save).
-                runCatching { repository.ensureProfilePublished() }
-                // v0.2.15 : accusés de réception/lecture restés en attente
-                // (échec au flush inline — même retry que les annonces/acks).
-                runCatching { repository.ensureReceiptsSent() }
-                delay(POLL_INTERVAL_MS)
+                val now = android.os.SystemClock.elapsedRealtime()
+                val ready = net.nyx.messenger.tor.TorManager.get(appContext())
+                    .state.value is net.nyx.messenger.tor.TorManager.TorState.Ready
+                if (ready && fastUntil == 0L) {
+                    // Transition vers Ready (démarrage, retry, relance du démon).
+                    fastUntil = now + FAST_WINDOW_MS
+                    android.util.Log.i("nyx-poll", "tor prêt — reprise rapide du poll")
+                } else if (!ready) {
+                    fastUntil = 0L      // tor retombe : la fenêtre n'a plus de sens
+                }
+                if (ready && now >= nextPollAt) {
+                    val t0 = android.os.SystemClock.elapsedRealtime()
+                    runCatching { repository.pollInbox() }.onFailure { e ->
+                        val t = android.os.SystemClock.elapsedRealtime()
+                        val key = "${e.javaClass.simpleName}: ${e.message?.take(120)}"
+                        if (key != lastFailKey || t - lastFailLog > FAIL_THROTTLE_MS) {
+                            lastFailKey = key
+                            lastFailLog = t
+                            android.util.Log.w("nyx-poll", "inbox échec (${t - t0} ms) : $key")
+                        }
+                    }
+                    runCatching { repository.ensureContactNotified() }
+                    // v0.2.14 : publication de profil FIABLE (demande opérateur :
+                    // « vérifie que les infos publiques soient bien partagées
+                    // entre les contacts ») — un profil rendu public alors que
+                    // le réplica était injoignable ne partait JAMAIS.
+                    runCatching { repository.ensureProfilePublished() }
+                    // v0.2.15 : accusés de réception/lecture restés en attente
+                    // (échec au flush inline — même retry que les annonces/acks).
+                    runCatching { repository.ensureReceiptsSent() }
+                    val t1 = android.os.SystemClock.elapsedRealtime()
+                    nextPollAt = t1 + if (t1 < fastUntil) FAST_INTERVAL_MS else POLL_INTERVAL_MS
+                }
+                delay(POLL_TICK_MS)
             }
         }
     }
 
     private const val POLL_INTERVAL_MS = 15_000L
+    private const val POLL_TICK_MS = 500L
+    private const val FAST_INTERVAL_MS = 5_000L
+    private const val FAST_WINDOW_MS = 120_000L
+    private const val FAIL_THROTTLE_MS = 60_000L
 
     /** Clé de base SQLCipher : 32 octets aléatoires, scellés via KeystoreBox dès le 1er lancement. */
     private fun dbPassphrase(context: Context): ByteArray {

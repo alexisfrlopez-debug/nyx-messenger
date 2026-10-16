@@ -81,7 +81,7 @@ class NyxRepository(
      *  v0.2.5 : chaque sonde alimente [lastProbe] (durée + cause d'échec) —
      *  l'écran Connexions affiche le détail au lieu d'un « injoignable » muet,
      *  et l'export de logs contient les tentatives (tag nyx-conn). */
-    data class ReplicaProbeReport(val ok: Boolean, val ms: Long, val detail: String?)
+    data class ReplicaProbeReport(val ok: Boolean, val ms: Long, val detail: String?, val at: Long = 0L)
 
     private val _lastProbe = MutableStateFlow<ReplicaProbeReport?>(null)
     val lastProbe: StateFlow<ReplicaProbeReport?> = _lastProbe.asStateFlow()
@@ -89,10 +89,10 @@ class NyxRepository(
     suspend fun replicaHealth(): Boolean {
         val rep = relay()?.healthDetailed()
         if (rep == null) {
-            _lastProbe.value = ReplicaProbeReport(false, 0, "aucun réplica configuré")
+            _lastProbe.value = ReplicaProbeReport(false, 0, "aucun réplica configuré", System.currentTimeMillis())
             return false
         }
-        _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail)
+        _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail, System.currentTimeMillis())
         return rep.ok
     }
 

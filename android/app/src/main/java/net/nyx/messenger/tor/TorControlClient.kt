@@ -35,15 +35,35 @@ class TorControlClient(private val controlPort: Int) : AutoCloseable {
 
     /** Envoie une commande et lit le bloc de réponse multi-lignes. */
     private fun cmd(line: String): ControlResponse {
-        connect()
-        writer!!.write(line)
-        writer!!.write("\r\n")
-        writer!!.flush()
+        // v0.2.16 — CEINTURE DE BÉLIERS sur les IOException du control port :
+        // à l'arrêt du démon (TERM/SIGKILL, réveil nocturne de l'OS), le socket
+        // peut être fermé PENDANT un read bloquant — libcore lève alors
+        // InterruptedIOException « read interrupted by close() on another thread ».
+        // Historique : traverser une coroutine en état Cancelling avec une
+        // IOException brute produit un FATAL EXCEPTION même en présence d'un
+        // CoroutineExceptionHandler (constaté en v0.2.9/v0.2.10 — drain depuis
+        // converti en thread démon). Ici TOUTE IOException est convertie en
+        // IllegalStateException (métier) : jamais d'exception réseau brute
+        // ne remonte du client de contrôle.
+        try {
+            connect()
+            writer!!.write(line)
+            writer!!.write("\r\n")
+            writer!!.flush()
+        } catch (e: java.io.IOException) {
+            close()
+            throw IllegalStateException("control port : écriture impossible (${e.javaClass.simpleName})")
+        }
         val lines = ArrayList<String>()
         val values = HashMap<String, String>()
         var code = 0
         while (true) {
-            val raw = reader!!.readLine() ?: error("control port : connexion fermée (réponse à « $line »)")
+            val raw = try {
+                reader!!.readLine()
+            } catch (e: java.io.IOException) {
+                close()
+                throw IllegalStateException("control port : lecture impossible (${e.javaClass.simpleName})")
+            } ?: error("control port : connexion fermée (réponse à « $line »)")
             if (raw.length < 4) error("control port : ligne invalide « $raw »")
             code = raw.substring(0, 3).toIntOrNull() ?: error("control port : code invalide « $raw »")
             val rest = raw.substring(4)

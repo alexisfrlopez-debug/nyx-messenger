@@ -61,6 +61,7 @@ import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.tor.TorManager
 import net.nyx.messenger.ui.components.AvatarView
+import net.nyx.messenger.ui.components.ReplicaProbeEffect
 import net.nyx.messenger.ui.diag.TestLogExportCard
 
 /**
@@ -220,6 +221,14 @@ fun ConversationListScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             TorBanner(torState)
+            // v0.2.16 — état du RÉPLICA sous la bannière Tor (retour terrain :
+            // « après fermeture/réouverture, le client ne se connecte plus au
+            // réplica » — sans indicateur, impossible de distinguer une reprise
+            // en cours d’une panne réelle). La sonde tourne ici (20 s) dès que
+            // Tor est prêt ; le résultat détaillé est observé via lastProbe.
+            val torReady = torState is TorManager.TorState.Ready
+            ReplicaProbeEffect(torReady = torReady, intervalMs = 20_000L)
+            ReplicaStatusLine(repo, torReady)
             // Build test : gros bouton rouge d'export de logs vers le Drive (v0.2.2).
             if (BuildConfig.TEST_BUILD) {
                 Spacer(Modifier.height(8.dp))
@@ -510,6 +519,58 @@ private fun TorBanner(state: TorManager.TorState) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
+}
+
+/**
+ * v0.2.16 — ligne d'état du réplica rattaché, sous la bannière Tor :
+ *  - Tor pas prêt : « Réplica : connexion en cours… » (tertiaire) ;
+ *  - sonde OK : « Réplica connecté (X ms) » (primaire) ;
+ *  - sonde en échec : « Réplica injoignable — <cause> (essai à HH:MM) »
+ *    (erreur) — la CAUSE (timeout circuit, connexion refusée, HTTP…) vient
+ *    du détail de la sonde ; c'est l'élément qui manquait au terrain pour
+ *    distinguer une reprise lente d'une panne.
+ * Discret (bodySmall) — aucune interaction.
+ */
+@Composable
+private fun ReplicaStatusLine(
+    repo: net.nyx.messenger.repo.NyxRepository,
+    torReady: Boolean
+) {
+    val probe by repo.lastProbe.collectAsState()
+    val text: String
+    val color: androidx.compose.ui.graphics.Color
+    if (!torReady) {
+        text = stringResource(R.string.replica_status_waiting)
+        color = MaterialTheme.colorScheme.tertiary
+    } else {
+        val p = probe
+        when {
+            p == null -> {
+                text = stringResource(R.string.replica_status_waiting)
+                color = MaterialTheme.colorScheme.tertiary
+            }
+            p.ok -> {
+                text = stringResource(R.string.replica_status_ok, p.ms)
+                color = MaterialTheme.colorScheme.primary
+            }
+            else -> {
+                val at = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(p.at))
+                text = stringResource(
+                    R.string.replica_status_fail,
+                    p.detail ?: "erreur réseau",
+                    at
+                )
+                color = MaterialTheme.colorScheme.error
+            }
+        }
+    }
+    Text(
+        text,
+        color = color,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+    )
 }
 
 /**
