@@ -3,8 +3,12 @@ package net.nyx.messenger.ui.conversations
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,6 +55,13 @@ import net.nyx.messenger.repo.NyxRepository
  * wrapper MutableStateFlow+collect ne rafraîchissait PAS l'écran en session
  * (constat terrain : le message tapé n'apparaissait qu'après relance) ;
  * (b) un échec d'envoi est AFFICHÉ (avant : callback vide = silence total).
+ * v0.2.15 (demande opérateur) :
+ *  - CLAVIER : la fenêtre se REDIMENSIONNE quand le clavier s'ouvre — le champ
+ *    de saisie n'est plus caché (cause : enableEdgeToEdge() désactive l'effet
+ *    d'adjustResize du manifest sur API 30+ ; le remède Compose est imePadding) ;
+ *  - ACCUSÉS : sous chaque message sortant — ✓ Envoyé / ✓✓ Reçu / ✓✓ Lu ;
+ *  - LECTURE : ouvrir la conversation marque les messages reçus « lus »
+ *    (indicateur non-lu de la liste) et dépose les accusés « read » au pair.
  */
 class ChatViewModel(peerOnion: String) : ViewModel() {
     private val db = ServiceLocator.database
@@ -72,6 +83,17 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
                 delay(10_000)
             }
         }
+        // v0.2.15 — MARQUAGE « LU » à l'ouverture de la conversation (et à
+        // chaque arrivée pendant qu'elle est ouverte) : le Flow re-émet après
+        // l'écriture readLocal=1, la boucle s'arrête d'elle-même (plus de
+        // non-lu). Les accusés « read » partent dans la foulée.
+        viewModelScope.launch {
+            messages.collect { list ->
+                if (list.any { !it.outgoing && it.readLocal == 0 }) {
+                    runCatching { repo.markConversationRead(peerOnion) }
+                }
+            }
+        }
     }
 
     fun send(peer: String, text: String, onDone: (Boolean) -> Unit) {
@@ -87,7 +109,7 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     val vm: ChatViewModel = viewModel(key = peerOnion, factory = viewModelFactory {
@@ -106,7 +128,26 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
+    // v0.2.15 : le clavier s'ouvre → la liste reste collée au bas (dernier
+    // message visible au-dessus du champ de saisie redimensionné).
+    // NOTE : isImeVisible se lit DANS la composition (capturé dans imeVisible)
+    // — une lecture dans la coroutine du LaunchedEffect serait hors contexte.
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(imeVisible) {
+        if (imeVisible && messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex)
+        }
+    }
+
     Scaffold(
+        // v0.2.15 — CORRECTIF CLAVIER (demande opérateur : « quand le clavier
+        // s'ouvre pour écrire, je veux que la fenêtre se resize pour que le
+        // clavier ne cache pas le message que l'on est en train de taper »).
+        // enableEdgeToEdge() (MainActivity) fait dessiner l'app derrière les
+        // insets : adjustResize du manifest n'a PLUS d'effet sur API 30+ —
+        // imePadding() relève tout le Scaffold (liste + saisie) au-dessus du
+        // clavier, avec l'animation système.
+        modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(
                 // v0.2.14 : le titre affiche l'ALIAS du contact (jamais l'adresse
@@ -152,15 +193,19 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                             modifier = Modifier
                                 .padding(4.dp)
                         )
-                        Text(
-                            when (m.state) {
-                                NyxRepository.STATE_PENDING -> stringResource(R.string.sending)
-                                NyxRepository.STATE_SENT -> stringResource(R.string.sent)
-                                NyxRepository.STATE_FAILED -> stringResource(R.string.failed)
-                                else -> ""
-                            },
-                            style = MaterialTheme.typography.labelSmall
-                        )
+                        // v0.2.15 : état + accusés UNIQUEMENT sur les sortants —
+                        // « ✓ Envoyé » (déposé au réplica) → « ✓✓ Reçu » (accusé
+                        // de réception du pair) → « ✓✓ Lu » (accusé de lecture).
+                        // Les entrants restent muets (l'indicateur non-lu vit
+                        // dans la liste, côté destinataire).
+                        outgoingStatusLabel(m)?.let { label ->
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (m.readAt > 0L) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

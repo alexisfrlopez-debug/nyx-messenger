@@ -14,7 +14,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -46,14 +49,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import net.nyx.messenger.BuildConfig
 import net.nyx.messenger.R
 import net.nyx.messenger.crypto.AliasValidator
 import net.nyx.messenger.data.db.ContactStatus
+import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.tor.TorManager
+import net.nyx.messenger.ui.components.AvatarView
 import net.nyx.messenger.ui.diag.TestLogExportCard
 
 /**
@@ -73,6 +80,16 @@ import net.nyx.messenger.ui.diag.TestLogExportCard
  *    ou Supprimer la conversation (strictement local) ;
  *  - demande runtime POST_NOTIFICATIONS (Android 13+ : sans elle, les
  *    notifications d'invitation — avec actions Accepter/Refuser — sont muettes).
+ *
+ * v0.2.15 (demande opérateur) :
+ *  - EN-TÊTE : l'alias du compte + SA photo de profil (clic → mon profil) ;
+ *  - chaque contact montre SA photo si publique (cache peer_profiles — TTL 1 h),
+ *    sinon l'icône générique, AVEC le dernier message de la conversation
+ *    (envoyé ou reçu) ;
+ *  - indicateurs à côté des alias : côté expéditeur ✓ Envoyé / ✓✓ Reçu / ✓✓ Lu
+ *    sur le dernier message sortant ; côté destinataire point + compteur de
+ *    messages reçus non lus (effacé à l'ouverture du chat) ;
+ *  - imePadding : la saisie d'ajout de contact n'est plus cachée par le clavier.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -89,6 +106,18 @@ fun ConversationListScreen(
     val contacts by db.contactDao().allActive().collectAsState(initial = emptyList())
     val archived by db.contactDao().allArchived().collectAsState(initial = emptyList())
 
+    // v0.2.15 — aperçu du dernier message PAR PAIR + compteurs de non-lus
+    // (flows Room : re-émission automatique à chaque écriture).
+    val lastByPeer by db.messageDao().lastByPeer().collectAsState(initial = emptyList())
+    val lastMap = remember(lastByPeer) { lastByPeer.associateBy { it.peerOnion } }
+    val unreadByPeer by db.messageDao().unreadByPeer().collectAsState(initial = emptyList())
+    val unreadMap = remember(unreadByPeer) { unreadByPeer.associate { it.peer to it.cnt } }
+
+    // v0.2.15 — données de l'EN-TÊTE : alias du compte + photo de profil
+    // (sienne, privée ou publique — ne part jamais d'ici). Rechargée au
+    // retour de l'édition de profil (la destination quitte la composition).
+    var ownProfile by remember { mutableStateOf<net.nyx.messenger.profile.OwnProfile?>(null) }
+
     var showAdd by remember { mutableStateOf(pendingAdd != null) }
     var input by remember { mutableStateOf(pendingAdd ?: "") }
     var aliasInput by remember { mutableStateOf("") }
@@ -98,6 +127,12 @@ fun ConversationListScreen(
 
     val repo = remember { ServiceLocator.repository }
     val context = LocalContext.current
+
+    // v0.2.15 : charge le profil PROPRE (avatar de l'en-tête) — après la
+    // déclaration de context (l'écran recharge au retour de l'édition).
+    LaunchedEffect(Unit) {
+        ownProfile = net.nyx.messenger.profile.ProfileStore.get(context).load()
+    }
 
     val torState by TorManager.get(LocalContext.current).state.collectAsState()
 
@@ -128,10 +163,39 @@ fun ConversationListScreen(
         runCatching { repo.pollInbox() }
     }
 
+    // v0.2.15 — cache des profils des pairs (avatars publics) : rafraîchi à
+    // l'entrée sur la liste et quand les contacts changent (TTL 1 h par pair
+    // en interne — échec silencieux, l'icône générique reste affichée).
+    LaunchedEffect(contacts.map { it.onion }) {
+        if (contacts.isNotEmpty()) repo.refreshPeerProfiles(contacts.map { it.onion })
+    }
+
     Scaffold(
+        modifier = Modifier.imePadding(), // v0.2.15 : saisie d'ajout au-dessus du clavier
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.conversations)) },
+                // v0.2.15 — EN-TÊTE COMPTE (demande opérateur : « en haut de la
+                // fenêtre conversation apparaisse l'alias du compte et la photo
+                // de profil ») — clic = ouvrir MON profil (édition).
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.combinedClickable(onClick = onOpenMyProfile)
+                    ) {
+                        AvatarView(
+                            ownProfile?.valueOf(net.nyx.messenger.profile.ProfileKeys.AVATAR)
+                                ?.ifBlank { null },
+                            size = 34.dp
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            ServiceLocator.identity.alias
+                                ?: stringResource(R.string.conversations),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.menu_more))
@@ -235,6 +299,8 @@ fun ConversationListScreen(
                     ContactCard(
                         c = c,
                         archived = false,
+                        last = lastMap[c.onion],
+                        unread = unreadMap[c.onion] ?: 0,
                         onOpenConversation = onOpenConversation,
                         onOpenContactProfile = onOpenContactProfile
                     )
@@ -253,6 +319,8 @@ fun ConversationListScreen(
                         ContactCard(
                             c = c,
                             archived = true,
+                            last = lastMap[c.onion],
+                            unread = 0, // un lien archivé ne reçoit plus — pas d'indicateur
                             onOpenConversation = onOpenConversation,
                             onOpenContactProfile = onOpenContactProfile
                         )
@@ -268,12 +336,23 @@ fun ConversationListScreen(
  * onion n'est visible QUE dans la fiche — bouton ⓘ), statut d'invitation,
  * boutons Accepter/Refuser sur les invitations reçues, et pression longue
  * proposant Supprimer le contact / Supprimer la conversation.
+ *
+ * v0.2.15 (demande opérateur) :
+ *  - AVATAR à gauche : la photo du contact SI publique (cache peer_profiles,
+ *    rafraîchi TTL 1 h à l'entrée sur la liste), sinon l'icône générique ;
+ *  - DERNIER MESSAGE de la conversation sous l'alias (envoyé ou reçu —
+ *    préfixé « Moi : » côté expéditeur) ;
+ *  - INDICATEURS à côté de l'alias : point + compteur de messages reçus non
+ *    lus (destinataire) OU état du dernier message sortant ✓/✓✓/Lu
+ *    (expéditeur — [outgoingStatusLabel]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContactCard(
     c: net.nyx.messenger.data.db.ContactEntity,
     archived: Boolean,
+    last: MessageEntity?,
+    unread: Int,
     onOpenConversation: (String) -> Unit,
     onOpenContactProfile: (String) -> Unit
 ) {
@@ -281,6 +360,10 @@ private fun ContactCard(
     val repo = remember { ServiceLocator.repository }
     var askDelete by remember { mutableStateOf(false) }
     val incoming = c.status == ContactStatus.INCOMING
+    // v0.2.15 : profil public en cache du pair (observable — l'avatar apparaît
+    // dès que le fetch de rafraîchissement aboutit).
+    val peerProfile by repo.peerProfileFlow(c.onion).collectAsState(initial = null)
+    val showPreview = !archived && c.status == ContactStatus.ACCEPTED
 
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
@@ -290,13 +373,67 @@ private fun ContactCard(
                     onClick = { onOpenConversation(c.onion) },
                     onLongClick = { askDelete = true }
                 )
-                .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp)
+                .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp)
         ) {
+            // — PHOTO du contact (publique) ou icône générique (privée/absente) —
+            AvatarView(peerProfile?.avatar?.ifBlank { null }, size = 44.dp)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(c.alias, style = MaterialTheme.typography.titleMedium)
-                // v0.2.14 : PLUS d'aperçu d'adresse onion ici — visible uniquement
-                // dans la fiche du contact (bouton ⓘ), demande opérateur.
-                InvitationStatusLine(c)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        c.alias,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    // — INDICATEUR DESTINATAIRE : messages reçus NON LUS —
+                    // (effacé à l'ouverture du chat — accusés « read » en route)
+                    if (unread > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "●",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Spacer(Modifier.width(2.dp))
+                        Text(
+                            stringResource(
+                                R.string.list_unread_badge,
+                                unread, if (unread > 1) "s" else ""
+                            ),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+                if (showPreview && last != null) {
+                    // — DERNIER MESSAGE (envoyé ou reçu) + ÉTAT EXPÉDITEUR —
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (last.outgoing) {
+                                stringResource(R.string.list_me_prefix, last.text)
+                            } else last.text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        outgoingStatusLabel(last)?.let { label ->
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (last.readAt > 0L) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    InvitationStatusLine(c)
+                }
             }
             IconButton(onClick = { onOpenContactProfile(c.onion) }) {
                 Icon(

@@ -59,16 +59,17 @@ object ServiceLocator {
                 .openHelperFactory(SupportFactory(dbPassphrase, null, false))
                 .addMigrations(
                     NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3,
-                    NyxDatabase.MIGRATION_3_4
+                    NyxDatabase.MIGRATION_3_4, NyxDatabase.MIGRATION_4_5
                 )
                 .build()
 
             // Repository unique partagé par tous les écrans (supprime la construction
             // redondante dans Onboarding/ConversationList/Chat — audit cycle 1).
+            // v0.2.15 : + peerProfileDao (cache avatars/noms publics des contacts).
             repository = NyxRepository(
                 identity, cipher,
                 database.messageDao(), database.contactDao(), database.pollStateDao(),
-                database.seqStateDao()
+                database.seqStateDao(), database.peerProfileDao()
             )
 
             // v0.2.14 : notifications système du cycle de vie des contacts
@@ -82,7 +83,7 @@ object ServiceLocator {
     }
 
     /**
-     * v0.2.10 — POLL GLOBAL DE L'INBOX (30 s) — correctif de LIVRAISON.
+     * v0.2.10 — POLL GLOBAL DE L'INBOX (v0.2.15 : 15 s) — correctif de LIVRAISON.
      * Jusqu'ici le poll ne vivait QUE dans l'écran de conversation : un appareil
      * sans conversation ouverte (ex. destinataire d'une première demande de
      * contact) ne récupérait JAMAIS ses événements — messages et annonces de
@@ -92,6 +93,11 @@ object ServiceLocator {
      *  - s'ajoute au poll fin (10 s) de l'écran de conversation ouvert ;
      *  - fonctionne au premier plan — aucune synchro en arrière-plan v0.1
      *    (process tué = pas de poll, cf. RESTART.md décision 17).
+     *
+     * v0.2.15 : 30 s → 15 s — retour terrain v0.2.14 (« temps de réception
+     * d'invitation un peu longs ») : le délai perçu = intervalle de poll × 2
+     * (dépôt chez l'invitant + récupération chez l'invité) + latence Tor.
+     * La boucle porte AUSSI les accusés de réception/lecture (v0.2.15).
      */
     private fun startInboxPolling() {
         val handler = CoroutineExceptionHandler { _, e ->
@@ -102,21 +108,24 @@ object ServiceLocator {
                 // v0.2.12 : la boucle porte AUSSI les annonces/ACK de contact en
                 // attente — le terrain v0.2.11 a montré l'annonce partant UNE fois
                 // à +2 s (course avec Tor : échec muet systématique, l'invitation
-                // n'arrivait jamais). Désormais elle repart toutes les 30 s tant
+                // n'arrivait jamais). Désormais elle repart toutes les 15 s tant
                 // qu'elle n'est pas déposée, dès que Tor est prêt.
-                runCatching { repository.pollInbox() }
+                runCatching { repository.pollInbox() } // v0.2.15 : flushe AUSSI les accusés en fin de poll
                 runCatching { repository.ensureContactNotified() }
                 // v0.2.14 : publication de profil FIABLE (demande opérateur :
                 // « vérifie que les infos publiques soient bien partagées entre
                 // les contacts ») — un profil rendu public alors que le réplica
                 // était injoignable ne partait JAMAIS (échec muet au save).
                 runCatching { repository.ensureProfilePublished() }
+                // v0.2.15 : accusés de réception/lecture restés en attente
+                // (échec au flush inline — même retry que les annonces/acks).
+                runCatching { repository.ensureReceiptsSent() }
                 delay(POLL_INTERVAL_MS)
             }
         }
     }
 
-    private const val POLL_INTERVAL_MS = 30_000L
+    private const val POLL_INTERVAL_MS = 15_000L
 
     /** Clé de base SQLCipher : 32 octets aléatoires, scellés via KeystoreBox dès le 1er lancement. */
     private fun dbPassphrase(context: Context): ByteArray {

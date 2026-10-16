@@ -80,7 +80,36 @@ data class MessageEntity(
     val text: String,                    // déchiffré (jamais synchronisé)
     val sentAt: Long,                    // horodatage déclaré
     val receivedAt: Long,
-    val state: Int                       // 0=pending, 1=sent, 2=failed, 3=received
+    val state: Int,                      // 0=pending, 1=sent, 2=failed, 3=received
+    // v0.2.15 — accusés de réception/lecture (demande opérateur). CÔTÉ
+    // DESTINATAIRE : readLocal = 1 dès que la conversation est ouverte
+    // (indicateur « non lu » de la liste) ; rcptPending = 1 (accusé
+    // « delivered » à déposer) ou 2 (« read » à déposer — remplace le 1).
+    // CÔTÉ EXPÉDITEUR : deliveredAt/readAt = horodatage de l'accusé reçu
+    // du pair (0 = pas encore) — affichés ✓ Envoyé / ✓✓ Reçu / ✓✓ Lu.
+    @ColumnInfo(defaultValue = "0") val readLocal: Int = 0,
+    @ColumnInfo(defaultValue = "0") val rcptPending: Int = 0,
+    @ColumnInfo(defaultValue = "0") val deliveredAt: Long = 0,
+    @ColumnInfo(defaultValue = "0") val readAt: Long = 0
+)
+
+/**
+ * v0.2.15 — cache local de la carte publique D'UN PAIR (avatar + nom affiché).
+ * Les événements `profile` en diffusion ne passent PAS par l'inbox (le serveur
+ * ne livre que les événements adressés — journal.Inbox `ev.To == to`) : la
+ * liste des conversations ne peut pas les découvrir en pollant. La carte est
+ * donc récupérée à la demande (GET /client/profile) et mise en cache ici,
+ * rafraîchie à l'entrée sur la liste (TTL 1 h — [NyxRepository.refreshPeerProfiles]).
+ * displayName/avatar sont VIDES si le pair n'a rien publié (icône générique —
+ * demande opérateur : « sa photo si elle est publique, une icône générique
+ * si elle est privée »).
+ */
+@Entity(tableName = "peer_profiles")
+data class PeerProfileEntity(
+    @PrimaryKey val onion: String,
+    val displayName: String,             // display_name public ("" si absent)
+    val avatar: String,                  // avatar public base64 ("" si absent/privé)
+    val fetchedAt: Long                  // horodatage du dernier fetch réussi
 )
 
 @Entity(tableName = "poll_state")
@@ -180,6 +209,75 @@ interface MessageDao {
     /** v0.2.11 : suppression de TOUTE la conversation d'un contact (avec lui). */
     @Query("DELETE FROM messages WHERE peerOnion = :peer")
     suspend fun deleteConversation(peer: String)
+
+    // ── v0.2.15 — accusés de réception/lecture + aperçus de liste ──
+
+    /** Dernier message PAR PAIR (aperçu de la liste — demande opérateur :
+     *  « à côté de chaque alias … le dernier message de la conversation
+     *  (envoyé ou reçu) »). Sous-requête corrélée : portable SQLite. */
+    @Query(
+        "SELECT * FROM messages m WHERE m.eventId = (" +
+        "SELECT m2.eventId FROM messages m2 WHERE m2.peerOnion = m.peerOnion " +
+        "ORDER BY m2.sentAt DESC, m2.eventId DESC LIMIT 1)"
+    )
+    fun lastByPeer(): Flow<List<MessageEntity>>
+
+    /** Nombre de messages reçus NON lus par pair (indicateur destinataire). */
+    @Query(
+        "SELECT peerOnion AS peer, COUNT(*) AS cnt FROM messages " +
+        "WHERE outgoing = 0 AND readLocal = 0 GROUP BY peerOnion"
+    )
+    fun unreadByPeer(): Flow<List<UnreadCount>>
+
+    /** Marque TOUTE la conversation d'un pair comme lue localement. */
+    @Query("UPDATE messages SET readLocal = 1 WHERE peerOnion = :peer AND outgoing = 0 AND readLocal = 0")
+    suspend fun markReadLocally(peer: String): Int
+
+    /** Messages reçus non lus d'un pair — ids pour l'accusé « read ». */
+    @Query("SELECT eventId FROM messages WHERE peerOnion = :peer AND outgoing = 0 AND readLocal = 1 AND rcptPending > 0")
+    suspend fun readPendingIds(peer: String): List<String>
+
+    /** Messages reçus non accusés-réceptionnés d'un pair (ids pour « delivered »). */
+    @Query("SELECT eventId FROM messages WHERE peerOnion = :peer AND outgoing = 0 AND rcptPending = 1")
+    suspend fun deliveredPendingIds(peer: String): List<String>
+
+    /** Pairs ayant au moins un accusé en attente (rcptPending > 0). */
+    @Query("SELECT DISTINCT peerOnion FROM messages WHERE rcptPending > 0")
+    suspend fun peersWithPendingReceipts(): List<String>
+
+    /** Règle rcptPending = 0 pour des ids donnés (accusé déposé). */
+    @Query("UPDATE messages SET rcptPending = 0 WHERE eventId IN (:ids)")
+    suspend fun clearRcptPending(ids: List<String>)
+
+    /** Passe les accusés « delivered » (rcptPending=1) en « read » (2) d'un pair. */
+    @Query("UPDATE messages SET rcptPending = 2 WHERE peerOnion = :peer AND rcptPending = 1")
+    suspend fun promoteDeliveredToRead(peer: String)
+
+    /** Accusé « delivered » reçu du pair — CÔTÉ EXPÉDITEUR. */
+    @Query("UPDATE messages SET deliveredAt = :at WHERE eventId IN (:ids) AND peerOnion = :peer AND outgoing = 1 AND deliveredAt = 0")
+    suspend fun markDelivered(peer: String, ids: List<String>, at: Long)
+
+    /** Accusé « read » reçu du pair (implique delivered) — CÔTÉ EXPÉDITEUR. */
+    @Query("UPDATE messages SET deliveredAt = CASE WHEN deliveredAt = 0 THEN :at ELSE deliveredAt END, readAt = :at WHERE eventId IN (:ids) AND peerOnion = :peer AND outgoing = 1 AND readAt = 0")
+    suspend fun markRead(peer: String, ids: List<String>, at: Long)
+}
+
+/** Projection du compteur de non-lus par pair (v0.2.15). */
+data class UnreadCount(val peer: String, val cnt: Int)
+
+@Dao
+interface PeerProfileDao {
+    @Query("SELECT * FROM peer_profiles WHERE onion = :onion")
+    fun byOnion(onion: String): Flow<PeerProfileEntity?>
+
+    @Query("SELECT * FROM peer_profiles WHERE onion = :onion")
+    suspend fun get(onion: String): PeerProfileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(profile: PeerProfileEntity)
+
+    @Query("DELETE FROM peer_profiles WHERE onion = :onion")
+    suspend fun delete(onion: String)
 }
 
 @Dao
@@ -207,13 +305,15 @@ interface SeqStateDao {
  * cf. ServiceLocator). Les messages en clair n'existent QUE dans cette base scellée.
  */
 @Database(
-    entities = [ContactEntity::class, MessageEntity::class, PollStateEntity::class, SeqStateEntity::class],
-    version = 4,
+    entities = [ContactEntity::class, MessageEntity::class, PeerProfileEntity::class,
+        PollStateEntity::class, SeqStateEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class NyxDatabase : RoomDatabase() {
     abstract fun contactDao(): ContactDao
     abstract fun messageDao(): MessageDao
+    abstract fun peerProfileDao(): PeerProfileDao
     abstract fun pollStateDao(): PollStateDao
     abstract fun seqStateDao(): SeqStateDao
 
@@ -257,6 +357,31 @@ abstract class NyxDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE contacts ADD COLUMN status TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE contacts ADD COLUMN ackPending INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v4 → v5 (v0.2.15) : accusés de réception/lecture + cache des profils
+         * des pairs. MIGRATION ADDITIVE — aucune donnée détruite :
+         *  - messages : 4 colonnes (readLocal/rcptPending côté destinataire,
+         *    deliveredAt/readAt côté expéditeur) — sortent à 0 = jamais lu,
+         *    aucun accusé en vol considéré (les accusés arrivés avant la
+         *    migration sont perdus, tolérable à la livraison) ;
+         *  - peer_profiles : cache neuf, rempli au premier passage sur la liste.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN readLocal INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN rcptPending INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN deliveredAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN readAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS peer_profiles (" +
+                        "onion TEXT NOT NULL PRIMARY KEY, " +
+                        "displayName TEXT NOT NULL, " +
+                        "avatar TEXT NOT NULL, " +
+                        "fetchedAt INTEGER NOT NULL)"
+                )
             }
         }
 

@@ -68,8 +68,15 @@
 
     <string name="tor_offline">Tor hors ligne</string>
     <string name="sending">Envoi via Tor…</string>
-    <string name="sent">Envoyé</string>
+    <string name="sent">✓ Envoyé</string>
     <string name="failed">Échec (réessaie)</string>
+    <!-- v0.2.15 — accusés de réception/lecture (côté expéditeur) + non-lu (côté
+         destinataire). Visibles dans le chat sous chaque message sortant ET
+         dans la liste à côté de l\'aperçu du dernier message. -->
+    <string name="msg_state_delivered">✓✓ Reçu</string>
+    <string name="msg_state_read">✓✓ Lu</string>
+    <string name="list_me_prefix">Moi : %1$s</string>
+    <string name="list_unread_badge">%1$d non lu%2$s</string>
 
     <!-- Alias — pseudonyme unique optionnel (v0.1.2, wire-format.md §6) -->
     <string name="alias_title">Votre alias</string>

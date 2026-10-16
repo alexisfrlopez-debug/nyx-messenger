@@ -17,6 +17,8 @@ import net.nyx.messenger.data.db.ContactEntity
 import net.nyx.messenger.data.db.ContactStatus
 import net.nyx.messenger.data.db.MessageDao
 import net.nyx.messenger.data.db.MessageEntity
+import net.nyx.messenger.data.db.PeerProfileDao
+import net.nyx.messenger.data.db.PeerProfileEntity
 import net.nyx.messenger.data.db.PollStateDao
 import net.nyx.messenger.data.db.PollStateEntity
 import net.nyx.messenger.data.db.SeqStateDao
@@ -38,6 +40,7 @@ class NyxRepository(
     private val contactDao: ContactDao,
     private val pollStateDao: PollStateDao,
     private val seqStateDao: SeqStateDao,
+    private val peerProfileDao: PeerProfileDao,
 ) {
     /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation.
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
@@ -240,7 +243,33 @@ class NyxRepository(
             //    est ARCHIVÉ côté invitant avec notification (demande opérateur :
             //    « le contact qui refuse ou supprime doit être supprimé du côté du
             //    téléphone qui invite, avec une notification selon le cas »).
+            //    v0.2.15 : {"alias":…,"rcpt":"delivered|read","ids":[…]} = accusé
+            //    de réception/lecture (même type whitelisté — corps opaque, zéro
+            //    changement serveur). TRAITÉ EN PREMIER : un accusé n'est NI une
+            //    invitation NI un ack de cycle de vie — et un client v0.2.14 qui
+            //    en reçoit un tombe simplement dans la branche « déjà traitée ».
             if (ev.type == "contact") {
+                // v0.2.15 : ACCUSÉ (« delivered »/« read ») — TRAITÉ EN PREMIER :
+                // un accusé n'est NI une invitation NI un ack de cycle de vie.
+                // Garde anti-usurpation : les ids ne s'appliquent qu'aux messages
+                // QUE NOUS AVONS ENVOYÉS à cet auteur (WHERE outgoing=1 + peer).
+                val receipt = ReceiptCodec.parse(plain)
+                if (receipt != null) {
+                    val (kind, ids) = receipt
+                    if (ids.isNotEmpty()) {
+                        val now = System.currentTimeMillis()
+                        if (kind == ReceiptCodec.KIND_DELIVERED) {
+                            messageDao.markDelivered(author, ids, now)
+                        } else {
+                            messageDao.markRead(author, ids, now)
+                        }
+                        android.util.Log.i(
+                            "nyx-recv",
+                            "   ✓ accusé « $kind » de ${author.take(16)}… (${ids.size} msg)"
+                        )
+                    }
+                    continue
+                }
                 val declared = Regex("\"alias\"\\s*:\\s*\"([^\"]*)\"").find(plain)
                     ?.groupValues?.get(1).orEmpty()
                 val ack = Regex("\"ack\"\\s*:\\s*\"([^\"]*)\"").find(plain)
@@ -297,7 +326,8 @@ class NyxRepository(
                         messageDao.insert(
                             MessageEntity(
                                 eventIdOf(canonical), author, outgoing = false,
-                                phrase, ev.ts, System.currentTimeMillis(), STATE_RECEIVED
+                                phrase, ev.ts, System.currentTimeMillis(), STATE_RECEIVED,
+                                readLocal = 1 // message d'information — jamais un « non lu »
                             )
                         )
                         // v0.2.14 : NOTIFICATION système selon le cas (refus ou
@@ -324,7 +354,8 @@ class NyxRepository(
                             MessageEntity(
                                 eventIdOf(canonical), author, outgoing = false,
                                 "$label vous a ajouté comme contact.",
-                                ev.ts, System.currentTimeMillis(), STATE_RECEIVED
+                                ev.ts, System.currentTimeMillis(), STATE_RECEIVED,
+                                readLocal = 1 // l'invitation a SES propres signaux (carte + notif)
                             )
                         )
                         net.nyx.messenger.notify.ContactNotifier.invitation(author, label)
@@ -343,7 +374,8 @@ class NyxRepository(
                         MessageEntity(
                             eventIdOf(canonical), author, outgoing = false,
                             "$label vous a ajouté en retour : invitation acceptée.",
-                            ev.ts, System.currentTimeMillis(), STATE_RECEIVED
+                            ev.ts, System.currentTimeMillis(), STATE_RECEIVED,
+                            readLocal = 1 // message d'information — jamais un « non lu »
                         )
                     )
                     android.util.Log.i("nyx-recv", "   ✓ ajout mutuel de ${author.take(16)}… ($label) → ack reparti")
@@ -393,10 +425,15 @@ class NyxRepository(
                 continue
             }
 
-            // 4. Stockage local
+            // 4. Stockage local — v0.2.15 : rcptPending=1 = accusé « delivered »
+            //    à déposer chez le pair (tentative immédiate en fin de poll,
+            //    repartie par la boucle sinon).
             val id = eventIdOf(canonical)
             messageDao.insert(
-                MessageEntity(id, author, outgoing = false, plain, ev.ts, System.currentTimeMillis(), STATE_RECEIVED)
+                MessageEntity(
+                    id, author, outgoing = false, plain, ev.ts, System.currentTimeMillis(),
+                    STATE_RECEIVED, rcptPending = 1
+                )
             )
             if (contactDao.get(author) == null) {
                 contactDao.upsert(
@@ -408,6 +445,10 @@ class NyxRepository(
             inserted++
         }
         pollStateDao.upsert(PollStateEntity(replicas.first(), resp.cursor))
+        // v0.2.15 : accusés en attente — tentative IMMÉDIATE (ce poll vient de
+        // prouver le réplica joignable, Tor chaud) ; en cas d'échec la boucle
+        // périodique repartira les accusés comme les annonces/acks.
+        runCatching { ensureReceiptsSent() }
         inserted
     }
 
@@ -580,6 +621,147 @@ class NyxRepository(
             }
         }
 
+    /* ---------------- accusés de réception/lecture (v0.2.15) ---------------- */
+
+    /**
+     * v0.2.15 — ACCUSÉS DE RÉCEPTION/LECTURE (demande opérateur : « un accusé
+     * de réception et un accusé de lecture côté expéditeur »).
+     *
+     * CANAL : événement signé type « contact » — type DÉJÀ whitelisté par le
+     * réplica v0.2.0, corps chiffré OPAQUE au serveur — donc AUCUN changement
+     * serveur ni de déploiement. Body : {"alias":…,"rcpt":"delivered|read",
+     * "ids":[eventId,…]}. Un client v0.2.14 qui en reçoit un l'ignore sans
+     * effet de bord (branche « annonce déjà traitée »).
+     *
+     * SÉMANTIQUE (chaque appareil joue les DEUX rôles) :
+     *  - destinataire : msg stocké → rcptPending=1 (« delivered » à déposer) ;
+     *    conversation ouverte → readLocal=1 + rcptPending=2 (« read » à déposer,
+     *    couvre le delivered) ; [ensureReceiptsSent] dépose les lots.
+     *  - expéditeur : accusé reçu → deliveredAt/readAt horodatés sur les
+     *    messages sortants (✓ Envoyé / ✓✓ Reçu / ✓✓ Lu).
+     */
+    private val RECEIPT_BATCH = 50 // ids max par événement (body raisonnable)
+
+    private suspend fun sendReceipt(
+        peerLower: String,
+        kind: String,
+        ids: List<String>,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val relay = relay() ?: error("aucun réplica configuré")
+            val me = identity.onionAddress ?: error("identité absente")
+            val priv = identity.secretKey()
+            val peerPub = OnionCodec.onionToPubKey(peerLower)
+            val bodyJson = ReceiptCodec.encode(identity.alias ?: "", kind, ids)
+            val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
+            val seq = nextSeqFor(me)
+            val ev = WireEvent(
+                type = "contact", author = me, seq = seq,
+                ts = System.currentTimeMillis() / 1000, ttl = 0,
+                to = peerLower, body = body, sig = ""
+            )
+            val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+            postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+        }
+    }
+
+    /**
+     * Dépose les accusés en attente, par pair, « delivered » puis « read ».
+     * Appelé en fin de pollInbox (tentative immédiate) ET par la boucle
+     * périodique (retry) — même mécanique que les annonces/acks.
+     * Seuls les liens ACCEPTÉS reçoivent des accusés (pas d'accusé vers un
+     * pair archivé — même verrou que l'envoi de messages).
+     */
+    suspend fun ensureReceiptsSent(): Unit = withContext(Dispatchers.IO) {
+        if (replicas.isEmpty()) return@withContext
+        for (peer in messageDao.peersWithPendingReceipts()) {
+            if (contactDao.get(peer)?.status != ContactStatus.ACCEPTED) continue
+            // « read » d'abord — il couvre le « delivered » (impliqué côté
+            // expéditeur), et libère le plus d'état d'un coup.
+            val readIds = messageDao.readPendingIds(peer)
+            for (batch in readIds.chunked(RECEIPT_BATCH)) {
+                sendReceipt(peer, "read", batch).fold(
+                    onSuccess = {
+                        messageDao.clearRcptPending(batch)
+                        android.util.Log.i("nyx-send", "✓ accusé « read » déposé pour ${peer.take(16)}… (${batch.size} msg)")
+                    },
+                    onFailure = { e ->
+                        android.util.Log.w("nyx-send", "✗ accusé « read » DIFFÉRÉ pour ${peer.take(16)}… : ${e.message}")
+                    }
+                )
+            }
+            val deliveredIds = messageDao.deliveredPendingIds(peer)
+            for (batch in deliveredIds.chunked(RECEIPT_BATCH)) {
+                sendReceipt(peer, "delivered", batch).fold(
+                    onSuccess = {
+                        messageDao.clearRcptPending(batch)
+                        android.util.Log.i("nyx-send", "✓ accusé « delivered » déposé pour ${peer.take(16)}… (${batch.size} msg)")
+                    },
+                    onFailure = { e ->
+                        android.util.Log.w("nyx-send", "✗ accusé « delivered » DIFFÉRÉ pour ${peer.take(16)}… : ${e.message}")
+                    }
+                )
+            }
+        }
+    }
+
+    /**
+     * v0.2.15 — la conversation EST OUVERTE (écran chat visible) : tout ce qui
+     * vient d'être reçu devient « lu » (indicateur destinataire de la liste)
+     * et les accusés « read » correspondants partent au pair (tentative
+     * immédiate, différé si le réplica ne répond pas).
+     */
+    suspend fun markConversationRead(peerOnion: String): Unit = withContext(Dispatchers.IO) {
+        val peer = peerOnion.trim().lowercase()
+        val n = messageDao.markReadLocally(peer)
+        if (n > 0) {
+            messageDao.promoteDeliveredToRead(peer)
+            runCatching { ensureReceiptsSent() }
+            android.util.Log.i("nyx-recv", "   · conversation $peer marquée lue ($n msg) → accusés « read » en route")
+        }
+    }
+
+    /* ---------------- cache des profils des pairs (v0.2.15) ---------------- */
+
+    /**
+     * v0.2.15 — AVATARS/noms publics des contacts dans la liste (demande
+     * opérateur : « à côté de chaque alias doit apparaître sa photo si elle
+     * est publique, une icône générique si elle est privée »).
+     *
+     * Les événements `profile` en diffusion ne passent PAS par l'inbox (le
+     * serveur ne livre que les événements adressés — journal.Inbox) : la liste
+     * rafraîchit donc le cache local au passage (TTL 1 h par pair, fetch
+     * GET /client/profile via Tor, échec silencieux — icône générique en
+     * attendant). Un pair SANS profil public est re-testé à chaque passage :
+     * quelques requêtes courantes seulement (nombre de contacts faible), et
+     * le cas « a rendu son profil public depuis » est rattrapé vite.
+     */
+    suspend fun refreshPeerProfiles(onions: List<String>, ttlMs: Long = 3_600_000L): Unit =
+        withContext(Dispatchers.IO) {
+            if (replicas.isEmpty()) return@withContext
+            val now = System.currentTimeMillis()
+            for (onion in onions) {
+                val cached = peerProfileDao.get(onion)
+                if (cached != null && now - cached.fetchedAt < ttlMs) continue
+                runCatching {
+                    val card = relay()?.profile(onion) ?: return@runCatching
+                    peerProfileDao.upsert(
+                        PeerProfileEntity(
+                            onion = onion,
+                            displayName = card.fields["display_name"]?.value.orEmpty(),
+                            avatar = card.fields["avatar"]?.value.orEmpty(),
+                            fetchedAt = System.currentTimeMillis()
+                        )
+                    )
+                    android.util.Log.i("nyx-repo", "profil pair en cache : ${onion.take(16)}… (avatar=${card.fields.containsKey("avatar")})")
+                }
+            }
+        }
+
+    /** v0.2.15 — cache observable pour une carte de contact (avatar/nom). */
+    fun peerProfileFlow(onion: String): Flow<PeerProfileEntity?> =
+        peerProfileDao.byOnion(onion.trim().lowercase())
+
     /** v0.2.12 — le destinataire ACCEPTE l'invitation reçue : statut local
      *  « accepted » immédiat + ack au pair (différé si le réplica est injoignable —
      *  reparti par [ensureContactNotified] via la boucle 30 s). */
@@ -746,12 +928,26 @@ class NyxRepository(
     /**
      * Carte publique d'un contact (GET /client/profile — dernier seq gagne,
      * §7.3). null si le contact n'a pas de profil public ou réseau indisponible.
+     * v0.2.15 : chaque fetch réussi alimente le CACHE des profils de pairs —
+     * la liste des conversations affiche l'avatar/nom sans nouvelle requête.
      */
     suspend fun contactProfile(onion: String): Result<net.nyx.messenger.net.ProfileResponse?> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val relay = relay() ?: error("aucun réplica configuré")
-                relay.profile(onion.lowercase())
+                val lower = onion.lowercase()
+                val card = relay.profile(lower)
+                if (card != null) {
+                    peerProfileDao.upsert(
+                        PeerProfileEntity(
+                            onion = lower,
+                            displayName = card.fields["display_name"]?.value.orEmpty(),
+                            avatar = card.fields["avatar"]?.value.orEmpty(),
+                            fetchedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+                card
             }
         }
 
