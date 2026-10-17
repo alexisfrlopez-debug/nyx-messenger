@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.ColumnInfo
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -181,7 +182,20 @@ data class DelPendingEntity(
  * curseur d'inbox). Cette table existe dans TOUTES les versions (schéma unique)
  * mais reste vide hors test 2.
  */
-@Entity(tableName = "replica_events")
+@Entity(
+    tableName = "replica_events",
+    // v0.2.22 — CRASH TERRAIN (Blackview, montée v0.2.18 → v0.2.21) : la
+    // MIGRATION_6_7 (v0.2.19) crée l'index inbox [INDEX_REPLICA_EVENTS_TO_GID]
+    // alors que l'entité ne le déclarait pas → toute base passée par la
+    // migration porte un index que la validation Room rejette
+    // (« Migration didn't properly handle: replica_events », FATAL en boucle —
+    // la transaction onUpgrade est annulée à chaque ouverture). L'entité
+    // déclare DÉSORMAIS l'index (nom explicite = nom canonique Room
+    // index_<table>_<colonnes>) ; les bases d'INSTALLATION FRAÎCHE v7 (sans
+    // index) sont alignées par MIGRATION_7_8. Constantes partagées avec la
+    // migration et le test de garde [net.nyx.messenger.data.db.NyxSchemaGuardTest].
+    indices = [Index(value = ["to", "gid"], name = NyxDatabase.INDEX_REPLICA_EVENTS_TO_GID)]
+)
 data class ReplicaEventEntity(
     @PrimaryKey val eventId: String,     // sha256 de la représentation canonique
     val gid: Long,                       // curseur global (insertion, 1-based)
@@ -551,7 +565,8 @@ interface SeqStateDao {
         AttachmentEntity::class, AttachmentChunkEntity::class,
         PollStateEntity::class, SeqStateEntity::class,
         DelPendingEntity::class, ReplicaEventEntity::class, ReplicaStateEntity::class],
-    version = 7,
+    // v0.2.22 — version 8 : réparation du schéma replica_events (MIGRATION_7_8).
+    version = 8,
     exportSchema = false
 )
 abstract class NyxDatabase : RoomDatabase() {
@@ -573,6 +588,19 @@ abstract class NyxDatabase : RoomDatabase() {
          * (contacts et historique invisibles ; le vrai compte est intact).
          */
         const val NAME_DECOY = "nyx_decoy.db"
+
+        /**
+         * v0.2.22 — Nom d'index CANONIQUE Room (index_<table>_<colonnes>) de
+         * l'index inbox de replica_events. Déclaré dans l'entité
+         * [ReplicaEventEntity] ET créé par [MIGRATION_6_7]/[MIGRATION_7_8] —
+         * une seule source de vérité (test de garde inclus).
+         */
+        const val INDEX_REPLICA_EVENTS_TO_GID = "index_replica_events_to_gid"
+
+        /** v0.2.22 — SQL de l'index inbox (partagé migration 6→7 / 7→8). */
+        const val SQL_INDEX_REPLICA_EVENTS_TO_GID =
+            "CREATE INDEX IF NOT EXISTS $INDEX_REPLICA_EVENTS_TO_GID " +
+                "ON replica_events(`to`, gid)"
 
         /** v1 → v2 : persistance de la seq par auteur + notification de contact différée. */
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -701,15 +729,33 @@ abstract class NyxDatabase : RoomDatabase() {
                         "bytes INTEGER NOT NULL, " +
                         "insertedAt INTEGER NOT NULL)"
                 )
-                db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS index_replica_events_to_gid " +
-                        "ON replica_events(`to`, gid)"
-                )
+                db.execSQL(SQL_INDEX_REPLICA_EVENTS_TO_GID)
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS replica_state (" +
                         "id INTEGER NOT NULL PRIMARY KEY, " +
                         "lastPurgeAt INTEGER NOT NULL)"
                 )
+            }
+        }
+
+        /**
+         * v7 → v8 (v0.2.22) : réparation du schéma replica_events — crash
+         * terrain « Migration didn't properly handle: replica_events »
+         * (Blackview, montée v0.2.18 → v0.2.21, FATAL en boucle). La
+         * MIGRATION_6_7 (v0.2.19) crée l'index inbox [INDEX_REPLICA_EVENTS_TO_GID]
+         * que l'entité ne déclarait PAS : les bases passées par la migration
+         * sont rejetées par la validation Room (transaction onUpgrade annulée
+         * à chaque ouverture — l'appareil reste bloqué sur l'ancienne version).
+         * Correctif CONVERGENT, zéro donnée détruite : l'entité déclare
+         * désormais l'index (schéma attendu = schéma migré) et cette migration
+         * recrée l'index IF NOT EXISTS pour les bases d'installation FRAÎCHE
+         * v7 (jamais migrées, donc sans index) — no-op pour les bases migrées
+         * (index déjà présent). Tous les chemins convergent vers le même
+         * schéma : migrés 6→7→8, fraîches v7→8, fraîches v8 (création Room).
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_INDEX_REPLICA_EVENTS_TO_GID)
             }
         }
 

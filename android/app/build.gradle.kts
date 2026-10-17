@@ -44,8 +44,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "0.2.21"
+        versionCode = 26
+        versionName = "0.2.22"
         // Credentials Drive du build test (vides si test-upload.properties absent)
         buildConfigField("String", "DRIVE_CLIENT_ID",     "\"${testUpload("drive.clientId")}\"")
         buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${testUpload("drive.clientSecret")}\"")

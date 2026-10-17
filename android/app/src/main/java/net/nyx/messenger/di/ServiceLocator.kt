@@ -85,7 +85,8 @@ object ServiceLocator {
                 .addMigrations(
                     NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3,
                     NyxDatabase.MIGRATION_3_4, NyxDatabase.MIGRATION_4_5,
-                    NyxDatabase.MIGRATION_5_6, NyxDatabase.MIGRATION_6_7
+                    NyxDatabase.MIGRATION_5_6, NyxDatabase.MIGRATION_6_7,
+                    NyxDatabase.MIGRATION_7_8
                 )
                 .build()
 
