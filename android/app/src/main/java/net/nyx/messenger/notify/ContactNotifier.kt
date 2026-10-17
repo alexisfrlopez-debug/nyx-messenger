@@ -136,6 +136,25 @@ object ContactNotifier {
         runCatching { NotificationManagerCompat.from(ctx).notify((onion + "d").hashCode(), n) }
     }
 
+    /**
+     * v0.2.18 — Appel entrant (ADR-015) : notification prioritaire pendant la
+     * sonnerie — un appui ouvre l'app (l'écran d'appel est composé globalement).
+     */
+    fun incomingCall(onion: String, alias: String) {
+        val ctx = appContext ?: return
+        if (!canPost()) return
+        val n = NotificationCompat.Builder(ctx, CHANNEL_CONTACTS)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(ctx.getString(R.string.notif_call_title))
+            .setContentText(ctx.getString(R.string.notif_call_text, alias))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setContentIntent(contentIntent(ctx, onion))
+            .setAutoCancel(true)
+            .build()
+        runCatching { NotificationManagerCompat.from(ctx).notify((onion + "call").hashCode(), n) }
+    }
+
     /** 3. Nous avons été supprimé des contacts du pair. */
     fun removed(onion: String, alias: String) {
         val ctx = appContext ?: return

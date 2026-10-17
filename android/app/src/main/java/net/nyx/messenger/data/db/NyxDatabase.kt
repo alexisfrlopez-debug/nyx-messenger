@@ -404,6 +404,13 @@ abstract class NyxDatabase : RoomDatabase() {
     companion object {
         const val NAME = "nyx.db"
 
+        /**
+         * v0.2.18 — Base LEURRE du mot de passe panique : même schéma, vide —
+         * ouverte à la place de [NAME] quand la session démarre en mode panique
+         * (contacts et historique invisibles ; le vrai compte est intact).
+         */
+        const val NAME_DECOY = "nyx_decoy.db"
+
         /** v1 → v2 : persistance de la seq par auteur + notification de contact différée. */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {

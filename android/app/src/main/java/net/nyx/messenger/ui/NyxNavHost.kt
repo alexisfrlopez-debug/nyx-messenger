@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.security.AppLock
+import net.nyx.messenger.ui.call.CallOverlay
 import net.nyx.messenger.ui.connexions.ConnexionsScreen
 import net.nyx.messenger.ui.conversations.ChatScreen
 import net.nyx.messenger.ui.conversations.ConversationListScreen
@@ -118,6 +119,11 @@ fun NyxNavHost(
                 SettingsScreen(onBack = { nav.popBackStack() })
             }
         }
+
+        // v0.2.18 — CALQUE D'APPEL : au-dessus de la navigation (sonnerie,
+        // conversation, fin) — un appel en cours est visible DEPUIS N'IMPORTE
+        // QUEL écran ; le verrou reste au-dessus (verrouillé = pas d'appel vu).
+        CallOverlay()
 
         // Calque de verrou : dessiné en dernier = au-dessus de tout le contenu,
         // opaque (fond système) — la navigation reste composée SOUS le verrou.

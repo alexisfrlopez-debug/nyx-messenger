@@ -30,6 +30,8 @@ import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.media.MediaIngest
 import net.nyx.messenger.net.RelayClient
 import net.nyx.messenger.net.WireEvent
+import net.nyx.messenger.p2p.CallSignal
+import net.nyx.messenger.p2p.P2pClient
 
 /**
  * Logique messagerie : envoi (chiffrement → signature → dépôt sur un réplica)
@@ -52,6 +54,16 @@ class NyxRepository(
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
     @JvmField
     var replicas: List<String> = emptyList()
+
+    /**
+     * v0.2.18 — Traitement des signalisations d'appel (« msg » kind=call).
+     * Injecté par ServiceLocator (CallManager::onSignal) pour éviter une
+     * dépendance circulaire repo → CallManager → repo.
+     */
+    var callSignalHandler: ((author: String, signal: CallSignal) -> Unit)? = null
+
+    /** v0.2.18 — Alias local (signalisation d'appel, HELLO P2P). */
+    val myAlias: String get() = identity.alias ?: ""
 
     // Bug v0.2.2 n°2 : setReplicas n'était JAMAIS appelé (aucune liste de
     // rendezvous embarquée — ADR-009) et le client figeait le port SOCKS de
@@ -455,6 +467,16 @@ class NyxRepository(
                 continue
             }
 
+            // 3quater. v0.2.18 — SIGNALISATION D'APPEL ? (corps « msg »
+            // kind=call — offre/réponse/raccroché ; traitée par CallManager,
+            // JAMAIS affichée comme un message. Un texte ordinaire ne parse
+            // pas — « kind » doit valoir exactement « call » avec un op connu.)
+            val signal = CallSignal.parse(plain)
+            if (signal != null) {
+                callSignalHandler?.invoke(author, signal)
+                continue
+            }
+
             // 4. Stockage local — v0.2.15 : rcptPending=1 = accusé « delivered »
             //    à déposer chez le pair (tentative immédiate en fin de poll,
             //    repartie par la boucle sinon).
@@ -715,45 +737,167 @@ class NyxRepository(
             )
 
             var firstEventId = ""
-            for ((idx, chunk) in chunks.withIndex()) {
-                val seq = nextSeqFor(me)
-                val ts = System.currentTimeMillis() / 1000
-                val bodyJson = ChunkCodec.encode(
+            // v0.2.18 — CHEMIN DIRECT P2P (demande opérateur : « rien ne soit
+            // stocké sur serveur ») : si le pair est joignable (son service
+            // onion est publié), les fragments partent téléphone-à-téléphone
+            // sur le canal P2P — le réplica n'en voit RIEN. Le corps de chaque
+            // fragment est EXACTEMENT celui du chemin journal (chiffré E2E,
+            // même ChunkCodec) — le récepteur le traite par la même porte
+            // ([receiveDirectFragment]). En cas d'échec direct (pair hors
+            // ligne, circuit Tor refusé, timeout), repli TRANSPARENT sur le
+            // chemin journal historique (les fragments chiffrés transitent
+            // alors par la boîte du réplica jusqu'au prochain poll du pair).
+            val directBodies = chunks.mapIndexed { idx, chunk ->
+                val json = ChunkCodec.encode(
                     fid, safeName, mime, data.size.toLong(), sha, idx, n,
                     B64.encode(chunk)
                 )
-                val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
-                val ev = WireEvent("msg", me, seq, ts, 0, peer, body, "")
-                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
-                val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
-                if (idx == 0) {
-                    // La bulle locale est créée dès le premier fragment déposé
-                    // (état « en cours » — passe « envoyé » à la fin du dépôt).
-                    firstEventId = eventIdOf(canonical)
-                    messageDao.insert(
-                        MessageEntity(
-                            firstEventId, peer, outgoing = true,
-                            mediaPlaceholder(mime, safeName), ts, ts, STATE_PENDING,
-                            kind = 1, fid = fid
+                cipher.encryptFor(peerPub, json.toByteArray(Charsets.UTF_8))
+            }
+            val direct = runCatching {
+                P2pClient.pushFile(peer, directBodies, identity.alias ?: "", onProgress)
+            }.onFailure { e ->
+                android.util.Log.i("nyx-send", "   · direct P2P indisponible (${e.message}) → chemin journal")
+            }.getOrDefault(false)
+
+            if (!direct) {
+                for ((idx, chunk) in chunks.withIndex()) {
+                    val seq = nextSeqFor(me)
+                    val ts = System.currentTimeMillis() / 1000
+                    val bodyJson = ChunkCodec.encode(
+                        fid, safeName, mime, data.size.toLong(), sha, idx, n,
+                        B64.encode(chunk)
+                    )
+                    val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
+                    val ev = WireEvent("msg", me, seq, ts, 0, peer, body, "")
+                    val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                    val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
+                    if (idx == 0) {
+                        // La bulle locale est créée dès le premier fragment déposé
+                        // (état « en cours » — passe « envoyé » à la fin du dépôt).
+                        firstEventId = eventIdOf(canonical)
+                        messageDao.insert(
+                            MessageEntity(
+                                firstEventId, peer, outgoing = true,
+                                mediaPlaceholder(mime, safeName), ts, ts, STATE_PENDING,
+                                kind = 1, fid = fid
+                            )
                         )
+                    }
+                    postSigned(relay, me, signed, canonical, priv).fold(
+                        onSuccess = {
+                            onProgress(idx + 1, n)
+                            android.util.Log.i("nyx-send", "   ✓ fragment ${idx + 1}/$n déposé (${ChunkCodec.humanSize(chunk.size.toLong())})")
+                        },
+                        onFailure = { e ->
+                            messageDao.updateState(firstEventId, STATE_FAILED)
+                            attachmentDao.setState(fid, AT_FAILED)
+                            android.util.Log.w("nyx-send", "   ✗ fragment ${idx + 1}/$n ÉCHOUÉ : ${e.message}")
+                            throw e
+                        }
                     )
                 }
-                postSigned(relay, me, signed, canonical, priv).fold(
-                    onSuccess = {
-                        onProgress(idx + 1, n)
-                        android.util.Log.i("nyx-send", "   ✓ fragment ${idx + 1}/$n déposé (${ChunkCodec.humanSize(chunk.size.toLong())})")
-                    },
-                    onFailure = { e ->
-                        messageDao.updateState(firstEventId, STATE_FAILED)
-                        attachmentDao.setState(fid, AT_FAILED)
-                        android.util.Log.w("nyx-send", "   ✗ fragment ${idx + 1}/$n ÉCHOUÉ : ${e.message}")
-                        throw e
-                    }
+            } else {
+                // Bulle locale — le dépôt direct n'a pas créé d'événement journal.
+                val ts = System.currentTimeMillis() / 1000
+                firstEventId = eventIdOf(
+                    MessageCipher.canonical("msg", me, 0L, ts, 0L, peer, "")
+                ) + fid.take(8)
+                messageDao.insert(
+                    MessageEntity(
+                        firstEventId, peer, outgoing = true,
+                        mediaPlaceholder(mime, safeName), ts, ts, STATE_PENDING,
+                        kind = 1, fid = fid
+                    )
                 )
+                onProgress(n, n)
             }
+            // v0.2.18 — FIX « la progression d'envoi ne termine pas » (retour
+            // terrain v0.2.17 : le vocal arrivait chez le destinataire mais la
+            // barre côté expéditeur ne finissait jamais) : l'état de la pièce
+            // jointe restait AT_TRANSFER pour toujours — seul le MESSAGE passait
+            // à STATE_SENT. Le destinataire, lui, posait bien AT_READY à
+            // l'assemblage. Désormais l'expéditeur pose AT_READY + chemin local
+            // (aperçu/lecteur) dès le dépôt complet.
+            attachmentDao.setState(fid, AT_READY, localPath)
             messageDao.updateState(firstEventId, STATE_SENT)
-            android.util.Log.i("nyx-send", "   ✓ fichier déposé ($n fragments, id=${fid.take(8)}…)")
+            android.util.Log.i("nyx-send", "   ✓ fichier déposé ($n fragments, id=${fid.take(8)}…${if (direct) ", direct P2P" else ""})")
             fid
+        }
+    }
+
+    /**
+     * v0.2.18 — RÉCEPTION DIRECTE d'un fragment (canal P2P téléphone-à-téléphone,
+     * demande opérateur « rien ne soit stocké sur serveur »). Le corps est
+     * EXACTEMENT celui d'un fragment journal (chiffré E2E, même ChunkCodec) :
+     * même porte d'entrée que le chemin inbox — verrou contact mutuel,
+     * déchiffrement, assemblage, sha256. Renvoie true si le fragment a été
+     * accepté (le pair attend ce verdict pour valider le chemin direct).
+     */
+    suspend fun receiveDirectFragment(author: String, encryptedBodyB64: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val linkStatus = contactDao.get(author)?.status
+                if (linkStatus != ContactStatus.ACCEPTED && linkStatus != ContactStatus.PENDING) {
+                    android.util.Log.w("nyx-p2p", "fragment direct de ${author.take(16)}… refusé (lien: ${linkStatus ?: "aucun"})")
+                    return@runCatching false
+                }
+                val plain = String(
+                    cipher.decryptForSelf(identity.secretKey(), encryptedBodyB64)
+                        ?: error("déchiffrement impossible"),
+                    Charsets.UTF_8
+                )
+                val chunk = ChunkCodec.parse(plain) ?: error("corps non reconnu comme fragment")
+                val ts = System.currentTimeMillis() / 1000
+                val canonical = MessageCipher.canonical("msg", author, 0L, ts, 0L, identity.onionAddress ?: "", encryptedBodyB64)
+                handleIncomingChunk(author, canonical, ts, chunk)
+                true
+            }.onFailure { e ->
+                android.util.Log.w("nyx-p2p", "fragment direct rejeté : ${e.message}")
+            }.getOrDefault(false)
+        }
+
+    /**
+     * v0.2.18 — SIGNALISATION D'APPEL (ADR-015) : un événement « msg » dont le
+     * corps chiffré est un JSON kind=call ([CallSignal]). Type DÉJÀ whitelisté
+     * serveur — zéro changement serveur ; les clients v0.2.17 le rangent dans
+     * la branche « texte » (jamais émis avant cette version). Consomme une
+     * séquence du journal (comme tout envoi).
+     */
+    suspend fun sendCallSignal(peerLower: String, json: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val relay = relay() ?: error("aucun réplica configuré")
+                val me = identity.onionAddress ?: error("identité absente")
+                val priv = identity.secretKey()
+                val peerPub = OnionCodec.onionToPubKey(peerLower)
+                val body = cipher.encryptFor(peerPub, json.toByteArray(Charsets.UTF_8))
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "msg", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, ttl = 0,
+                    to = peerLower, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            }
+        }
+
+    /**
+     * v0.2.18 — Message d'information d'appel (« Appel manqué », « Appel sans
+     * réponse ») — traçabilité dans la conversation, jamais un « non lu ».
+     */
+    suspend fun addCallInfo(peer: String, outgoing: Boolean, text: String) {
+        runCatching {
+            val ts = System.currentTimeMillis() / 1000
+            messageDao.insert(
+                MessageEntity(
+                    "callinfo-${java.util.UUID.randomUUID()}", peer.trim().lowercase(),
+                    outgoing, text, ts, System.currentTimeMillis(),
+                    if (outgoing) STATE_SENT else STATE_RECEIVED,
+                    readLocal = 1 // information — jamais comptée comme non lue
+                )
+            )
         }
     }
 

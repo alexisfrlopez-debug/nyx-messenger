@@ -97,19 +97,30 @@ object MediaIngest {
         return Compressed(bos.toByteArray(), "image/jpeg", "$base.jpg")
     }
 
-    /** Écrit le fichier média sous filesDir/media/<fid>/<name> — retourne le chemin. */
+    /**
+     * Écrit le fichier média sous filesDir/media/<fid>/<name> — retourne le
+     * chemin. v0.2.18 : le fichier est CHIFFRÉ AU REPOS (AES-GCM, clé scellée
+     * Keystore — [MediaVault]) ; lecture uniquement via [MediaVault.readBytes].
+     */
     fun persistMedia(context: Context, fid: String, name: String, bytes: ByteArray): String {
         val dir = mediaDir(context, fid)
         val safeName = net.nyx.messenger.repo.ChunkCodec.sanitizeName(name).ifBlank { "fichier" }
         val f = File(dir, safeName)
-        f.writeBytes(bytes)
+        f.writeBytes(MediaVault.encrypt(context, bytes))
         return f.absolutePath
     }
 
-    /** Copie d'un média local vers Téléchargements (MediaStore, API 29+). */
+    /**
+     * Copie d'un média local vers Téléchargements (MediaStore, API 29+) —
+     * export VOLONTAIRE : le fichier est déchiffré pour l'occasion (l'export
+     * quitte le périmètre protégé de l'app, à la demande de l'utilisateur).
+     */
     fun saveToDownloads(context: Context, localPath: String, mime: String): String? {
         val src = File(localPath)
         if (!src.exists()) return null
+        val plain = MediaVault.readBytes(context, localPath)
+            ?: runCatching { src.readBytes() }.getOrNull() // média clair (v0.2.17)
+            ?: return null
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, src.name)
             put(MediaStore.Downloads.MIME_TYPE, mime)
@@ -117,7 +128,7 @@ object MediaIngest {
         }
         val resolver = context.contentResolver
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
-        resolver.openOutputStream(uri)?.use { out -> src.inputStream().use { it.copyTo(out) } }
+        resolver.openOutputStream(uri)?.use { out -> out.write(plain) }
             ?: return null
         values.clear()
         values.put(MediaStore.Downloads.IS_PENDING, 0)

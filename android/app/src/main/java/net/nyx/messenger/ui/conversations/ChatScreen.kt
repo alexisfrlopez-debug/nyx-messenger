@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
@@ -84,6 +85,7 @@ import kotlinx.coroutines.withContext
 import net.nyx.messenger.R
 import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.di.ServiceLocator
+import net.nyx.messenger.p2p.CallManager
 import net.nyx.messenger.media.MediaIngest
 import net.nyx.messenger.repo.ChunkCodec
 import net.nyx.messenger.repo.NyxRepository
@@ -128,7 +130,11 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
     init {
         viewModelScope.launch {
             while (true) {
-                runCatching { repo.pollInbox() }
+                // v0.2.18 : mode panique = AUCUN poll (ne pas consommer la
+                // boîte du VRAI compte dans la base leurre).
+                if (ServiceLocator.mode != ServiceLocator.SessionMode.PANIC) {
+                    runCatching { repo.pollInbox() }
+                }
                 delay(10_000)
             }
         }
@@ -326,6 +332,24 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                     )
                 },
                 actions = {
+                    // v0.2.18 — APPEL AUDIO (ADR-015) : signalisation journal +
+                    // média direct onion-to-onion. Réservé aux contacts mutuels
+                    // (même verrou que les messages).
+                    IconButton(
+                        onClick = {
+                            CallManager.call(peer, contact?.alias?.ifBlank { peer.take(10) + "…" } ?: (peer.take(10) + "…"))
+                        },
+                        enabled = contact?.status == net.nyx.messenger.data.db.ContactStatus.ACCEPTED &&
+                            CallManager.ui.value.phase == CallManager.Phase.IDLE
+                    ) {
+                        Icon(Icons.Filled.Call, contentDescription = stringResource(R.string.call_start))
+                    }
+                    // v0.2.18 — VISIO : bouton présent, fonctionnalité annoncée
+                    // (ADR-015 : l'audio stable prime — la vidéo sur circuit
+                    // onion arrive en v0.2.19).
+                    IconButton(onClick = { vm.sendError.value = ctx.getString(R.string.call_video_soon) }) {
+                        Icon(Icons.Filled.Videocam, contentDescription = stringResource(R.string.call_video_soon))
+                    }
                     IconButton(onClick = { onOpenProfile(peerOnion) }) {
                         Icon(Icons.Filled.Person, contentDescription = stringResource(R.string.contact_profile_title))
                     }
@@ -562,14 +586,20 @@ private fun MediaBubble(
 /** Image prête : aperçu décodé (échantillonné ~1024 px) → visionneuse. */
 @Composable
 private fun ReadyImage(path: String, onOpen: (String) -> Unit) {
+    val ctx = LocalContext.current
     val bitmap = remember(path) {
         runCatching {
+            // v0.2.18 : fichier CHIFFRÉ au repos — déchiffrement mémoire avant décodage.
+            val bytes = net.nyx.messenger.media.MediaVault.readBytes(ctx, path)
+                ?: return@runCatching null
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(path, bounds)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             if (bounds.outWidth <= 0) return@runCatching null
             var sample = 1
             while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1024) sample *= 2
-            BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+            BitmapFactory.decodeByteArray(
+                bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }
+            )
         }.getOrNull()
     }
     if (bitmap != null) {
@@ -596,18 +626,23 @@ private class AudioPlayer {
     var playing = mutableStateOf(false)
         private set
 
-    fun toggle(path: String) {
+    fun toggle(path: String, name: String, context: android.content.Context) {
         if (playing.value) {
             stop()
             return
         }
         runCatching {
+            // v0.2.18 : le fichier est chiffré au repos — copie TEMPORAIRE
+            // déchiffrée pour MediaPlayer (purgee à la sortie du chat).
+            val tmp = net.nyx.messenger.media.MediaVault.tempPlain(context, path, name)
+                ?: error("média illisible")
             player = MediaPlayer().apply {
-                setDataSource(path)
+                setDataSource(tmp.absolutePath)
                 prepare()
                 setOnCompletionListener {
                     playing.value = false
                     releasePlayer()
+                    runCatching { tmp.delete() }
                 }
                 start()
             }
@@ -629,13 +664,20 @@ private class AudioPlayer {
 /** Vocal prêt : bouton lecture/pause + nom. */
 @Composable
 private fun ReadyAudio(path: String, name: String) {
+    val ctx = LocalContext.current
     val player = remember { AudioPlayer() }
-    DisposableEffect(Unit) { onDispose { player.stop() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            player.stop()
+            // v0.2.18 : supprime la copie temporaire déchiffrée du lecteur.
+            net.nyx.messenger.media.MediaVault.clearTemp(ctx)
+        }
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        IconButton(onClick = { player.toggle(path) }) {
+        IconButton(onClick = { player.toggle(path, name, ctx) }) {
             Icon(
                 if (player.playing.value) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                 contentDescription = name
@@ -699,7 +741,16 @@ private fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
                 .background(MaterialTheme.colorScheme.scrim)
         ) {
             val bitmap = remember(path) {
-                runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+                runCatching {
+                    // v0.2.18 : déchiffrement mémoire (fichier chiffré au repos).
+                    val bytes = net.nyx.messenger.media.MediaVault.readBytes(ctx, path)
+                    val decoded = if (bytes != null) {
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } else {
+                        BitmapFactory.decodeFile(path) // rélictuel clair v0.2.17
+                    }
+                    decoded ?: return@runCatching null
+                }.getOrNull()
             }
             if (bitmap != null) {
                 Image(

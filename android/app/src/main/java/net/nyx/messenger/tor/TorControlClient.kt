@@ -91,6 +91,10 @@ class TorControlClient(private val controlPort: Int) : AutoCloseable {
      * (64 octets : graine + clé publique — même encodage que le serveur Go).
      * Port 80 côté onion → 127.0.0.1:[targetPort]. Retourne le ServiceID.
      *
+     * v0.2.18 : SECOND port média [mediaPort] (canal direct P2P — appels +
+     * fichiers téléphone-à-téléphone, ADR-015) : Port=47471,127.0.0.1:<port>.
+     * Passer 0 pour publier le port 80 seul (comportement v0.2.17).
+     *
      * CONTRAT TOR (bug v0.2.0 n°1, prouvé côté serveur — blocs A/P2) : tor lit
      * les 32 PREMIERS octets du blob comme un SCALAIRE BRUT (aucune expansion
      * sha512 de sa part) — lui envoyer le format libsodium/Go (graine||pub)
@@ -98,14 +102,18 @@ class TorControlClient(private val controlPort: Int) : AutoCloseable {
      * RFC 8032 : SHA512(graine)[0..32] puis clamp (h[0]&=248 ; h[31]&=127 ; h[31]|=64),
      * envoyé sur les 64 octets du digeste (miroir exact d'identity.OnionScalarB64).
      */
-    fun publishOnionEd25519V3(privateKey64: ByteArray, targetPort: Int): String {
+    fun publishOnionEd25519V3(privateKey64: ByteArray, targetPort: Int, mediaPort: Int = 0): String {
         require(privateKey64.size == 64) { "clé ed25519 : ${privateKey64.size} octets ≠ 64" }
         val h = java.security.MessageDigest.getInstance("SHA-512")
             .digest(privateKey64.copyOfRange(0, 32))       // graine = [0..32)
         h[0] = (h[0].toInt() and 248).toByte()
         h[31] = ((h[31].toInt() and 127) or 64).toByte()
         val keyB64 = Base64.getEncoder().encodeToString(h)
-        val resp = cmd("ADD_ONION ED25519-V3:$keyB64 Flags=DiscardPK Port=80,127.0.0.1:$targetPort")
+        val ports = StringBuilder("Port=80,127.0.0.1:$targetPort")
+        if (mediaPort > 0) {
+            ports.append(" Port=${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT},127.0.0.1:$mediaPort")
+        }
+        val resp = cmd("ADD_ONION ED25519-V3:$keyB64 Flags=DiscardPK $ports")
         return resp.values["ServiceID"] ?: error("ADD_ONION : ServiceID absent (${resp.lines})")
     }
 

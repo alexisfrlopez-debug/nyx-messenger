@@ -138,7 +138,9 @@ class TorManager private constructor(context: Context) {
         }
     }
 
-    /** Publie (ou re-publie) le service onion de l'utilisateur. Auto après bootstrap. */
+    /** Publie (ou re-publie) le service onion de l'utilisateur. Auto après bootstrap.
+     *  v0.2.18 : + port média P2P (appels/fichiers direct) — écouteur démarré
+     *  au préalable par ServiceLocator ([net.nyx.messenger.p2p.P2pServer.start]). */
     suspend fun publishOwnOnion(localPort: Int? = null): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val cfg = config ?: error("Tor non démarré")
@@ -146,7 +148,10 @@ class TorManager private constructor(context: Context) {
             val key = keyProvider?.invoke() ?: error("identité absente (onboarding ?)")
             TorControlClient(cfg.controlPort).use { control ->
                 control.authenticate(cfg.cookieFile)
-                val sid = control.publishOnionEd25519V3(key, target)
+                val sid = control.publishOnionEd25519V3(
+                    key, target,
+                    net.nyx.messenger.p2p.P2pServer.localPort.takeIf { it > 0 } ?: 0
+                )
                 onionServiceId = sid
                 // Cohérence clé ↔ adresse (miroir de l'avertissement du serveur Go) :
                 // la clé privée ed25519 contient la clé publique à [32..64). Si tor et

@@ -21,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -31,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,6 +144,12 @@ fun SettingsScreen(onBack: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
+            // ---- v0.2.18 : les trois mots de passe (normal/panique/destruction) ----
+            PasswordsCard()
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
             // ---- sauvegarde de l'identité (v0.2.3 — ADR-003) ----
             BackupCard()
             Spacer(Modifier.height(8.dp))
@@ -233,4 +241,201 @@ private fun BackupCard() {
             }
         }
     }
+}
+
+/**
+ * v0.2.18 — LES TROIS MOTS DE PASSE (demande opérateur) : normal (accès
+ * standard, comme la biométrie), panique (base leurre vide — contacts et
+ * historique apparents : aucun), destruction (reset immédiat du compte :
+ * contacts, historique, fichiers, identité). Hachés PBKDF2 (150 000 itérations)
+ * en local — jamais transmis, jamais en clair.
+ */
+@Composable
+private fun PasswordsCard() {
+    val context = LocalContext.current
+    var refresh by remember { mutableStateOf(0) }
+    var editing by remember { mutableStateOf<net.nyx.messenger.security.PasswordVault.Mode?>(null) }
+    var confirmDestruction by remember { mutableStateOf(false) }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.settings_passwords), style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.settings_passwords_desc),
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+
+            listOf(
+                Triple(
+                    net.nyx.messenger.security.PasswordVault.Mode.NORMAL,
+                    R.string.settings_pwd_normal,
+                    R.string.settings_pwd_normal_desc
+                ),
+                Triple(
+                    net.nyx.messenger.security.PasswordVault.Mode.PANIC,
+                    R.string.settings_pwd_panic,
+                    R.string.settings_pwd_panic_desc
+                ),
+                Triple(
+                    net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION,
+                    R.string.settings_pwd_destruction,
+                    R.string.settings_pwd_destruction_desc
+                ),
+            ).forEach { (mode, title, desc) ->
+                val set = remember(refresh) {
+                    net.nyx.messenger.security.PasswordVault.isSet(context, mode)
+                }
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(title), style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                stringResource(desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = { editing = mode }) {
+                            Text(
+                                stringResource(
+                                    if (set) R.string.settings_pwd_change else R.string.settings_pwd_create
+                                ),
+                                color = if (mode == net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION && set)
+                                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (set) {
+                            TextButton(onClick = {
+                                if (mode == net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION) {
+                                    confirmDestruction = true
+                                } else {
+                                    net.nyx.messenger.security.PasswordVault.clear(context, mode)
+                                    refresh++
+                                }
+                            }) {
+                                Text(
+                                    stringResource(R.string.settings_pwd_remove),
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    editing?.let { mode ->
+        PasswordDialog(
+            mode = mode,
+            onDismiss = { editing = null },
+            onSaved = { editing = null; refresh++ }
+        )
+    }
+
+    if (confirmDestruction) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDestruction = false },
+            title = { Text(stringResource(R.string.settings_pwd_remove)) },
+            text = { Text(stringResource(R.string.settings_pwd_destruction_remove_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    net.nyx.messenger.security.PasswordVault.clear(
+                        context, net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION
+                    )
+                    confirmDestruction = false
+                    refresh++
+                }) { Text(stringResource(R.string.settings_pwd_remove)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDestruction = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+}
+
+/** Dialogue de création/changement d'un mot de passe (saisie double + garde). */
+@Composable
+private fun PasswordDialog(
+    mode: net.nyx.messenger.security.PasswordVault.Mode,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var p1 by remember { mutableStateOf("") }
+    var p2 by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<Int?>(null) }
+
+    val title = stringResource(
+        when (mode) {
+            net.nyx.messenger.security.PasswordVault.Mode.NORMAL -> R.string.settings_pwd_normal
+            net.nyx.messenger.security.PasswordVault.Mode.PANIC -> R.string.settings_pwd_panic
+            net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION -> R.string.settings_pwd_destruction
+        }
+    )
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_pwd_dialog_title, title)) },
+        text = {
+            Column {
+                Text(
+                    stringResource(
+                        when (mode) {
+                            net.nyx.messenger.security.PasswordVault.Mode.NORMAL -> R.string.settings_pwd_normal_desc
+                            net.nyx.messenger.security.PasswordVault.Mode.PANIC -> R.string.settings_pwd_panic_desc
+                            net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION -> R.string.settings_pwd_destruction_desc
+                        }
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = p1, onValueChange = { p1 = it; error = null },
+                    label = { Text(stringResource(R.string.settings_pwd_new)) },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = p2, onValueChange = { p2 = it; error = null },
+                    label = { Text(stringResource(R.string.settings_pwd_confirm)) },
+                    singleLine = true,
+                    isError = error != null,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                )
+                error?.let {
+                    Text(
+                        stringResource(it),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                when {
+                    p1.isBlank() -> error = R.string.settings_pwd_blank
+                    p1 != p2 -> error = R.string.settings_pwd_mismatch
+                    else -> {
+                        val ok = net.nyx.messenger.security.PasswordVault.set(context, mode, p1)
+                        if (ok) {
+                            onSaved()
+                        } else {
+                            error = R.string.settings_pwd_conflict
+                        }
+                    }
+                }
+            }) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
 }

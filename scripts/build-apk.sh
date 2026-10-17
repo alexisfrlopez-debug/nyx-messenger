@@ -100,9 +100,16 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
     check "Signature valide (installation 1 clic)" 1
   fi
 
+  # Listing du zip UNE FOIS dans un fichier — le pipe `unzip | rg -q` est
+  # RACEUX : rg -q ferme le tube dès le premier match → SIGPIPE chez unzip →
+  # pipefail transforme un MATCH en échec (v0.2.18 : « Tor embarqué x86 ✗ »
+  # et « libsodium x86 ✗ » ALÉATOIRES sur un APK qui les contient).
+  local APK_LIST="/tmp/apklist-$LABEL.txt"
+  unzip -l "$APK_SRC" > "$APK_LIST" 2>/dev/null
+
   # b) Tor EMBARQUÉ présent par ABI
   for abi in arm64-v8a armeabi-v7a x86 x86_64; do
-    unzip -l "$APK_SRC" | rg -q "lib/$abi/libTor.so" \
+    rg -q "lib/$abi/libTor.so" "$APK_LIST" \
       && check "Tor embarqué $abi (libTor.so)" 0 || check "Tor embarqué $abi (libTor.so)" 1
   done
 
@@ -110,7 +117,7 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
   for abi in arm64-v8a armeabi-v7a x86 x86_64; do
     MISS=""
     for lib in libsodium.so libsqlcipher.so libjnidispatch.so; do
-      unzip -l "$APK_SRC" | rg -q "lib/$abi/$lib" || MISS="$MISS $lib"
+      rg -q "lib/$abi/$lib" "$APK_LIST" || MISS="$MISS $lib"
     done
     [ -z "$MISS" ] && check "Natives critiques $abi (sodium/sqlcipher/jna)" 0 \
                       || check "Natives critiques $abi" 1 "manquent:$MISS"

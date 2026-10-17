@@ -11,8 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import net.nyx.messenger.crypto.IdentityManager
 import net.nyx.messenger.crypto.MessageCipher
+import net.nyx.messenger.crypto.OnionCodec
 import net.nyx.messenger.data.db.NyxDatabase
 import net.nyx.messenger.repo.NyxRepository
 import net.sqlcipher.database.SQLiteDatabase
@@ -38,6 +40,16 @@ object ServiceLocator {
 
     @Volatile var initialized = false; private set
 
+    /**
+     * v0.2.18 — Mode de session (mots de passe normal/panique) : PANIQUE = base
+     * leurre vide (nyx_decoy.db), SANS poll inbox (les messages du vrai compte
+     * restent dans la boîte du réplica) et SANS canal direct P2P.
+     */
+    enum class SessionMode { NORMAL, PANIC }
+
+    @Volatile var mode: SessionMode = SessionMode.NORMAL
+        private set
+
     /** v0.2.14 : contexte application — accès plumbing (notifications, profil). */
     private var appCtx: Context? = null
     fun appContext(): Context =
@@ -49,13 +61,26 @@ object ServiceLocator {
             if (initialized) return
 
             appCtx = context.applicationContext
+            // v0.2.18 : le mode panique est posé par LockScreen AVANT le
+            // redémarrage du process (pendingMode) — lu ici, une seule fois.
+            val pending = net.nyx.messenger.security.PasswordVault.consumePendingMode(context)
+            mode = if (pending == net.nyx.messenger.security.PasswordVault.Mode.PANIC) {
+                android.util.Log.i("nyx-boot", "mode PANIQUE — base leurre, poll et P2P désactivés")
+                SessionMode.PANIC
+            } else SessionMode.NORMAL
+
             sodium = LazySodiumAndroid(SodiumAndroid())
             cipher = MessageCipher(sodium)
             identity = IdentityManager.get(context)
 
             SQLiteDatabase.loadLibs(context)
             val dbPassphrase = dbPassphrase(context)
-            database = Room.databaseBuilder(context, NyxDatabase::class.java, NyxDatabase.NAME)
+            // v0.2.18 : en mode panique, la base leurre (vide, même schéma) est
+            // ouverte à la place de la vraie — contacts et historique invisibles.
+            database = Room.databaseBuilder(
+                context, NyxDatabase::class.java,
+                if (mode == SessionMode.PANIC) NyxDatabase.NAME_DECOY else NyxDatabase.NAME
+            )
                 .openHelperFactory(SupportFactory(dbPassphrase, null, false))
                 .addMigrations(
                     NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3,
@@ -77,6 +102,39 @@ object ServiceLocator {
             // v0.2.14 : notifications système du cycle de vie des contacts
             // (invitation avec actions Accepter/Refuser, refus, suppression).
             net.nyx.messenger.notify.ContactNotifier.init(context)
+
+            if (mode == SessionMode.PANIC) {
+                // Mode panique : AUCUN poll (les messages du vrai compte
+                // restent sur le réplica), AUCUN canal P2P, AUCUN appel.
+                initialized = true
+                return
+            }
+
+            // v0.2.18 — CANAL DIRECT P2P (appels + fichiers téléphone-à-téléphone) :
+            // l'écouteur local démarre AVANT la publication onion (le port média
+            // doit être servi dès l'annonce ADD_ONION) ; authentification par la
+            // clé d'identité + verrou contact mutuel.
+            val repoRef = repository
+            net.nyx.messenger.p2p.P2pClient.me = identity.onionAddress
+            net.nyx.messenger.p2p.P2pClient.signer = { canonical ->
+                cipher.signEvent(canonical, identity.secretKey())
+            }
+            net.nyx.messenger.p2p.P2pVerifier.get = { onion, canonical, sig ->
+                runCatching {
+                    cipher.verifyEvent(canonical, sig, OnionCodec.onionToPubKey(onion))
+                }.getOrDefault(false)
+            }
+            net.nyx.messenger.p2p.P2pServer.isAllowed = { peer ->
+                runBlocking { database.contactDao().get(peer)?.status == net.nyx.messenger.data.db.ContactStatus.ACCEPTED }
+            }
+            net.nyx.messenger.p2p.P2pServer.fileSink = { author, body ->
+                repoRef.receiveDirectFragment(author, body)
+            }
+            net.nyx.messenger.p2p.P2pServer.callSink = { conn ->
+                net.nyx.messenger.p2p.CallManager.onIncomingConnection(conn)
+            }
+            net.nyx.messenger.p2p.P2pServer.start()
+            net.nyx.messenger.p2p.CallManager.init(repoRef, context)
 
             startInboxPolling()
 

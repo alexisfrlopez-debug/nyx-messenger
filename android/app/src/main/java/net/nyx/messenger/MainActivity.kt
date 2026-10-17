@@ -51,11 +51,16 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         startEmbeddedTor()
-        // Verrou biométrique opt-in (ADR-010 §3) : verrouillé à froid si activé.
+        // Verrou d'accès (ADR-010 §3) : biométrie opt-in OU un des trois mots
+        // de passe (v0.2.18 : normal/panique/destruction) — verrouillé à froid.
         val biometricOptIn = SettingsManager.get(this).biometricLock
+        val passwordLock = net.nyx.messenger.security.PasswordVault.anySet(this)
         val identityExists = ServiceLocator.identity.exists
-        android.util.Log.i("nyx-lock", "onCreate : identité=$identityExists, opt-in=$biometricOptIn")
-        AppLock.init(identityExists && biometricOptIn)
+        android.util.Log.i(
+            "nyx-lock", "onCreate : identité=$identityExists, opt-in=$biometricOptIn, mdp=$passwordLock, " +
+                "mode=${ServiceLocator.mode}"
+        )
+        AppLock.init(identityExists && (biometricOptIn || passwordLock))
 
         // Fermeture (v0.2.0, rév. v0.2.9) : SANS identité (première étape de
         // connexion), le retour système QUITTE avec arrêt PROPRE du démon tor
