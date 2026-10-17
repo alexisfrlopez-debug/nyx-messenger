@@ -400,6 +400,10 @@ private fun EmbeddedReplicaCard() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
+                        stringResource(R.string.settings_replica_enabled),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
                         stringResource(
                             if (enabled) R.string.settings_replica_status_on
                             else R.string.settings_replica_status_off
@@ -443,6 +447,10 @@ private fun EmbeddedReplicaCard() {
                         runCatching { ServiceLocator.database.replicaDao().clear() }
                     }
                     statsTick++
+                    android.widget.Toast.makeText(
+                        context, context.getString(R.string.settings_replica_purged),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
                 }
             }) {
                 Text(stringResource(R.string.settings_replica_purge))

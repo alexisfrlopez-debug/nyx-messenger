@@ -181,8 +181,7 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
         db.attachmentDao().byFid(fid)
 
     /** v0.2.19 — tous les médias échangés avec ce pair (onglet dédié). */
-    val attachments: Flow<List<AttachmentEntity>> =
-        db.attachmentDao().byPeer(peerOnion.trim().lowercase())
+    val attachments: Flow<List<AttachmentEntity>> = repo.attachmentsByPeer(peerOnion)
 
     /* ---------- suppression unitaire (v0.2.19) ---------- */
 
@@ -556,8 +555,18 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                             val m = targetMsg; val a = targetAtt
                             close()
                             scope.launch {
-                                if (m != null) vm.deleteForEveryone(m) { toastDone() }
-                                else if (a != null) vm.deleteMedia(a, forEveryone = true) { toastDone() }
+                                if (m != null) vm.deleteForEveryone(m) {
+                                    android.widget.Toast.makeText(
+                                        ctx, ctx.getString(R.string.delete_queued),
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                else if (a != null) vm.deleteMedia(a, forEveryone = true) {
+                                    android.widget.Toast.makeText(
+                                        ctx, ctx.getString(R.string.delete_queued),
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             }
                         }) {
                             Icon(Icons.Filled.Delete, contentDescription = null,
