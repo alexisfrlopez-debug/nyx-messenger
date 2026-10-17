@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import net.nyx.messenger.R
 import net.nyx.messenger.p2p.CallManager
@@ -76,20 +79,70 @@ fun CallOverlay() {
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.92f))
+            .background(Color.Black)
             .padding(24.dp)
     ) {
+        // v0.2.20 — VISIO : rendu DISTANT plein écran + APERÇU local en
+        // picture-in-picture quand la vidéo est négociée et l'appel actif.
+        if (ui.phase == CallManager.Phase.ACTIVE && ui.videoEnabled) {
+            AndroidView(
+                factory = { ctx ->
+                    android.view.SurfaceView(ctx).apply {
+                        holder.addCallback(object : android.view.SurfaceHolder.Callback {
+                            override fun surfaceCreated(h: android.view.SurfaceHolder) {
+                                CallManager.setRemoteSurface(h.surface)
+                            }
+                            override fun surfaceChanged(h: android.view.SurfaceHolder, f: Int, w: Int, hh: Int) {}
+                            override fun surfaceDestroyed(h: android.view.SurfaceHolder) {
+                                CallManager.setRemoteSurface(null)
+                            }
+                        })
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            AndroidView(
+                factory = { ctx ->
+                    android.view.TextureView(ctx).apply {
+                        surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(
+                                st: android.graphics.SurfaceTexture, w: Int, h: Int
+                            ) { CallManager.setPreviewSurface(android.view.Surface(st)) }
+                            override fun onSurfaceTextureSizeChanged(
+                                st: android.graphics.SurfaceTexture, w: Int, h: Int
+                            ) {}
+                            override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
+                                CallManager.setPreviewSurface(null); return true
+                            }
+                            override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp)
+                    .size(110.dp, 150.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        }
         Column(
-            Modifier.align(Alignment.Center),
+            Modifier.align(
+                if (ui.phase == CallManager.Phase.ACTIVE && ui.videoEnabled) Alignment.TopCenter
+                else Alignment.Center
+            ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                Icons.Filled.Call,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(56.dp)
-            )
-            Spacer(Modifier.height(16.dp))
+            if (!(ui.phase == CallManager.Phase.ACTIVE && ui.videoEnabled)) {
+                Icon(
+                    Icons.Filled.Call,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(56.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+            } else {
+                Spacer(Modifier.height(8.dp))
+            }
             Text(
                 ui.alias.ifBlank { ui.peer.take(12) + "…" },
                 style = MaterialTheme.typography.headlineSmall,
@@ -141,6 +194,14 @@ fun CallOverlay() {
                         bg = Color(0xFF444444),
                         desc = stringResource(R.string.call_mute)
                     ) { CallManager.toggleMute() }
+                    if (ui.videoEnabled) {
+                        CircleButton(
+                            icon = Icons.Filled.Videocam,
+                            tint = Color.White,
+                            bg = Color(0xFF444444),
+                            desc = stringResource(R.string.call_camera_toggle)
+                        ) { CallManager.toggleCamera() }
+                    }
                     CircleButton(
                         icon = Icons.Filled.CallEnd,
                         tint = Color.White,

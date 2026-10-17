@@ -140,7 +140,7 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
   #    l'app ne reçoit qu'un succès/échec, aucune donnée biométrique n'est lue.
   BADGE=$("$BT/aapt2" dump badging "$APK_SRC")
   BAD_PERMS=$(echo "$BADGE" | rg "uses-permission" \
-    | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT|RECORD_AUDIO" \
+    | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT|RECORD_AUDIO|CAMERA" \
     | rg -v "net\.nyx\.messenger(\.test2?)?\.[A-Z_]+" || true)
   [ -z "$BAD_PERMS" ] && check "Permissions minimales (liste fermée)" 0 \
                      || check "Permissions non autorisées" 1 "$BAD_PERMS"

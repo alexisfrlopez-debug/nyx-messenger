@@ -250,7 +250,6 @@
     <string name="call_status_ringing">Sonnerie…</string>
     <string name="call_status_incoming">Appel entrant</string>
     <string name="call_status_connecting">Connexion…</string>
-    <string name="call_video_soon">La visio arrive en v0.2.19 — le circuit onion impose une étape audio d\'abord (ADR-015). L\'appel audio fonctionne dès maintenant.</string>
     <string name="notif_call_title">Appel entrant</string>
     <string name="notif_call_text">%1$s vous appelle.</string>
 
@@ -311,4 +310,27 @@
     <string name="settings_replicas_add">Ajouter</string>
     <string name="settings_replicas_invalid">Adresse onion invalide (format attendu : xxx….onion ou xxx….onion:80).</string>
     <string name="settings_replicas_remove">Retirer</string>
+    <!-- v0.2.20 — appels : sonnerie audible + visio -->
+    <string name="notif_channel_calls">Appels entrants</string>
+    <string name="call_start_video">Appel vidéo</string>
+    <string name="call_camera_toggle">Caméra marche/arrêt</string>
+    <string name="camera_denied">Permission caméra refusée — la visio est impossible.</string>
+
+    <!-- v0.2.20 — mise à jour automatique (version normale uniquement) -->
+    <string name="settings_update_title">Mise à jour de l\'application</string>
+    <string name="settings_update_desc">Vérifie automatiquement la dernière release VALIDÉE pour la production (non pré-release sur GitHub) et la télécharge via Tor. Les versions de test sont ignorées. L\'installation demande votre confirmation (règle Android).</string>
+    <string name="settings_update_latest">À jour — dernière validée : %1$s</string>
+    <string name="settings_update_available">Mise à jour disponible : %1$s — téléchargement automatique…</string>
+    <string name="settings_update_downloading">Téléchargement via Tor… %1$s</string>
+    <string name="settings_update_ready">Version %1$s téléchargée — appuyez pour installer</string>
+    <string name="settings_update_check">Vérifier maintenant</string>
+    <string name="settings_update_failed">Échec : %1$s</string>
+    <string name="update_notification_title">Mise à jour Nyx prête</string>
+    <string name="update_notification_text">La version %1$s a été téléchargée — appuyez pour l\'installer.</string>
+
+    <!-- v0.2.20 — plan de tests (versions test uniquement) -->
+    <string name="testplan_title">Plan de tests v0.2.20</string>
+    <string name="testplan_desc">Appuyez sur un test une fois effectué : le résultat est journalisé (nyx-test) et part dans l\'export de logs — il sert à valider la mise en production.</string>
+    <string name="testplan_progress">%1$d / %2$d test(s) fait(s)</string>
+    <string name="testplan_reset">Tout réinitialiser</string>
 </resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.2.20 — partage des APK téléchargés vers l'installateur système. -->
+<paths>
+    <cache-path name="update" path="update/" />
+</paths>

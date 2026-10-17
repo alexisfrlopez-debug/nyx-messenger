@@ -29,6 +29,13 @@ class CallAudio(
     /** v0.2.18 : l'audio ne part QU'après acceptation (pas d'écoute à l'insu). */
     @Volatile var transmit = false
 
+    /**
+     * v0.2.20 — ROUTAGE des trames vidéo : la boucle de lecture ci-dessous est
+     * le SEUL lecteur du socket — les trames [P2pProtocol.F_VIDEO] y sont
+     * routées vers le décodeur [CallVideo] quand une visio est active.
+     */
+    @Volatile var videoSink: ((ByteArray) -> Unit)? = null
+
     @Volatile var stopped = false
         private set
 
@@ -145,6 +152,7 @@ class CallAudio(
                     val frame = P2pProtocol.read(input) ?: break
                     when (frame.type) {
                         P2pProtocol.F_AUDIO -> feedDecoder(dec, frame.payload, info)
+                        P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
                         P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
                     }
                 }

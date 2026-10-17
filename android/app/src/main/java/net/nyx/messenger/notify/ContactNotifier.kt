@@ -35,6 +35,10 @@ import net.nyx.messenger.R
 object ContactNotifier {
 
     const val CHANNEL_CONTACTS = "nyx_contacts"
+    /** v0.2.20 — canal APPELS : importance haute + sonnerie + vibration (le
+     *  canal contacts par défaut ne sonnait PAS — retour terrain : « reçoit
+     *  une notification mais ne sonne pas »). */
+    const val CHANNEL_CALLS = "nyx_calls"
     const val ACTION_ACCEPT = "net.nyx.messenger.notify.ACCEPT"
     const val ACTION_DECLINE = "net.nyx.messenger.notify.DECLINE"
     const val EXTRA_ONION = "onion"
@@ -52,6 +56,24 @@ object ContactNotifier {
                 NotificationManager.IMPORTANCE_DEFAULT
             )
         )
+        // v0.2.20 — canal d'appel entrant : SONNERIE + vibration (comme un
+        // appel système ; l'utilisateur peut le désactiver par canal).
+        val calls = NotificationChannel(
+            CHANNEL_CALLS,
+            context.getString(R.string.notif_channel_calls),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            val ringtone = android.media.RingtoneManager
+                .getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
+            val attrs = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            setSound(ringtone, attrs)
+            enableVibration(true)
+            setBypassDnd(false)
+        }
+        runCatching { mgr.createNotificationChannel(calls) }
     }
 
     /** Android 13+ : sans autorisation runtime, tout post est silencieux. */
@@ -143,16 +165,23 @@ object ContactNotifier {
     fun incomingCall(onion: String, alias: String) {
         val ctx = appContext ?: return
         if (!canPost()) return
-        val n = NotificationCompat.Builder(ctx, CHANNEL_CONTACTS)
+        val n = NotificationCompat.Builder(ctx, CHANNEL_CALLS)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(ctx.getString(R.string.notif_call_title))
             .setContentText(ctx.getString(R.string.notif_call_text, alias))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setContentIntent(contentIntent(ctx, onion))
             .setAutoCancel(true)
             .build()
         runCatching { NotificationManagerCompat.from(ctx).notify((onion + "call").hashCode(), n) }
+    }
+
+    /** v0.2.20 — retire la sonnerie d'appel entrant (accepté/refusé/manqué). */
+    fun cancelCall(onion: String) {
+        if (onion.isBlank()) return
+        val ctx = appContext ?: return
+        runCatching { NotificationManagerCompat.from(ctx).cancel((onion + "call").hashCode()) }
     }
 
     /** 3. Nous avons été supprimé des contacts du pair. */

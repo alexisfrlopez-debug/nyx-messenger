@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- v0.2.17 : notes vocales (MediaRecorder → pièce jointe audio). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- v0.2.20 : visio — capture caméra pour l'encodeur H.264 du canal direct. -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <application
         android:name=".NyxApplication"
@@ -63,5 +65,16 @@
         <receiver
             android:name=".notify.ContactActionReceiver"
             android:exported="false" />
+            <!-- v0.2.20 — mise à jour automatique : l'APK téléchargé (cache) est
+             remis à l'installateur système via ce FileProvider (read-only). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.update"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

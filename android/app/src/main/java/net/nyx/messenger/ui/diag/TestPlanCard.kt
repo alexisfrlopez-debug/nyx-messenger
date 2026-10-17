@@ -1,0 +1,102 @@
+package net.nyx.messenger.ui.diag
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import net.nyx.messenger.R
+import net.nyx.messenger.diag.TestPlan
+
+/**
+ * v0.2.20 — CARTE « PLAN DE TESTS » (builds test/test2 uniquement — demande
+ * opérateur : listing des tests à effectuer, mis à jour au fur et à mesure,
+ * résultats journalisés nyx-test pour la validation de mise en production).
+ */
+@Composable
+fun TestPlanCard() {
+    val context = LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    val items = remember { TestPlan.items() }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.testplan_title), style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.testplan_desc), style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.testplan_progress, TestPlan.doneCount(context), items.size),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(4.dp))
+            for (item in items) {
+                val done = remember(tick) { TestPlan.doneAt(context, item.id) > 0L }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            TestPlan.setDone(context, item.id, !done)
+                            tick++
+                            if (TestPlan.doneCount(context) == items.size) {
+                                TestPlan.logSummary(context)
+                                android.widget.Toast.makeText(
+                                    context,
+                                    context.getString(R.string.testplan_progress, items.size, items.size),
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                ) {
+                    Checkbox(checked = done, onCheckedChange = null)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.label,
+                            style = MaterialTheme.typography.bodySmall,
+                            textDecoration = if (done) TextDecoration.LineThrough else null,
+                            color = if (done) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (done) {
+                            Text(
+                                java.text.DateFormat.getDateTimeInstance(
+                                    java.text.DateFormat.SHORT, java.text.DateFormat.SHORT
+                                ).format(java.util.Date(TestPlan.doneAt(context, item.id))),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = {
+                TestPlan.reset(context)
+                tick++
+            }) { Text(stringResource(R.string.testplan_reset)) }
+        }
+    }
+}

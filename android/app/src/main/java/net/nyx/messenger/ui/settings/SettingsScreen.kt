@@ -150,6 +150,14 @@ fun SettingsScreen(onBack: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
+            // ---- v0.2.20 : mise à jour automatique (VERSION NORMALE UNIQUEMENT) ----
+            if (!net.nyx.messenger.BuildConfig.TEST_BUILD) {
+                UpdateCard()
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+            }
+
             // ---- v0.2.19 : réplica temporaire + liste des réplicas (TEST 2) ----
             if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA) {
                 EmbeddedReplicaCard()
@@ -177,6 +185,71 @@ fun SettingsScreen(onBack: () -> Unit) {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * v0.2.20 — CARTE MISE À JOUR (version normale uniquement — demande opérateur :
+ * « la version "normale" se met à jour toute seule, quand la dernière release
+ * est validée pour la production »). États : vérification / à jour /
+ * disponible (téléchargement AUTO via Tor) / prête (appui = installateur
+ * système). La validation = la release passe non-pré-release sur GitHub.
+ */
+@Composable
+private fun UpdateCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val state by net.nyx.messenger.update.Updater.state.collectAsState()
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.settings_update_title), style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.settings_update_desc), style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            when (val st = state) {
+                is net.nyx.messenger.update.Updater.State.UpToDate ->
+                    Text(stringResource(R.string.settings_update_latest, st.tag),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium)
+                is net.nyx.messenger.update.Updater.State.Checking ->
+                    Text(stringResource(R.string.settings_update_downloading, "…"),
+                        style = MaterialTheme.typography.bodyMedium)
+                is net.nyx.messenger.update.Updater.State.Available ->
+                    Text(stringResource(R.string.settings_update_available, st.release.version),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        style = MaterialTheme.typography.bodyMedium)
+                is net.nyx.messenger.update.Updater.State.Downloading -> {
+                    val pct = if (st.total > 0) "${st.bytes * 100 / st.total} %" else "${st.bytes / 1024} Ko"
+                    Text(stringResource(R.string.settings_update_downloading, pct),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                is net.nyx.messenger.update.Updater.State.Ready -> {
+                    Text(
+                        stringResource(R.string.settings_update_ready, st.release.version),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = { net.nyx.messenger.update.Updater.install(st.apk) }) {
+                        Text(stringResource(R.string.settings_update_ready, st.release.version))
+                    }
+                }
+                is net.nyx.messenger.update.Updater.State.Failed ->
+                    Text(stringResource(R.string.settings_update_failed, st.reason),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                else -> {}
+            }
+            TextButton(onClick = {
+                scope.launch {
+                    net.nyx.messenger.update.Updater.checkNow(
+                        net.nyx.messenger.tor.TorManager.activeSocksPort,
+                        context.cacheDir
+                    )
+                }
+            }) { Text(stringResource(R.string.settings_update_check)) }
         }
     }
 }

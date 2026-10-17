@@ -31,7 +31,8 @@ object P2pProtocol {
     const val F_HELLO = 1        // authentification + intention (call|file)
     const val F_FILE = 0x10      // fragment de fichier (corps chiffré E2E, b64)
     const val F_AUDIO = 0x14     // trame audio (AAC access unit brute)
-    const val F_CALL_ACCEPT = 0x12  // payload = csd-0 AAC de l'appelé (b64)
+    const val F_VIDEO = 0x16     // v0.2.20 — trame vidéo (access unit H.264 brute)
+    const val F_CALL_ACCEPT = 0x12  // payload = csd de l'appelé (voir AcceptPayload)
     const val F_CALL_REJECT = 0x13
     const val F_BYE = 0x15       // raccroché
     const val F_ACK = 0x7F       // payload = [reçus:4 BE]
@@ -72,6 +73,7 @@ object P2pProtocol {
         val csd: String,       // appel : csd-0 AAC de l'appelant (b64)
         val count: Int,        // fichier : nombre de fragments annoncés
         val sig: String,       // signature ed25519 (b64) de [helloSignedString]
+        val vcsd: String = "", // v0.2.20 : csd H.264 (SPS+PPS b64) si visio, "" sinon
     )
 
     fun encodeHello(h: Hello, sigB64: String): ByteArray {
@@ -82,7 +84,10 @@ object P2pProtocol {
             .append(",\"cid\":\"").append(esc(h.cid)).append('"')
             .append(",\"csd\":\"").append(esc(h.csd)).append('"')
             .append(",\"count\":").append(h.count)
-            .append(",\"sig\":\"").append(esc(sigB64)).append("\"}")
+        if (h.vcsd.isNotEmpty()) {
+            sb.append(",\"vcsd\":\"").append(esc(h.vcsd)).append('"')
+        }
+        sb.append(",\"sig\":\"").append(esc(sigB64)).append("\"}")
         return sb.toString().toByteArray(Charsets.UTF_8)
     }
 
@@ -95,8 +100,33 @@ object P2pProtocol {
         return Hello(
             kind, onion, MiniJson.str(s, "alias") ?: "", MiniJson.str(s, "cid") ?: "",
             MiniJson.str(s, "csd") ?: "", MiniJson.num(s, "count")?.toInt() ?: 0,
-            MiniJson.str(s, "sig") ?: ""
+            MiniJson.str(s, "sig") ?: "",
+            MiniJson.str(s, "vcsd") ?: ""
         )
+    }
+
+    /**
+     * v0.2.20 — PAYLOAD du F_CALL_ACCEPT : JSON {"csd":…,"vcsd":…} quand de
+     * la vidéo est négociée, sinon le b64 AAC brut de v0.2.18/19 (compat : un
+     * pair v0.2.19 qui n'a PAS annoncé de vcsd reçoit l'ancien format).
+     */
+    object AcceptPayload {
+        fun encode(audioCsdB64: String, videoCsdB64: String): String {
+            if (videoCsdB64.isEmpty()) return audioCsdB64 // format historique
+            fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+            return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"}"
+        }
+
+        /** (csd audio, csd vidéo ou "") — tolère l'ancien format brut. */
+        fun parse(payload: ByteArray): Pair<String, String> {
+            val s = runCatching { String(payload, Charsets.UTF_8) }.getOrDefault("")
+            if (s.startsWith("{")) {
+                val audio = MiniJson.str(s, "csd") ?: ""
+                val video = MiniJson.str(s, "vcsd") ?: ""
+                if (audio.isNotEmpty()) return audio to video
+            }
+            return s to ""
+        }
     }
 
     /** Chaîne signée du HELLO — miroir exact chez le vérificateur. */

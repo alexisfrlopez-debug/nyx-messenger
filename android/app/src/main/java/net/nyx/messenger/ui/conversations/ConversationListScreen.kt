@@ -63,6 +63,7 @@ import net.nyx.messenger.tor.TorManager
 import net.nyx.messenger.ui.components.AvatarView
 import net.nyx.messenger.ui.components.ReplicaProbeEffect
 import net.nyx.messenger.ui.diag.TestLogExportCard
+import net.nyx.messenger.ui.diag.TestPlanCard
 
 /**
  * Liste des conversations + ajout de contact (v0.2.0) :
@@ -229,10 +230,14 @@ fun ConversationListScreen(
             val torReady = torState is TorManager.TorState.Ready
             ReplicaProbeEffect(torReady = torReady, intervalMs = 20_000L)
             ReplicaStatusLine(repo, torReady)
-            // Build test : gros bouton rouge d'export de logs vers le Drive (v0.2.2).
+            // Build test : gros bouton rouge d'export de logs vers le Drive (v0.2.2)
+            // + PLAN DE TESTS de validation (v0.2.20 — demande opérateur : listing
+            // des tests à effectuer, résultats journalisés nyx-test).
             if (BuildConfig.TEST_BUILD) {
                 Spacer(Modifier.height(8.dp))
                 TestLogExportCard()
+                Spacer(Modifier.height(8.dp))
+                TestPlanCard()
             }
             if (showAdd) {
                 // Un seul champ : alias (@pseudo) OU adresse onion — détection auto.

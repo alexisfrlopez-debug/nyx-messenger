@@ -44,6 +44,7 @@ object CallManager {
         val muted: Boolean = false,
         val speaker: Boolean = false,
         val message: String = "",
+        val videoEnabled: Boolean = false, // v0.2.20 : visio négociée (les DEUX côtés)
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
@@ -61,6 +62,8 @@ object CallManager {
     /** Connexion média en cours (appelant OU appelé après remise par P2pServer). */
     private var conn: P2pCallConnection? = null
     private var audio: CallAudio? = null
+    /** v0.2.20 — moteur vidéo (visio) : null en appel audio seul. */
+    private var video: CallVideo? = null
     private var myCsd: ByteArray = ByteArray(0)
 
     /** Offre entrante en attente (signalisation arrivée avant le média). */
@@ -77,13 +80,14 @@ object CallManager {
 
     /* ----------------------------- APPEL SORTANT ----------------------------- */
 
-    /** Appelle un contact accepté — signalisation journal puis média direct. */
-    fun call(peer: String, alias: String) {
+    /** Appelle un contact accepté — signalisation journal puis média direct.
+     *  v0.2.20 : [withVideo] = visio (H.264 sur le même canal direct). */
+    fun call(peer: String, alias: String, withVideo: Boolean = false) {
         val r = repo ?: return
         if (_ui.value.phase != Phase.IDLE) return
         val cid = CallSignal.newCid()
         _ui.value = CallUi(Phase.OUTGOING, peer, alias, cid,
-            message = "sonnerie…")
+            message = "sonnerie…", videoEnabled = withVideo)
         scope.launch {
             // 1. Sonnerie chez le pair (journal chiffré — ≤ 15 s de poll).
             val offered = r.sendCallSignal(
@@ -93,9 +97,24 @@ object CallManager {
                 end("réplica injoignable — appel impossible")
                 return@launch
             }
-            // 2. Connexion média directe (tor peut mettre 10-30 s).
-            val socket = runCatching { P2pClient.connect(peer) }.getOrElse { e ->
-                android.util.Log.i("nyx-call", "connexion directe impossible : ${e.message}")
+            // 2. Connexion média directe — FENÊTRE DE TENTATIVES (fix terrain
+            //    v0.2.18 : un seul essai de 40 s partait IMMÉDIATEMENT après
+            //    l'offre, alors que le pair ne la connaît qu'après son poll
+            //    (~15 s) et qu'un circuit onion entrant peut prendre 10-30 s
+            //    → « Connect timed out » = appel mort avant même la sonnerie).
+            //    Désormais : essais de 12 s toutes les 3 s pendant 75 s —
+            //    le pair sonne et accepte pendant ce temps.
+            var socket: java.net.Socket? = null
+            val deadline = System.currentTimeMillis() + CONNECT_WINDOW_MS
+            while (socket == null && System.currentTimeMillis() < deadline) {
+                if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) return@launch
+                socket = runCatching { P2pClient.connect(peer, CONNECT_ATTEMPT_MS) }.getOrElse { e ->
+                    android.util.Log.i("nyx-call", "connexion directe impossible (${e.message}) — nouvelle tentative")
+                    null
+                }
+                if (socket == null) delay(3_000)
+            }
+            if (socket == null) {
                 runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
                 end("pas de réponse"); return@launch
             }
@@ -107,24 +126,58 @@ object CallManager {
             myCsd = runCatching { audioEngine.startSending() }.getOrElse { e ->
                 end("micro indisponible : ${e.message}"); return@launch
             }
+            // v0.2.20 — VISIO : si demandée et caméra dispo, le csd H.264 part
+            // dans le HELLO (le pair prépare son décodeur et répond le sien).
+            // Caméra indisponible → AUDIO-ONLY (jamais d'appel raté pour ça).
+            var vCsdB64 = ""
+            if (_ui.value.videoEnabled) {
+                val engine = CallVideo(appContext ?: return@launch,
+                    { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
+                val vcsd = runCatching { engine.startSending() }.getOrNull()
+                if (vcsd != null) {
+                    video = engine
+                    audioEngine.videoSink = { bytes -> engine.feedDecoder(bytes) }
+                    vCsdB64 = java.util.Base64.getEncoder().encodeToString(vcsd)
+                    android.util.Log.i("nyx-video", "visio annoncée dans le HELLO (csd ${vcsd.size} o)")
+                } else {
+                    engine.stop()
+                    _ui.value = _ui.value.copy(videoEnabled = false)
+                }
+            }
             val me = P2pClient.me ?: ""
             val csdB64 = java.util.Base64.getEncoder().encodeToString(myCsd)
             val sig = P2pClient.signer?.invoke(
                 P2pProtocol.helloSignedString("call", me, cid)
             ) ?: ""
             c.send(P2pProtocol.F_HELLO, P2pProtocol.encodeHello(
-                P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig), sig
+                P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64), sig
             ))
-            // 3. Attendre la réponse (45 s — l'appelé sonne pendant ce temps).
-            runCatching { socket.soTimeout = 45_000 }
+            // 3. Attendre la réponse (60 s — l'appelé sonne et accepte pendant
+            //    ce temps ; la fenêtre totale reste sous le watchdog appelé).
+            runCatching { socket.soTimeout = 60_000 }
             val answer = runCatching { P2pProtocol.read(c.input) }.getOrNull()
             when (answer?.type) {
                 P2pProtocol.F_CALL_ACCEPT -> {
+                    // v0.2.20 : payload JSON {csd, vcsd} (ou b64 brut v0.2.19).
+                    val (peerAudioCsd, peerVideoCsd) = P2pProtocol.AcceptPayload.parse(answer.payload)
                     val peerCsd = runCatching {
-                        java.util.Base64.getDecoder().decode(String(answer.payload, Charsets.UTF_8))
+                        java.util.Base64.getDecoder().decode(peerAudioCsd)
                     }.getOrElse { ByteArray(0) }
                     runCatching { audioEngine.startReceiving(peerCsd) }
                     audioEngine.transmit = true // acceptation explicite → l'audio part
+                    if (_ui.value.videoEnabled && peerVideoCsd.isNotEmpty()) {
+                        runCatching {
+                            val vcsd = java.util.Base64.getDecoder().decode(peerVideoCsd)
+                            video?.startReceiving(vcsd)
+                            video?.transmit = true
+                        }
+                        android.util.Log.i("nyx-video", "visio ACTIVE (csd pair ${peerVideoCsd.length} o b64)")
+                    } else {
+                        // Le pair n'a pas de vidéo (v0.2.19 ou caméra refusée).
+                        _ui.value = _ui.value.copy(videoEnabled = false)
+                        runCatching { video?.stop() }
+                        video = null
+                    }
                     _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "")
                     android.util.Log.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…)")
                 }
@@ -159,11 +212,14 @@ object CallManager {
                 val label = signal.alias.ifBlank { author.take(10) + "…" }
                 _ui.value = CallUi(Phase.INCOMING, author, label, signal.cid, message = "appel entrant…")
                 net.nyx.messenger.notify.ContactNotifier.incomingCall(author, label)
+                // v0.2.20 : la CONNEXION média a pu arriver AVANT l'offre
+                // (course journal/poll — terrain v0.2.18) : l'adopter si gardée.
+                adoptWaitedConnection(signal.cid)
                 // Garde-fou : média jamais arrivé (pair en échec après l'offre)
                 // → on ne laisse PAS la sonnerie à l'infini.
                 val offeredCid = signal.cid
                 scope.launch {
-                    delay(90_000)
+                    delay(120_000)
                     if (_ui.value.phase == Phase.INCOMING && _ui.value.cid == offeredCid) {
                         r.addCallInfo(author, false, "Appel manqué")
                         end("appel manqué")
@@ -218,8 +274,10 @@ object CallManager {
 
     /**
      * Remise de connexion par [P2pServer] (côté appelé) : si l'utilisateur a
-     * déjà accepté → finalise immédiatement ; sinon garde la connexion en
-     * attente (sonnerie en cours) et répondra à l'acceptation.
+     * déjà accepté → finalise immédiatement ; si l'offre n'est pas encore
+     * traitée (course journal/poll — terrain v0.2.18 : l'appelant connecte
+     * dès l'offre, l'appelé ne la voit qu'au prochain poll) → la connexion
+     * est GARDÉE en attente au lieu d'un refus net ; sinon refus net.
      */
     fun onIncomingConnection(connection: P2pCallConnection) {
         scope.launch {
@@ -227,6 +285,21 @@ object CallManager {
                 val state = _ui.value
                 val wanted = state.phase == Phase.INCOMING && state.cid == connection.hello.cid
                 val alreadyAccepted = state.phase == Phase.WAIT && acceptedCid == connection.hello.cid
+                if (state.phase == Phase.IDLE) {
+                    // L'offre n'est pas encore arrivée (poll ≤ 15 s) : garder.
+                    val cid = connection.hello.cid
+                    waited[cid] = connection
+                    android.util.Log.i("nyx-call", "média AVANT l'offre — connexion gardée (cid ${cid.take(8)}…)")
+                    scope.launch {
+                        delay(WAITED_TTL_MS)
+                        val orphan = synchronized(this@CallManager) { waited.remove(cid) }
+                        if (orphan != null) {
+                            runCatching { orphan.send(P2pProtocol.F_CALL_REJECT) }
+                            runCatching { orphan.close() }
+                        }
+                    }
+                    return@launch
+                }
                 if (!wanted && !alreadyAccepted) {
                     // Personne n'attend cet appel (offre expirée, occupé…) : refus net.
                     connection.send(P2pProtocol.F_CALL_REJECT)
@@ -244,6 +317,21 @@ object CallManager {
         }
     }
 
+    /** Connexions média gardées avant l'offre (course journal/poll). */
+    private val waited = HashMap<String, P2pCallConnection>()
+
+    /** Offre traitée : adopte la connexion média gardée, s'il y en a une. */
+    private fun adoptWaitedConnection(cid: String) {
+        val held = synchronized(this@CallManager) { waited.remove(cid) } ?: return
+        if (_ui.value.phase != Phase.INCOMING || _ui.value.cid != cid) {
+            runCatching { held.send(P2pProtocol.F_CALL_REJECT) }
+            runCatching { held.close() }
+            return
+        }
+        android.util.Log.i("nyx-call", "offre reçue — connexion média déjà là, adoptée (cid ${cid.take(8)}…)")
+        conn = held // la sonnerie continue — finalisation à l'acceptation
+    }
+
     private fun tryFinalizeWaitedConnection() {
         val c = conn ?: return
         if (_ui.value.phase == Phase.WAIT && acceptedCid == c.hello.cid) {
@@ -251,7 +339,7 @@ object CallManager {
         }
     }
 
-    /** Côté appelé : démarre l'audio et répond F_CALL_ACCEPT au pair. */
+    /** Côté appelé : démarre l'audio (et la visio si négociée) puis répond au pair. */
     private fun finalizeIncoming() {
         val c = conn ?: return
         val peerCsd = runCatching {
@@ -265,10 +353,35 @@ object CallManager {
             c.send(P2pProtocol.F_CALL_REJECT)
             end("micro indisponible"); return
         }
-        c.send(P2pProtocol.F_CALL_ACCEPT, myCsdB64.toByteArray(Charsets.UTF_8))
+        // v0.2.20 — le pair a annoncé de la VIDÉO (HELLO vcsd) : on démarre la
+        // nôtre et on répond en JSON {csd, vcsd} (pair forcément v0.2.20).
+        var myVCsdB64 = ""
+        val peerWantVideo = c.hello.vcsd.isNotEmpty()
+        if (peerWantVideo) {
+            val vEngine = CallVideo(appContext ?: return,
+                { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
+            val myVCsd = runCatching { vEngine.startSending() }.getOrNull()
+            if (myVCsd != null) {
+                video = vEngine
+                engine.videoSink = { bytes -> vEngine.feedDecoder(bytes) }
+                myVCsdB64 = java.util.Base64.getEncoder().encodeToString(myVCsd)
+                runCatching {
+                    vEngine.startReceiving(java.util.Base64.getDecoder().decode(c.hello.vcsd))
+                    vEngine.transmit = true
+                }
+                android.util.Log.i("nyx-video", "visio ACTIVE côté appelé")
+            } else {
+                vEngine.stop()
+            }
+        }
+        c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(myCsdB64, myVCsdB64)
+            .toByteArray(Charsets.UTF_8))
         runCatching { engine.startReceiving(peerCsd) }
         engine.transmit = true // l'appelé a accepté explicitement
-        _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "")
+        _ui.value = _ui.value.copy(
+            phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "",
+            videoEnabled = myVCsdB64.isNotEmpty()
+        )
         android.util.Log.i("nyx-call", "appel actif avec ${_ui.value.peer.take(16)}… (côté appelé)")
     }
 
@@ -286,6 +399,19 @@ object CallManager {
         val s = !state.speaker
         audio?.setSpeaker(appContext ?: return, s)
         _ui.value = state.copy(speaker = s)
+    }
+
+    /* ------------------------- visio (v0.2.20) ------------------------- */
+
+    /** Surface de rendu DISTANT (SurfaceView de l'overlay) — null = détachée. */
+    fun setRemoteSurface(s: android.view.Surface?) { video?.setRemoteSurface(s) }
+
+    /** Surface d'APERÇU local (TextureView de l'overlay) — null = détachée. */
+    fun setPreviewSurface(s: android.view.Surface?) { video?.setPreviewSurface(s) }
+
+    /** Coupe/relance la CAMÉRA (émission) — la réception continue. */
+    fun toggleCamera() {
+        video?.toggleCamera()
     }
 
     /** Raccroche (ou annule une sonnerie sortante). */
@@ -308,13 +434,22 @@ object CallManager {
     /** Termine et nettoie ; l'écran affiche [reason] 3 s puis revient à IDLE. */
     private fun end(reason: String) {
         runCatching { audio?.stop() }
+        runCatching { video?.stop() }
         runCatching { conn?.close() }
         audio = null
+        video = null
         conn = null
         pendingOffer = null
         acceptedCid = null
+        synchronized(this@CallManager) {
+            waited.values.forEach { c -> runCatching { c.send(P2pProtocol.F_CALL_REJECT) }; runCatching { c.close() } }
+            waited.clear()
+        }
+        val peer = _ui.value.peer
+        net.nyx.messenger.notify.ContactNotifier.cancelCall(peer)
         val wasActive = _ui.value.phase == Phase.ACTIVE
-        _ui.value = _ui.value.copy(phase = Phase.ENDED, message = reason, muted = false, speaker = false)
+        _ui.value = _ui.value.copy(phase = Phase.ENDED, message = reason, muted = false, speaker = false,
+            videoEnabled = false)
         scope.launch {
             delay(if (wasActive) 2500L else 3000L)
             if (_ui.value.phase == Phase.ENDED) _ui.value = CallUi()
@@ -322,4 +457,10 @@ object CallManager {
     }
 
     private fun nowS(): Long = System.currentTimeMillis() / 1000
+
+    /** v0.2.20 — fenêtres d'appel (terrain v0.2.18 : un seul essai 40 s tuait
+     *  l'appel avant même le poll de l'appelé — « Connect timed out »). */
+    private const val CONNECT_WINDOW_MS = 75_000L  // essais jusqu'à 75 s de sonnerie
+    private const val CONNECT_ATTEMPT_MS = 12_000  // essai individuel (tor : 10-30 s)
+    private const val WAITED_TTL_MS = 90_000L      // connexion gardée avant l'offre
 }

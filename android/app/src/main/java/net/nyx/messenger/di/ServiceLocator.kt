@@ -165,6 +165,28 @@ object ServiceLocator {
 
             startInboxPolling()
 
+            // v0.2.20 — MISE À JOUR AUTOMATIQUE (VERSION NORMALE UNIQUEMENT —
+            // demande opérateur : « se mettre à jour toute seule, quand la
+            // dernière release est validée pour la production »). La release
+            // passe non-pré-release = validation ; téléchargement via Tor puis
+            // installation avec confirmation Android. Les builds test/test2
+            // valident par le plan de tests (TestPlan) et restent manuels.
+            if (!net.nyx.messenger.BuildConfig.TEST_BUILD) {
+                net.nyx.messenger.update.Updater.currentVersion =
+                    net.nyx.messenger.BuildConfig.VERSION_NAME
+                net.nyx.messenger.update.Updater.appContext = context.applicationContext
+                val updateHandler = CoroutineExceptionHandler { _, e ->
+                    android.util.Log.w("nyx-update", "boucle mise à jour terminée : ${e.message}")
+                }
+                val updateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + updateHandler)
+                updateScope.launch {
+                    net.nyx.messenger.update.Updater.autoLoop(
+                        { net.nyx.messenger.tor.TorManager.activeSocksPort },
+                        context.cacheDir
+                    )
+                }
+            }
+
             initialized = true
         }
     }

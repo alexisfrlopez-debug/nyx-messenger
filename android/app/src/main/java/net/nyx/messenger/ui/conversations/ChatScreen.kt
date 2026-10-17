@@ -368,6 +368,18 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
         else vm.sendError.value = ctx.getString(R.string.record_denied)
     }
 
+    // v0.2.20 : permission caméra → appel visio.
+    val videoPerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            CallManager.call(
+                peer, contact?.alias?.ifBlank { peer.take(10) + "…" } ?: (peer.take(10) + "…"),
+                withVideo = true
+            )
+        } else vm.sendError.value = ctx.getString(R.string.camera_denied)
+    }
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
@@ -402,11 +414,23 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                     ) {
                         Icon(Icons.Filled.Call, contentDescription = stringResource(R.string.call_start))
                     }
-                    // v0.2.18 — VISIO : bouton présent, fonctionnalité annoncée
-                    // (ADR-015 : l'audio stable prime — la vidéo sur circuit
-                    // onion arrive en v0.2.19).
-                    IconButton(onClick = { vm.sendError.value = ctx.getString(R.string.call_video_soon) }) {
-                        Icon(Icons.Filled.Videocam, contentDescription = stringResource(R.string.call_video_soon))
+                    // v0.2.20 — VISIO (demande opérateur : « l'appel visio ») :
+                    // H.264 sur le même canal direct onion-to-onion que l'audio
+                    // (ADR-015 prolongé). Permission caméra demandée à l'appui.
+                    IconButton(onClick = {
+                        if (ctx.checkSelfPermission(android.Manifest.permission.CAMERA) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) {
+                            CallManager.call(
+                                peer,
+                                contact?.alias?.ifBlank { peer.take(10) + "…" } ?: (peer.take(10) + "…"),
+                                withVideo = true
+                            )
+                        } else {
+                            videoPerm.launch(android.Manifest.permission.CAMERA)
+                        }
+                    }) {
+                        Icon(Icons.Filled.Videocam, contentDescription = stringResource(R.string.call_start_video))
                     }
                     IconButton(onClick = { onOpenProfile(peerOnion) }) {
                         Icon(Icons.Filled.Person, contentDescription = stringResource(R.string.contact_profile_title))

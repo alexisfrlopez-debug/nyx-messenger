@@ -15,3 +15,9 @@ android/app/src/main/AndroidManifest.xml:android.permission.FOREGROUND_SERVICE_S
 # ne quitte l'appareil sans chiffrement E2E, la permission ne sert QUE le
 # micro — pas le stockage partagé ni la caméra).
 android/app/src/main/AndroidManifest.xml:android.permission.RECORD_AUDIO
+
+# v0.2.20 — visio (demande opérateur : « l'appel visio ») : Camera2 capture
+# les images de la caméra locale pour l'encodeur H.264 du canal direct P2P
+# (chiffré par Tor, E2E, rien ne transite par un réplica, rien n'est stocké).
+# La permission ne sert QUE la caméra de l'appelant — jamais le stockage.
+android/app/src/main/AndroidManifest.xml:android.permission.CAMERA
