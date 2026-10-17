@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.net.BootstrapReplicas
+import net.nyx.messenger.net.RendezvousList
 
 /**
  * Application Nyx — initialise le localisateur de services (DI manuelle volontaire :
@@ -19,6 +20,15 @@ import net.nyx.messenger.net.BootstrapReplicas
  * « endsWith(".onion") » rejetait les adresses avec port (« ….onion:80 »,
  * format du properties v0.2.6) → sonde réplica jamais lancée (écran
  * Connexions bloqué). La fonction est pure et testée (BootstrapReplicasTest).
+ *
+ * v0.2.23 — RENDEZVOUS SIGNÉ (ADR-009 §3, ADR-016) : l'asset embarqué
+ * assets/rendezvous.json (signé ed25519 par la clé de release, clé publique
+ * BuildConfig.RENDEZVOUS_PUBKEY) est désormais la source d'amorçage de
+ * référence. Une liste altérée est refusée EN BLOC et retombe sur le pont
+ * legacy (v0.2.7) — jamais d'injection non signée. Priorité de fusion :
+ *   1. réplicas CUSTOM (Paramètres — build « test 2 »)
+ *   2. rendezvous signé (assets/rendezvous.json)
+ *   3. bootstrap legacy (replica-bootstrap.properties)
  */
 class NyxApplication : Application() {
     override fun onCreate() {
@@ -29,11 +39,32 @@ class NyxApplication : Application() {
         // utilisé (envoi + inbox). Permet de rattacher le client au réplica
         // temporaire d'un contact (fonctionnement sans le serveur central).
         val settings = net.nyx.messenger.settings.SettingsManager.get(this)
-        val merged = (settings.customReplicas + BootstrapReplicas.parse(BuildConfig.BOOTSTRAP_REPLICAS))
+
+        // v0.2.23 : rendezvous signé — vérification ed25519 AVANT tout usage.
+        val rendezvous = try {
+            val raw = assets.open("rendezvous.json").use { it.readBytes() }
+            val sig = assets.open("rendezvous.json.sig").use { it.readBytes() }
+            val v = RendezvousList.load(raw, sig, BuildConfig.RENDEZVOUS_PUBKEY)
+            if (v == null) {
+                Log.w("nyx-boot", "rendezvous signé INVALIDE (signature/format) — fallback legacy")
+            }
+            v?.entries?.map { it.onion }
+        } catch (e: Exception) {
+            Log.w("nyx-boot", "rendezvous signé indisponible (${e.javaClass.simpleName}) — fallback legacy")
+            null
+        }
+
+        val merged = (settings.customReplicas
+                + (rendezvous ?: emptyList())
+                + BootstrapReplicas.parse(BuildConfig.BOOTSTRAP_REPLICAS))
             .distinct()
         if (merged.isNotEmpty()) {
             ServiceLocator.repository.setReplicas(merged)
-            Log.i("nyx-boot", "réplicas : ${merged.size} (${merged.first().take(16)}…)")
+            Log.i(
+                "nyx-boot",
+                "réplicas : ${merged.size} (rendezvous=${rendezvous?.size ?: 0}, " +
+                    "custom=${settings.customReplicas.size}, premier=${merged.first().take(16)}…)"
+            )
         } else {
             Log.w("nyx-boot", "aucun réplica d'amorçage embarqué — réseau en attente de configuration")
         }

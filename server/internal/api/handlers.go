@@ -35,6 +35,9 @@ type Server struct {
 	// (API admin, dépôt privé APPLI_ADMIN.md §4) : les routes client répondent
 	// 503, le gossip inter-réplicas continue (drain). Nil-safe (défaut : actif).
 	Maintenance func() bool
+	// Rendezvous signé (ADR-016) — closures de lecture servies à /rendezvous.
+	// RendezvousRead renvoie (json, sig, ok) ; ok=false → 404 (non configuré).
+	RendezvousRead func() (json []byte, sig []byte, ok bool)
 }
 
 // inMaintenance — état de maintenance (nil = jamais en maintenance).
@@ -62,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/gossip/peers", s.handleGossipPeers)
 	mux.HandleFunc("/gossip/push", s.handleGossipPush)
 	mux.HandleFunc("/gossip/pull", s.handleGossipPull)
+	mux.HandleFunc("/rendezvous", s.handleRendezvous)
 	return mux
 }
 
@@ -77,6 +81,32 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version": s.Version,
 		"onion":   s.Onion,
 		"events":  s.Store.Count(),
+	})
+}
+
+// GET /rendezvous — liste de rendezvous signée (ADR-009 §3, ADR-016).
+// Envelope {"json_b64", "sig_b64"} : le client vérifie la signature ed25519
+// détachée sur b"nyx-rendezvous-v1|" + octets du JSON (clé publique de release
+// embarquée dans l'APK) — la route est NON AUTHENTIFIÉE car la liste est
+// publique et auto-vérifiable ; elle reste servie en maintenance (statique).
+// 404 si le nœud n'a pas de liste configurée (comportement v0.2.22).
+func (s *Server) handleRendezvous(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "méthode interdite"})
+		return
+	}
+	if s.RendezvousRead == nil {
+		writeJSON(w, 404, map[string]string{"error": "rendezvous non configuré"})
+		return
+	}
+	raw, sig, ok := s.RendezvousRead()
+	if !ok {
+		writeJSON(w, 404, map[string]string{"error": "rendezvous non configuré"})
+		return
+	}
+	writeJSON(w, 200, map[string]string{
+		"json_b64": b64.EncodeToString(raw),
+		"sig_b64":  b64.EncodeToString(sig),
 	})
 }
 

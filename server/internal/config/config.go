@@ -65,16 +65,27 @@ type TURN struct {
 	Lifetime int    `json:"lifetime"`  // secondes (≤ 86400) ; 0 = 3600
 }
 
+// Rendezvous — liste de rendezvous signée servie au client (ADR-009 §3, ADR-016).
+// File = chemin du rendezvous.json signé (ed25519 clé de release, signature
+// détachée .sig à côté) ; PubKey = clé publique de release (base64) qui
+// VALIDE l'upload admin (POST /admin/rendezvous) — sans elle, la route
+// reste en lecture seule. Vide = route 404 (comportement v0.2.22).
+type Rendezvous struct {
+	File   string `json:"file"`   // ex. "rendezvous.json" (relatif à data_dir si non absolu)
+	PubKey string `json:"pubkey"` // base64 (32 octets) — clé publique ed25519 de release
+}
+
 // Config — configuration du nœud.
 type Config struct {
-	DataDir     string `json:"data_dir"`
-	HTTPPort    int    `json:"http_port"`    // port local servi derrière Tor (Port=80,127.0.0.1:<http>)
-	ControlPort int    `json:"control_port"` // control port Tor
-	SOCKSPort   int    `json:"socks_port"`   // SOCKS5 Tor (sortie gossip)
-	Peers       []Peer `json:"peers"`
-	Admin       Admin  `json:"admin"` // clés admin autorisées (console nyx-admin)
-	XMPP        XMPP   `json:"xmpp"`  // transport opt-in (ADR-014) ; vide = désactivé
-	TURN        TURN   `json:"turn"`  // relais opt-in (ADR-014 phase 2) ; vide = désactivé
+	DataDir     string     `json:"data_dir"`
+	HTTPPort    int        `json:"http_port"`    // port local servi derrière Tor (Port=80,127.0.0.1:<http>)
+	ControlPort int        `json:"control_port"` // control port Tor
+	SOCKSPort   int        `json:"socks_port"`   // SOCKS5 Tor (sortie gossip)
+	Peers       []Peer     `json:"peers"`
+	Admin       Admin      `json:"admin"`      // clés admin autorisées (console nyx-admin)
+	XMPP        XMPP       `json:"xmpp"`       // transport opt-in (ADR-014) ; vide = désactivé
+	TURN        TURN       `json:"turn"`       // relais opt-in (ADR-014 phase 2) ; vide = désactivé
+	Rendezvous  Rendezvous `json:"rendezvous"` // liste signée servie au client (ADR-016)
 }
 
 // AdminEnabled — vrai si au moins une clé admin est configurée.

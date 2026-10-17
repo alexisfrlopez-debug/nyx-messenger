@@ -103,6 +103,12 @@ type Server struct {
 	// gracieux (flush config, fermeture, exit 0 — systemd Restart=always relance).
 	StopRequest chan string
 
+	// Rendezvous signé (ADR-016) — chemin du fichier (relatif DataDir si non
+	// absolu ; défaut rendezvous.json) + clé publique de release (b64) qui
+	// valide POST /admin/rendezvous ; vide = route en lecture seule.
+	RendezvousFile   string
+	RendezvousPubKey string
+
 	// SignRoot — signature ed25519 de la racine de Merkle (clé onion du nœud).
 	SignRoot func(rootHex string) (string, error)
 
@@ -143,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/restart", auth(s.handleRestart))
 	mux.HandleFunc("/admin/checkpoint/propose", auth(s.handleCheckpointPropose))
 	mux.HandleFunc("/admin/checkpoint/apply", auth(s.handleCheckpointApply))
+	mux.HandleFunc("/admin/rendezvous", auth(s.handleRendezvousPost))
 	mux.HandleFunc("/admin/identity", auth(s.handleIdentity))
 	mux.HandleFunc("/admin/identity/rotate", auth(s.handleIdentityRotate))
 	mux.HandleFunc("/admin/keys/", auth(s.handleKeyDelete)) // DELETE /admin/keys/{clé}

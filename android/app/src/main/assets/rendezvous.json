@@ -1,0 +1,11 @@
+{
+  "format": "nyx-rendezvous",
+  "version": 1,
+  "generatedAt": 1792243957.3500607,
+  "replicas": [
+    {
+      "onion": "5myvqkcmmigkibiuy7glzpkx4rt3ewqdzx4uydnbsrp65b23mc2jisqd.onion:80",
+      "note": "réplica d'amorçage #1 (v0.2.23)"
+    }
+  ]
+}

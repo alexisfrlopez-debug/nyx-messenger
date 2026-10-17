@@ -27,7 +27,8 @@ val testUploadProps = Properties().apply {
 }
 fun testUpload(key: String): String = testUploadProps.getProperty(key) ?: ""
 
-// Réplicas d'amorçage (v0.2.3 — pont ADR-009 en attendant le rendezvous signé) :
+// Réplicas d'amorçage (v0.2.3 — pont ADR-009, DOUBLON du rendezvous signé v0.2.23 :
+// conservé comme filet de sécurité si l'asset signé est absent/invalidé) :
 // liste « onion[,onion…] » GIT-IGNORÉE, embarquée dans le build. En son absence
 // l'app démarre sans réplica rattaché (l'onboarding l'indique explicitement).
 val replicaProps = Properties().apply {
@@ -35,6 +36,10 @@ val replicaProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val bootstrapReplicas = replicaProps.getProperty("replicas") ?: ""
+
+// Rendezvous signé (ADR-009 §3, ADR-016 — v0.2.23) : clé publique ed25519 de
+// release embarquée dans le build ; la liste signée vit dans assets/rendezvous.json.
+val rendezvousPubkey = "M//9JU3ZIPI210FkqUMDL+oVRsnLuaRjn4H+2uRFy/Q="
 
 android {
     namespace = "net.nyx.messenger"
@@ -44,8 +49,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.2.22"
+        versionCode = 27
+        versionName = "0.2.23"
         // Credentials Drive du build test (vides si test-upload.properties absent)
         buildConfigField("String", "DRIVE_CLIENT_ID",     "\"${testUpload("drive.clientId")}\"")
         buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${testUpload("drive.clientSecret")}\"")
@@ -53,6 +58,8 @@ android {
         buildConfigField("String", "DRIVE_FOLDER_ID",     "\"${testUpload("drive.folderId")}\"")
         // Réplicas d'amorçage embarqués (v0.2.3 — vide si replica-bootstrap.properties absent)
         buildConfigField("String", "BOOTSTRAP_REPLICAS", "\"$bootstrapReplicas\"")
+        // Rendezvous signé (v0.2.23) : clé publique de release + asset assets/rendezvous.json
+        buildConfigField("String", "RENDEZVOUS_PUBKEY", "\"$rendezvousPubkey\"")
         // v0.2.19 : réplica temporaire embarqué — ACTIVÉ dans le flavor « diag2 »
         // (version « test 2 » de validation ; faux dans standard et diag).
         buildConfigField("boolean", "EMBEDDED_REPLICA", "false")
