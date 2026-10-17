@@ -90,7 +90,50 @@ data class MessageEntity(
     @ColumnInfo(defaultValue = "0") val readLocal: Int = 0,
     @ColumnInfo(defaultValue = "0") val rcptPending: Int = 0,
     @ColumnInfo(defaultValue = "0") val deliveredAt: Long = 0,
-    @ColumnInfo(defaultValue = "0") val readAt: Long = 0
+    @ColumnInfo(defaultValue = "0") val readAt: Long = 0,
+    // v0.2.17 — pièces jointes : kind 0 = texte, 1 = fichier (photo/vidéo/audio/
+    // document) référencé par fid dans la table attachments. Le champ text
+    // d'un message fichier porte un LIBELLÉ ("📷 photo.jpg") — aperçu de liste
+    // et notifications fonctionnent sans jointure ; la bulle, elle, rend la
+    // carte média depuis [AttachmentEntity] (aperçu/progression/taille).
+    @ColumnInfo(defaultValue = "0") val kind: Int = 0,
+    @ColumnInfo(defaultValue = "") val fid: String = ""
+)
+
+/**
+ * v0.2.17 — méta d'un TRANSFERT de fichier (photo/vidéo/audio/document).
+ * Un enregistrement par fichier partagé (sortant ou entrant) ; les fragments
+ * binaires en vol vivent dans [AttachmentChunkEntity] et sont EFFACÉS dès
+ * l'assemblage (sha256 vérifié) — le fichier assemblé vit sur le disque
+ * (filesDir/media/<fid>/<nom>) et [localPath] le désigne.
+ * states : 0 = transfert en cours, 1 = prêt (fichier assemblé/écrit),
+ * 2 = échec (incomplet, sha256 en défaut, trop volumineux…).
+ */
+@Entity(tableName = "attachments")
+data class AttachmentEntity(
+    @PrimaryKey val fid: String,         // identifiant du transfert (32 hex aléatoires)
+    val peerOnion: String,               // interlocuteur
+    val outgoing: Boolean,               // true = nous l'avons envoyé
+    val name: String,                    // nom sûr (séparateurs neutralisés)
+    val mime: String,                    // image/jpeg, video/mp4, audio/mp4…
+    val size: Long,                      // taille totale déclarée (octets)
+    val sha256: String,                  // empreinte du fichier COMPLET (64 hex)
+    val totalChunks: Int,                // nombre de fragments annoncés
+    val state: Int,                      // AT_TRANSFER / AT_READY / AT_FAILED
+    val localPath: String,               // rempli quand state = AT_READY
+    val createdAt: Long
+)
+
+/**
+ * v0.2.17 — fragment binaire en vol (stocké par (fid, idx), REPLACE idempotent
+ * — une re-livraison après crash avant avancée du curseur ré-écrit le même
+ * fragment sans effet). Ligne effacée dès l'assemblage du fichier complet.
+ */
+@Entity(tableName = "attachment_chunks", primaryKeys = ["fid", "idx"])
+data class AttachmentChunkEntity(
+    val fid: String,
+    val idx: Int,
+    val data: ByteArray
 )
 
 /**
@@ -266,6 +309,45 @@ interface MessageDao {
 data class UnreadCount(val peer: String, val cnt: Int)
 
 @Dao
+interface AttachmentDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMeta(a: AttachmentEntity)
+
+    @Query("SELECT * FROM attachments WHERE fid = :fid")
+    suspend fun get(fid: String): AttachmentEntity?
+
+    /** Flux observable par la bulle média (progression/état en direct). */
+    @Query("SELECT * FROM attachments WHERE fid = :fid")
+    fun byFid(fid: String): Flow<AttachmentEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChunk(c: AttachmentChunkEntity)
+
+    @Query("SELECT COUNT(*) FROM attachment_chunks WHERE fid = :fid")
+    suspend fun countChunks(fid: String): Int
+
+    /** Progression de réception observable (fragments reçus / total). */
+    @Query("SELECT COUNT(*) FROM attachment_chunks WHERE fid = :fid")
+    fun chunksFlow(fid: String): Flow<Int>
+
+    @Query("SELECT * FROM attachment_chunks WHERE fid = :fid ORDER BY idx ASC")
+    suspend fun chunks(fid: String): List<AttachmentChunkEntity>
+
+    @Query("DELETE FROM attachment_chunks WHERE fid = :fid")
+    suspend fun clearChunks(fid: String)
+
+    @Query("UPDATE attachments SET state = :state, localPath = :path WHERE fid = :fid")
+    suspend fun setState(fid: String, state: Int, path: String = "")
+
+    /** Nettoyage avec la conversation (suppression de contact). */
+    @Query("DELETE FROM attachment_chunks WHERE fid IN (SELECT fid FROM attachments WHERE peerOnion = :peer)")
+    suspend fun deleteChunksByPeer(peer: String)
+
+    @Query("DELETE FROM attachments WHERE peerOnion = :peer")
+    suspend fun deleteByPeer(peer: String)
+}
+
+@Dao
 interface PeerProfileDao {
     @Query("SELECT * FROM peer_profiles WHERE onion = :onion")
     fun byOnion(onion: String): Flow<PeerProfileEntity?>
@@ -306,14 +388,16 @@ interface SeqStateDao {
  */
 @Database(
     entities = [ContactEntity::class, MessageEntity::class, PeerProfileEntity::class,
+        AttachmentEntity::class, AttachmentChunkEntity::class,
         PollStateEntity::class, SeqStateEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class NyxDatabase : RoomDatabase() {
     abstract fun contactDao(): ContactDao
     abstract fun messageDao(): MessageDao
     abstract fun peerProfileDao(): PeerProfileDao
+    abstract fun attachmentDao(): AttachmentDao
     abstract fun pollStateDao(): PollStateDao
     abstract fun seqStateDao(): SeqStateDao
 
@@ -381,6 +465,39 @@ abstract class NyxDatabase : RoomDatabase() {
                         "displayName TEXT NOT NULL, " +
                         "avatar TEXT NOT NULL, " +
                         "fetchedAt INTEGER NOT NULL)"
+                )
+            }
+        }
+
+        /**
+         * v5 → v6 (v0.2.17) : pièces jointes. MIGRATION ADDITIVE — aucune
+         * donnée détruite : messages +2 colonnes (kind/fid, défaut = texte),
+         * tables neuves attachments + attachment_chunks (vides à la création).
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN kind INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN fid TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS attachments (" +
+                        "fid TEXT NOT NULL PRIMARY KEY, " +
+                        "peerOnion TEXT NOT NULL, " +
+                        "outgoing INTEGER NOT NULL, " +
+                        "name TEXT NOT NULL, " +
+                        "mime TEXT NOT NULL, " +
+                        "size INTEGER NOT NULL, " +
+                        "sha256 TEXT NOT NULL, " +
+                        "totalChunks INTEGER NOT NULL, " +
+                        "state INTEGER NOT NULL, " +
+                        "localPath TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS attachment_chunks (" +
+                        "fid TEXT NOT NULL, " +
+                        "idx INTEGER NOT NULL, " +
+                        "data BLOB NOT NULL, " +
+                        "PRIMARY KEY(fid, idx))"
                 )
             }
         }

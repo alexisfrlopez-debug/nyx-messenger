@@ -59,17 +59,19 @@ object ServiceLocator {
                 .openHelperFactory(SupportFactory(dbPassphrase, null, false))
                 .addMigrations(
                     NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3,
-                    NyxDatabase.MIGRATION_3_4, NyxDatabase.MIGRATION_4_5
+                    NyxDatabase.MIGRATION_3_4, NyxDatabase.MIGRATION_4_5,
+                    NyxDatabase.MIGRATION_5_6
                 )
                 .build()
 
             // Repository unique partagé par tous les écrans (supprime la construction
             // redondante dans Onboarding/ConversationList/Chat — audit cycle 1).
             // v0.2.15 : + peerProfileDao (cache avatars/noms publics des contacts).
+            // v0.2.17 : + attachmentDao (pièces jointes — photos/vidéos/fichiers).
             repository = NyxRepository(
                 identity, cipher,
                 database.messageDao(), database.contactDao(), database.pollStateDao(),
-                database.seqStateDao(), database.peerProfileDao()
+                database.seqStateDao(), database.peerProfileDao(), database.attachmentDao()
             )
 
             // v0.2.14 : notifications système du cycle de vie des contacts
@@ -117,6 +119,17 @@ object ServiceLocator {
      *     reposait uniquement sur la sonde /health de l'écran Connexions.
      *     Désormais chaque échec est loggé nyx-poll (classe + message + durée)
      *     avec throttle : cause inchangée → 1 ligne/min, cause nouvelle → immédiat.
+     *
+     *  3. AUTO-GUÉRISON TOR (v0.2.17 — retour terrain v0.2.16 : « il faut
+     *     parfois relancer l'app pour la connexion au réplica », export Xiaomi
+     *     04:28 : 4× « Malformed reply from SOCKS server » en Tor Ready, relance
+     *     app → health OK 4,6 s) : le démon tor se BLOQUE parfois en session
+     *     (SOCKS cassé, circuits morts) alors que son état reste Ready. Trois
+     *     échecs de TRANSPORT consécutifs (hors erreurs métier HTTP — le
+     *     serveur répond, tor fonctionne) déclenchent un REDÉMARRAGE du démon
+     *     ([TorManager.retry] — stopNow borné + relance fraîche, le remède que
+     *     l'opérateur appliquait à la main), avec cooldown de 5 min pour ne
+     *     jamais boucler.
      */
     private fun startInboxPolling() {
         val handler = CoroutineExceptionHandler { _, e ->
@@ -127,10 +140,13 @@ object ServiceLocator {
             var fastUntil = 0L          // fin de la fenêtre accélérée (elapsedRealtime)
             var lastFailKey: String? = null
             var lastFailLog = 0L
+            // v0.2.17 : compteur d'échecs de transport consécutifs (auto-guérison).
+            var transportFails = 0
+            var lastHealAt = 0L
             while (true) {
                 val now = android.os.SystemClock.elapsedRealtime()
-                val ready = net.nyx.messenger.tor.TorManager.get(appContext())
-                    .state.value is net.nyx.messenger.tor.TorManager.TorState.Ready
+                val tor = net.nyx.messenger.tor.TorManager.get(appContext())
+                val ready = tor.state.value is net.nyx.messenger.tor.TorManager.TorState.Ready
                 if (ready && fastUntil == 0L) {
                     // Transition vers Ready (démarrage, retry, relance du démon).
                     fastUntil = now + FAST_WINDOW_MS
@@ -140,15 +156,37 @@ object ServiceLocator {
                 }
                 if (ready && now >= nextPollAt) {
                     val t0 = android.os.SystemClock.elapsedRealtime()
-                    runCatching { repository.pollInbox() }.onFailure { e ->
-                        val t = android.os.SystemClock.elapsedRealtime()
-                        val key = "${e.javaClass.simpleName}: ${e.message?.take(120)}"
-                        if (key != lastFailKey || t - lastFailLog > FAIL_THROTTLE_MS) {
-                            lastFailKey = key
-                            lastFailLog = t
-                            android.util.Log.w("nyx-poll", "inbox échec (${t - t0} ms) : $key")
+                    runCatching { repository.pollInbox() }
+                        .onSuccess {
+                            transportFails = 0
                         }
-                    }
+                        .onFailure { e ->
+                            val t = android.os.SystemClock.elapsedRealtime()
+                            val key = "${e.javaClass.simpleName}: ${e.message?.take(120)}"
+                            if (key != lastFailKey || t - lastFailLog > FAIL_THROTTLE_MS) {
+                                lastFailKey = key
+                                lastFailLog = t
+                                android.util.Log.w("nyx-poll", "inbox échec (${t - t0} ms) : $key")
+                            }
+                            // v0.2.17 : une erreur MÉTIER (« HTTP 409/400 ») prouve
+                            // que tor ET le réplica répondent — pas un cas de
+                            // redémarrage du démon. Seuls les échecs de transport
+                            // (SocketTimeout, SocketException, EOF…) comptent.
+                            val transport = e.message?.contains("HTTP") != true
+                            transportFails = if (transport) transportFails + 1 else 0
+                            if (transportFails >= HEAL_THRESHOLD &&
+                                now - lastHealAt > HEAL_COOLDOWN_MS
+                            ) {
+                                lastHealAt = android.os.SystemClock.elapsedRealtime()
+                                transportFails = 0
+                                android.util.Log.w(
+                                    "nyx-tor-heal",
+                                    "$HEAL_THRESHOLD échecs de transport consécutifs en Tor Ready — " +
+                                        "redémarrage du démon tor (remède de la relance app, terrain 04:28)"
+                                )
+                                tor.retry()   // stopNow borné + relance fraîche (v0.2.9)
+                            }
+                        }
                     runCatching { repository.ensureContactNotified() }
                     // v0.2.14 : publication de profil FIABLE (demande opérateur :
                     // « vérifie que les infos publiques soient bien partagées
@@ -171,6 +209,9 @@ object ServiceLocator {
     private const val FAST_INTERVAL_MS = 5_000L
     private const val FAST_WINDOW_MS = 120_000L
     private const val FAIL_THROTTLE_MS = 60_000L
+    // v0.2.17 — auto-guérison tor : seuil + cooldown.
+    private const val HEAL_THRESHOLD = 3
+    private const val HEAL_COOLDOWN_MS = 5 * 60_000L
 
     /** Clé de base SQLCipher : 32 octets aléatoires, scellés via KeystoreBox dès le 1er lancement. */
     private fun dbPassphrase(context: Context): ByteArray {

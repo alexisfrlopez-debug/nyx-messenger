@@ -8,3 +8,10 @@
 # v0.2.6). specialUse = type plateforme prévu pour ce cas, sous-type documenté
 # via PROPERTY_SPECIAL_USE_FGS_SUBTYPE dans le manifeste.
 android/app/src/main/AndroidManifest.xml:android.permission.FOREGROUND_SERVICE_SPECIAL_USE
+
+# v0.2.17 — notes vocales (demande opérateur : « toutes les features des
+# autres messengers ») : MediaRecorder enregistre un message audio local qui
+# part ensuite sur le canal pièces jointes E2E fragmenté (aucune donnée audio
+# ne quitte l'appareil sans chiffrement E2E, la permission ne sert QUE le
+# micro — pas le stockage partagé ni la caméra).
+android/app/src/main/AndroidManifest.xml:android.permission.RECORD_AUDIO

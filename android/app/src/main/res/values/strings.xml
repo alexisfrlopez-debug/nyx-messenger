@@ -223,4 +223,19 @@
     <string name="replica_status_ok">Réplica connecté (%1$d ms)</string>
     <string name="replica_status_fail">Réplica injoignable — %1$s (essai à %2$s)</string>
     <string name="replica_status_waiting">Réplica : connexion en cours…</string>
+    <!-- v0.2.17 — pièces jointes (photos/vidéos/fichiers/notes vocales). -->
+    <string name="attach_photo_video">Photo ou vidéo</string>
+    <string name="attach_file">Fichier</string>
+    <string name="attach_title">Partager</string>
+    <string name="attach_desc">Joindre une pièce jointe</string>
+    <string name="record_start">Enregistrer un message vocal</string>
+    <string name="record_stop">Arrêter et envoyer</string>
+    <string name="record_denied">Micro refusé — impossible d\'enregistrer un message vocal.</string>
+    <string name="media_saving">Enregistré dans Téléchargements : %1$s</string>
+    <string name="media_save_failed">Enregistrement impossible</string>
+    <string name="media_save">Enregistrer dans Téléchargements</string>
+    <string name="media_transfer_progress">Transfert %1$s sur %2$s…</string>
+    <string name="media_receiving">Réception %1$d/%2$d…</string>
+    <string name="media_failed">Transfert échoué</string>
+    <string name="voice_recording">Enregistrement… appuyez pour arrêter</string>
 </resources>

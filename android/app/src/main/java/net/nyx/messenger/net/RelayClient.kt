@@ -122,9 +122,17 @@ class RelayClient private constructor(
         }
     }
 
-    /** GET /client/inbox?to=…&after=… */
-    suspend fun inbox(to: String, after: Long): InboxResponse = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url("$base/client/inbox?to=$to&after=$after").build()
+    /**
+     * GET /client/inbox?to=…&after=…
+     * v0.2.17 : paramètre limit — le serveur répond par lots bornés (défaut
+     * 500 côté réplica). Avec des fragments de fichier en vol (≈171 Ko sur
+     * le fil chacun), une réponse non bornée peut dépasser la minute Tor ;
+     * 32 lots × 171 Ko ≈ 5,5 Mo max par poll, dans le readTimeout 120 s.
+     * Le curseur ne s'arrête que lorsque TOUS les événements au-delà sont
+     * livrés (le serveur recadre le curseur — rien n'est perdu).
+     */
+    suspend fun inbox(to: String, after: Long, limit: Int = 32): InboxResponse = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$base/client/inbox?to=$to&after=$after&limit=$limit").build()
         client.newCall(req).execute().use { resp ->
             check(resp.code == 200) { "GET /client/inbox → HTTP ${resp.code}" }
             json.decodeFromString(InboxResponse.serializer(), resp.body!!.string())

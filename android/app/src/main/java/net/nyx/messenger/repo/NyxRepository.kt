@@ -12,6 +12,9 @@ import net.nyx.messenger.crypto.B64
 import net.nyx.messenger.crypto.IdentityManager
 import net.nyx.messenger.crypto.MessageCipher
 import net.nyx.messenger.crypto.OnionCodec
+import net.nyx.messenger.data.db.AttachmentChunkEntity
+import net.nyx.messenger.data.db.AttachmentDao
+import net.nyx.messenger.data.db.AttachmentEntity
 import net.nyx.messenger.data.db.ContactDao
 import net.nyx.messenger.data.db.ContactEntity
 import net.nyx.messenger.data.db.ContactStatus
@@ -24,6 +27,7 @@ import net.nyx.messenger.data.db.PollStateEntity
 import net.nyx.messenger.data.db.SeqStateDao
 import net.nyx.messenger.data.db.SeqStateEntity
 import net.nyx.messenger.di.ServiceLocator
+import net.nyx.messenger.media.MediaIngest
 import net.nyx.messenger.net.RelayClient
 import net.nyx.messenger.net.WireEvent
 
@@ -41,6 +45,8 @@ class NyxRepository(
     private val pollStateDao: PollStateDao,
     private val seqStateDao: SeqStateDao,
     private val peerProfileDao: PeerProfileDao,
+    // v0.2.17 : méta + fragments des pièces jointes (photos/vidéos/fichiers).
+    private val attachmentDao: AttachmentDao,
 ) {
     /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation.
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
@@ -87,14 +93,27 @@ class NyxRepository(
     val lastProbe: StateFlow<ReplicaProbeReport?> = _lastProbe.asStateFlow()
 
     suspend fun replicaHealth(): Boolean {
-        val rep = relay()?.healthDetailed()
-        if (rep == null) {
-            _lastProbe.value = ReplicaProbeReport(false, 0, "aucun réplica configuré", System.currentTimeMillis())
-            return false
+        // v0.2.17 — SINGLE-FLIGHT (terrain 04:28 : 4 sondes /health simultanées
+        // ont saturé le SOCKS tor pendant son bootstrap — « Malformed reply
+        // from SOCKS server » ×4 à la même seconde) : une seule sonde à la
+        // fois ; lesappelants concurrents repartent avec le dernier rapport.
+        if (!probeMutex.tryLock()) {
+            return _lastProbe.value?.ok ?: false
         }
-        _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail, System.currentTimeMillis())
-        return rep.ok
+        try {
+            val rep = relay()?.healthDetailed()
+            if (rep == null) {
+                _lastProbe.value = ReplicaProbeReport(false, 0, "aucun réplica configuré", System.currentTimeMillis())
+                return false
+            }
+            _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail, System.currentTimeMillis())
+            return rep.ok
+        } finally {
+            probeMutex.unlock()
+        }
     }
+
+    private val probeMutex = kotlinx.coroutines.sync.Mutex()
 
     /* ---------------- envoi ---------------- */
 
@@ -425,6 +444,17 @@ class NyxRepository(
                 continue
             }
 
+            // 3ter. v0.2.17 — FRAGMENT DE FICHIER ? (corps « msg » déchiffré
+            // reconnu par le ChunkCodec — méta créée au 1er fragment vu, bulle
+            // à l'index 0, assemblage + vérification sha256 au dernier). Un
+            // texte ordinaire ne parse PAS — branche suivante inchangée.
+            val chunk = ChunkCodec.parse(plain)
+            if (chunk != null) {
+                handleIncomingChunk(author, canonical, ev.ts, chunk)
+                if (chunk.index == 0) inserted++
+                continue
+            }
+
             // 4. Stockage local — v0.2.15 : rcptPending=1 = accusé « delivered »
             //    à déposer chez le pair (tentative immédiate en fin de poll,
             //    repartie par la boucle sinon).
@@ -620,6 +650,194 @@ class NyxRepository(
                 postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
             }
         }
+
+    /* ---------------- pièces jointes (v0.2.17) ---------------- */
+
+    /** États d'un transfert (attachments.state) — voir companion. */
+
+    /**
+     * ENVOI D'UN FICHIER (photo/vidéo/audio/document) — demande opérateur :
+     * « partage photo/video, partage de fichier ». TRANSPORT : le fichier est
+     * découpé en fragments de [ChunkCodec.CHUNK_PAYLOAD] octets, chaque
+     * fragment part comme un événement « msg » indépendant (type DÉJÀ
+     * whitelisté serveur, corps chiffré E2E opaque) — zéro changement serveur,
+     * zéro déploiement. Le récepteur réassemble ([handleIncomingChunk]) et
+     * vérifie le sha256 avant d'afficher le média.
+     *
+     * SÉQUENTIEL obligatoire : le journal du réplica exige seq = dernier+1 par
+     * auteur (les événements hors séquence sont mis en attente côté serveur,
+     * mais un dépôt ordonné reste le chemin le plus court). Progression
+     * rapportée par [onProgress] (fragments déposés / total) pour l'UI.
+     */
+    suspend fun sendFile(
+        peerOnion: String,
+        data: ByteArray,
+        name: String,
+        mime: String,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onStart: (fid: String) -> Unit = {},
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            android.util.Log.i("nyx-send", "→ fichier peer=${peerOnion.trim().take(16)}… " +
+                "name=$name mime=$mime taille=${ChunkCodec.humanSize(data.size.toLong())}")
+            if (data.isEmpty()) error("fichier vide")
+            if (data.size > ChunkCodec.MAX_FILE_SIZE) {
+                error("fichier trop volumineux (max ${ChunkCodec.humanSize(ChunkCodec.MAX_FILE_SIZE)})")
+            }
+            val peer = peerOnion.trim().lowercase()
+            val link = contactDao.get(peer)
+            if (link?.status != ContactStatus.ACCEPTED) {
+                error(
+                    if (link == null) "ce destinataire n'est pas dans vos contacts"
+                    else "échange possible uniquement une fois l'invitation acceptée des deux côtés"
+                )
+            }
+            val relay = relay() ?: error("aucun réplica configuré")
+            val me = identity.onionAddress ?: error("identité absente")
+            val priv = identity.secretKey()
+            val peerPub = OnionCodec.onionToPubKey(peer)
+
+            val sha = sha256Hex(data)
+            val fid = newFid()
+            val safeName = ChunkCodec.sanitizeName(name).ifBlank { "fichier" }
+            val chunks = ChunkCodec.split(data)
+            val n = chunks.size
+            onStart(fid)
+
+            // Le fichier est écrit localement DÈS L'ENVOI — l'expéditeur relit
+            // son propre média (aperçu/plein écran) sans attendre quoi que ce soit.
+            val localPath = MediaIngest.persistMedia(ServiceLocator.appContext(), fid, safeName, data)
+            attachmentDao.upsertMeta(
+                AttachmentEntity(
+                    fid, peer, outgoing = true, safeName, mime.ifBlank { "application/octet-stream" },
+                    data.size.toLong(), sha, n, AT_TRANSFER, localPath, System.currentTimeMillis()
+                )
+            )
+
+            var firstEventId = ""
+            for ((idx, chunk) in chunks.withIndex()) {
+                val seq = nextSeqFor(me)
+                val ts = System.currentTimeMillis() / 1000
+                val bodyJson = ChunkCodec.encode(
+                    fid, safeName, mime, data.size.toLong(), sha, idx, n,
+                    B64.encode(chunk)
+                )
+                val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
+                val ev = WireEvent("msg", me, seq, ts, 0, peer, body, "")
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
+                if (idx == 0) {
+                    // La bulle locale est créée dès le premier fragment déposé
+                    // (état « en cours » — passe « envoyé » à la fin du dépôt).
+                    firstEventId = eventIdOf(canonical)
+                    messageDao.insert(
+                        MessageEntity(
+                            firstEventId, peer, outgoing = true,
+                            mediaPlaceholder(mime, safeName), ts, ts, STATE_PENDING,
+                            kind = 1, fid = fid
+                        )
+                    )
+                }
+                postSigned(relay, me, signed, canonical, priv).fold(
+                    onSuccess = {
+                        onProgress(idx + 1, n)
+                        android.util.Log.i("nyx-send", "   ✓ fragment ${idx + 1}/$n déposé (${ChunkCodec.humanSize(chunk.size.toLong())})")
+                    },
+                    onFailure = { e ->
+                        messageDao.updateState(firstEventId, STATE_FAILED)
+                        attachmentDao.setState(fid, AT_FAILED)
+                        android.util.Log.w("nyx-send", "   ✗ fragment ${idx + 1}/$n ÉCHOUÉ : ${e.message}")
+                        throw e
+                    }
+                )
+            }
+            messageDao.updateState(firstEventId, STATE_SENT)
+            android.util.Log.i("nyx-send", "   ✓ fichier déposé ($n fragments, id=${fid.take(8)}…)")
+            fid
+        }
+    }
+
+    /** Identifiant de transfert : 16 octets aléatoires en hex (32 caractères). */
+    private fun newFid(): String {
+        val b = ByteArray(16)
+        java.security.SecureRandom().nextBytes(b)
+        return b.joinToString("") { "%02x".format(it) }
+    }
+
+    /** sha256 hex d'un tableau d'octets (vérification d'intégrité du fichier complet). */
+    private fun sha256Hex(data: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(data)
+            .joinToString("") { "%02x".format(it) }
+
+    /** Libellé d'un message pièce jointe (aperçu de liste / notification). */
+    fun mediaPlaceholder(mime: String, name: String): String = when {
+        mime.startsWith("image/") -> "🖼 $name"
+        mime.startsWith("video/") -> "🎬 $name"
+        mime.startsWith("audio/") -> "🎤 $name"
+        else -> "📄 $name"
+    }
+
+    /**
+     * RÉCEPTION d'un fragment (corps « msg » déchiffré reconnu comme fichier) :
+     * méta créée au premier fragment vu, fragment stocké (REPLACE idempotent),
+     * bulle créée à l'index 0 (accusés delivered/read de v0.2.15 s'appliquent
+     * aussi aux médias), ASSEMBLAGE dès que les n fragments sont là — sha256
+     * vérifié sinon état échec (aucun média corrompu affiché), fichier écrit
+     * sous filesDir/media/<fid>/ puis fragments effacés de la base.
+     */
+    private suspend fun handleIncomingChunk(
+        author: String,
+        canonical: String,
+        ts: Long,
+        chunk: ChunkCodec.FileChunk,
+    ) {
+        val existing = attachmentDao.get(chunk.fid)
+        if (existing == null) {
+            attachmentDao.upsertMeta(
+                AttachmentEntity(
+                    chunk.fid, author, outgoing = false, chunk.name,
+                    chunk.mime.ifBlank { "application/octet-stream" },
+                    chunk.size, chunk.sha256, chunk.total, AT_TRANSFER,
+                    "", System.currentTimeMillis()
+                )
+            )
+        }
+        attachmentDao.insertChunk(AttachmentChunkEntity(chunk.fid, chunk.index, chunk.data))
+
+        if (chunk.index == 0) {
+            messageDao.insert(
+                MessageEntity(
+                    eventIdOf(canonical), author, outgoing = false,
+                    mediaPlaceholder(chunk.mime, chunk.name),
+                    ts, System.currentTimeMillis(), STATE_RECEIVED,
+                    rcptPending = 1, kind = 1, fid = chunk.fid
+                )
+            )
+        }
+
+        val count = attachmentDao.countChunks(chunk.fid)
+        val meta = attachmentDao.get(chunk.fid)
+        if (meta != null && count >= meta.totalChunks && meta.state == AT_TRANSFER) {
+            val assembled = attachmentDao.chunks(chunk.fid)
+                .sortedBy { it.idx }
+                .fold(ByteArray(0)) { acc, c -> acc + c.data }
+            if (assembled.size.toLong() != meta.size || sha256Hex(assembled) != meta.sha256) {
+                attachmentDao.setState(chunk.fid, AT_FAILED)
+                android.util.Log.w(
+                    "nyx-recv",
+                    "   ✗ fichier ${chunk.fid.take(8)}… CORROMPU (taille ${assembled.size}/${meta.size}, sha en défaut) — abandonné"
+                )
+                return
+            }
+            val path = MediaIngest.persistMedia(ServiceLocator.appContext(), chunk.fid, meta.name, assembled)
+            attachmentDao.setState(chunk.fid, AT_READY, path)
+            attachmentDao.clearChunks(chunk.fid)
+            android.util.Log.i(
+                "nyx-recv",
+                "   ✓ fichier assemblé : ${meta.name} (${ChunkCodec.humanSize(meta.size)}) de ${author.take(16)}…"
+            )
+        }
+    }
 
     /* ---------------- accusés de réception/lecture (v0.2.15) ---------------- */
 
@@ -889,6 +1107,12 @@ class NyxRepository(
         runCatching {
             val clean = onion.trim().lowercase()
             messageDao.deleteConversation(clean)
+            // v0.2.17 : les médias de la conversation partent aussi (méta +
+            // fragments en vol ; les fichiers sur disque restent — purgés par
+            // le système si l'app est désinstallée, sans risque d'effacer un
+            // média partagé par ailleurs).
+            attachmentDao.deleteChunksByPeer(clean)
+            attachmentDao.deleteByPeer(clean)
             android.util.Log.i("nyx-repo", "conversation supprimée (local) : ${clean.take(16)}…")
             Unit
         }
@@ -1035,5 +1259,9 @@ class NyxRepository(
         const val STATE_SENT = 1
         const val STATE_FAILED = 2
         const val STATE_RECEIVED = 3
+        // v0.2.17 — états d'un transfert de pièce jointe (attachments.state).
+        const val AT_TRANSFER = 0   // fragments en vol (dans un sens ou l'autre)
+        const val AT_READY = 1      // fichier assemblé et vérifié (localPath valide)
+        const val AT_FAILED = 2     // transfert abandonné (dépôt impossible)
     }
 }
