@@ -54,7 +54,25 @@ class NyxApplication : Application() {
             null
         }
 
+        // v0.2.25 — RÉPLICAS DÉCOUVERTS (announces contacts chiffrées, cf.
+        // ReplicaRegistry) : persistés, placés AVANT le rendezvous — les
+        // réplicas de proximité servent l'amorçage et survivent au serveur
+        // central ; la fusion est re-appliquée à chaque annonce entrante.
+        val appPrefs = getSharedPreferences("nyx_settings", MODE_PRIVATE)
+        net.nyx.messenger.net.ReplicaRegistry.init(appPrefs)
+        val discovered = net.nyx.messenger.net.ReplicaRegistry.list()
+        net.nyx.messenger.net.ReplicaRegistry.onChanged = {
+            val remerged = buildList {
+                addAll(settings.customReplicas)
+                addAll(net.nyx.messenger.net.ReplicaRegistry.list())
+                addAll(rendezvous ?: emptyList())
+                addAll(BootstrapReplicas.parse(BuildConfig.BOOTSTRAP_REPLICAS))
+            }.distinct()
+            if (remerged.isNotEmpty()) ServiceLocator.repository.setReplicas(remerged)
+        }
+
         val merged = (settings.customReplicas
+                + discovered
                 + (rendezvous ?: emptyList())
                 + BootstrapReplicas.parse(BuildConfig.BOOTSTRAP_REPLICAS))
             .distinct()
@@ -63,7 +81,8 @@ class NyxApplication : Application() {
             Log.i(
                 "nyx-boot",
                 "réplicas : ${merged.size} (rendezvous=${rendezvous?.size ?: 0}, " +
-                    "custom=${settings.customReplicas.size}, premier=${merged.first().take(16)}…)"
+                    "custom=${settings.customReplicas.size}, découverts=${discovered.size}, " +
+                    "premier=${merged.first().take(16)}…)"
             )
         } else {
             Log.w("nyx-boot", "aucun réplica d'amorçage embarqué — réseau en attente de configuration")

@@ -59,7 +59,7 @@ class NyxRepository(
     // injoignable au moment de l'action — reparties par la boucle périodique).
     private val delPendingDao: DelPendingDao,
 ) {
-    /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation.
+    /** Réplicas de rattachement — v0.1 le premier configuré ; v0.2.25 : rotation (failover round-robin, cf. markReplicaFailed).
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
     @JvmField
     var replicas: List<String> = emptyList()
@@ -81,19 +81,45 @@ class NyxRepository(
     // dès que le port courant change.
     private var relayPort: Int = -1
     private var relayClient: RelayClient? = null
+    /** v0.2.25 : index du réplica actif dans [replicas] (failover round-robin). */
+    private var replicaIndex: Int = 0
 
     fun setReplicas(onions: List<String>) {
         replicas = onions.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        // v0.2.25 : l'index courant reste cohérent si la liste rétrécit.
+        if (replicaIndex >= replicas.size) replicaIndex = 0
         relayPort = -1
         relayClient = null
     }
 
-    /** Relais courant (reconstruit si le port SOCKS de tor a changé). */
+    /**
+     * v0.2.25 — FAILOVER : le terrain v0.2.24 (« envoi fichier ok mais un peu
+     * long », appels sans média) montre que le P2P direct et les réplicas de
+     * proximité varient : un client collé au PREMIER réplica de la liste
+     * échouait intégralement dès que celui-ci tombait (téléphone contact éteint).
+     * [markReplicaFailed] avance l'index (round-robin borné) et invalide le
+     * relais — le prochain usage reconstruit un RelayClient sur le réplica
+     * suivant. Invoqué sur échec réseau du poll inbox et des dépôts.
+     */
+    fun markReplicaFailed(reason: String) {
+        if (replicas.size < 2) return
+        val old = replicas.getOrNull(replicaIndex) ?: "?"
+        val next = (replicaIndex + 1) % replicas.size
+        replicaIndex = next
+        relayClient = null
+        android.util.Log.w(
+            "nyx-repo",
+            "réplica ${old.take(16)}… en échec ($reason) → bascule sur ${replicas[next].take(16)}…"
+        )
+    }
+
+    /** Relais courant (reconstruit si le port SOCKS de tor a changé).
+     *  v0.2.25 : suit [replicaIndex] (failover) au lieu du premier fixe. */
     private fun relay(): RelayClient? {
         val port = net.nyx.messenger.tor.TorManager.activeSocksPort
         val c = relayClient
         if (c != null && port == relayPort) return c
-        val fresh = replicas.firstOrNull()?.let {
+        val fresh = replicas.getOrNull(replicaIndex)?.let {
             RelayClient.forReplica(it, socksPort = port).also { _ ->
                 android.util.Log.i("nyx-repo", "relais réplica : ${it.take(16)}… (socks $port)")
             }
@@ -339,6 +365,34 @@ class NyxRepository(
                                 "   ✓ suppression distante de ${author.take(16)}… : $n message(s) effacé(s)"
                             )
                         }
+                    }
+                    continue
+                }
+                // v0.2.25 : ANNONCE DE RÉPLICA TEMPORAIRE — corps chiffré
+                // {"alias":…,"replica":"<onion>[:port]","ver":…} (cf. ReplicaCodec).
+                // Garde-fous : l'adresse annoncée DOIT être celle de l'AUTEUR et
+                // l'auteur un contact ACCEPTED — on ne peut annoncer que SON
+                // propre réplica. Ingestion → persistance (ReplicaRegistry, 7 j)
+                // → re-fusion de la liste des réplicas (custom > découverts >
+                // rendezvous > bootstrap) SANS redémarrage. Zéro trace ailleurs :
+                // ni invitation ni message d'information.
+                val replicaAnn = net.nyx.messenger.repo.ReplicaCodec.parse(plain)
+                if (replicaAnn != null) {
+                    val linkOk = contactDao.get(author)?.status == ContactStatus.ACCEPTED
+                    if (net.nyx.messenger.repo.ReplicaCodec.isSelfAnnounced(author, replicaAnn) && linkOk) {
+                        val changed = net.nyx.messenger.net.ReplicaRegistry
+                            .ingest(replicaAnn.replica, System.currentTimeMillis())
+                        android.util.Log.i(
+                            "nyx-recv",
+                            "   ✓ annonce réplica de ${author.take(16)}… → " +
+                                "${replicaAnn.replica.take(24)}…${if (changed) " (persistée)" else " (connue)"}"
+                        )
+                    } else {
+                        android.util.Log.w(
+                            "nyx-recv",
+                            "   annonce réplica REJETÉE (identité ≠ auteur ou contact non accepté) " +
+                                "de ${author.take(16)}…"
+                        )
                     }
                     continue
                 }
@@ -822,6 +876,61 @@ class NyxRepository(
             ContactStatus.REMOVED_BY_ME -> "removed"
             else -> "accepted"
         }
+
+    /**
+     * v0.2.25 — ANNONCE DE RÉPLICA TEMPORAIRE À MES CONTACTS (demande opérateur :
+     * « les réplicas temporaires ne se partagent pas tout seul entre contacts »).
+     * Émet un événement type « contact » chiffré E2E par contact ACCEPTED :
+     * `{"alias":…,"replica":"<mon onion>:<port>","ver":…}` — le destinataire
+     * persiste l'adresse (ReplicaRegistry) et l'insère avant le rendezvous.
+     * Appelée par la boucle périodique du ServiceLocator (démarrage + re-annonce
+     * toutes les 30 min tant que le réplica embarqué sert) — les dépôts
+     * incrémentent la seq applicative, les re-annonces sont idempotentes chez
+     * le destinataire (« (connue) »). @return le nombre de contacts notifiés.
+     */
+    suspend fun announceReplica(replicaAddr: String): Int = withContext(Dispatchers.IO) {
+        if (replicas.isEmpty()) return@withContext 0
+        val me = identity.onionAddress ?: return@withContext 0
+        val priv = identity.secretKey()
+        val bodyJson = runCatching {
+            net.nyx.messenger.repo.ReplicaCodec.encodeBody(
+                identity.alias ?: "", replicaAddr,
+                net.nyx.messenger.BuildConfig.VERSION_NAME
+            )
+        }.getOrElse { e ->
+            android.util.Log.w("nyx-send", "annonce réplica impossible : ${e.message}")
+            return@withContext 0
+        }
+        var sent = 0
+        for (c in contactDao.accepted()) {
+            try {
+                val peerPub = OnionCodec.onionToPubKey(c.onion)
+                val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "contact", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, ttl = 0,
+                    to = c.onion, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(
+                    ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body
+                )
+                val relay = relay() ?: error("aucun réplica configuré")
+                postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv)
+                    .getOrThrow()
+                sent++
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "nyx-send",
+                    "✗ annonce réplica ÉCHOUÉE pour ${c.onion.take(16)}… : ${e.message}"
+                )
+            }
+        }
+        if (sent > 0) {
+            android.util.Log.i("nyx-send", "✓ annonce réplica déposée pour $sent contact(s) (${replicaAddr.take(24)}…)")
+        }
+        sent
+    }
 
     private suspend fun sendContactAck(onionLower: String, ack: String): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -1601,8 +1710,24 @@ class NyxRepository(
                 val me = identity.onionAddress ?: error("identité absente")
                 val priv = identity.secretKey()
 
+                // v0.2.25 : AUTO-DÉCLARATION du réplica temporaire embarqué dans
+                // le profil public (champ « replica », whitelisté client + serveur ;
+                // garde-fou serveur : la valeur DOIT être « <author.onion>:80 »).
+                // Le serveur agrège ces champs (GET /admin/replicas) → les
+                // réplicas temporaires s'ajoutent AUTOMATIQUEMENT à la console
+                // admin (demande opérateur), sans inscription manuelle.
+                val publishedCard = if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
+                    net.nyx.messenger.replica.EmbeddedReplica.serving &&
+                    net.nyx.messenger.replica.EmbeddedReplica.localPort > 0
+                ) {
+                    net.nyx.messenger.profile.ProfileBody(
+                        card.fields + (net.nyx.messenger.profile.ProfileKeys.REPLICA to
+                            net.nyx.messenger.profile.ProfileField("$me:80", true))
+                    )
+                } else card
+
                 val body = B64.encode(
-                    net.nyx.messenger.profile.ProfileCodec.encode(card).toByteArray(Charsets.UTF_8)
+                    net.nyx.messenger.profile.ProfileCodec.encode(publishedCard).toByteArray(Charsets.UTF_8)
                 )
                 val seq = nextSeqFor(me)
                 val ev = WireEvent(

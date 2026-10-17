@@ -248,6 +248,8 @@ object ServiceLocator {
             var fastUntil = 0L          // fin de la fenêtre accélérée (elapsedRealtime)
             var lastFailKey: String? = null
             var lastFailLog = 0L
+            // v0.2.25 : annonce du réplica embarqué — 0 = dès le premier tick Tor Ready.
+            var nextAnnounceAt = 0L
             // v0.2.17 : compteur d'échecs de transport consécutifs (auto-guérison).
             var transportFails = 0
             var lastHealAt = 0L
@@ -281,6 +283,12 @@ object ServiceLocator {
                             // redémarrage du démon. Seuls les échecs de transport
                             // (SocketTimeout, SocketException, EOF…) comptent.
                             val transport = e.message?.contains("HTTP") != true
+                            // v0.2.25 : FAILOVER réplica AVANT l'auto-guérison —
+                            // un réplica de proximité peut être éteint (téléphone
+                            // contact) : la bascule sur le suivant guérit sans
+                            // redémarrer un démon tor sain. Le heal tor ne se
+                            // déclenche que si TOUS les réplicas échouent.
+                            if (transport) repository.markReplicaFailed("poll inbox : ${e.message?.take(80)}")
                             transportFails = if (transport) transportFails + 1 else 0
                             if (transportFails >= HEAL_THRESHOLD &&
                                 now - lastHealAt > HEAL_COOLDOWN_MS
@@ -307,6 +315,26 @@ object ServiceLocator {
                     // v0.2.19 : demandes de suppression « pour tous » restées en
                     // attente (même mécanique de reprise que les accusés).
                     runCatching { repository.ensureDeletionsSent() }
+                    // v0.2.25 — ANNONCE PÉRIODIQUE DU RÉPLICA EMBARQUÉ (build « test 2 ») :
+                    // au premier tick Tor Ready puis toutes les 30 min, l'app annonce
+                    // son réplica temporaire à ses contacts acceptés (type « contact »
+                    // chiffré — cf. NyxRepository.announceReplica). Le destinataire
+                    // persiste l'adresse et l'utilise en amorçage (ReplicaRegistry).
+                    if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
+                        now >= nextAnnounceAt
+                    ) {
+                        nextAnnounceAt = now + ANNOUNCE_PERIOD_MS
+                        val serving = net.nyx.messenger.replica.EmbeddedReplica.serving &&
+                            net.nyx.messenger.replica.EmbeddedReplica.localPort > 0
+                        val me = identity.onionAddress
+                        if (serving && me != null) {
+                            runCatching {
+                                repository.announceReplica("$me:80")
+                            }.onFailure { e ->
+                                android.util.Log.w("nyx-replica", "annonce réplica échouée : ${e.message}")
+                            }
+                        }
+                    }
                     val t1 = android.os.SystemClock.elapsedRealtime()
                     nextPollAt = t1 + if (t1 < fastUntil) FAST_INTERVAL_MS else POLL_INTERVAL_MS
                 }
@@ -320,6 +348,8 @@ object ServiceLocator {
     private const val FAST_INTERVAL_MS = 5_000L
     private const val FAST_WINDOW_MS = 120_000L
     private const val FAIL_THROTTLE_MS = 60_000L
+    // v0.2.25 — annonce périodique du réplica embarqué aux contacts.
+    private const val ANNOUNCE_PERIOD_MS = 30 * 60_000L
     // v0.2.17 — auto-guérison tor : seuil + cooldown.
     private const val HEAL_THRESHOLD = 3
     private const val HEAL_COOLDOWN_MS = 5 * 60_000L

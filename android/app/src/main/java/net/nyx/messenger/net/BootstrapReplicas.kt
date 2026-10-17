@@ -22,8 +22,10 @@ package net.nyx.messenger.net
  */
 object BootstrapReplicas {
 
-    /** v3 : exactement 56 caractères base32, puis « .onion », port optionnel. */
-    private val ENTRY = Regex("^[a-z2-7]{56}\\.onion(:\\d+)?$")
+    /** v3 : exactement 56 caractères base32, puis « .onion », port optionnel.
+     *  v0.2.25 : INTERNAL (et non private) — la même grammaire est réutilisée
+     *  par ReplicaRegistry (réplicas découverts, même format d'annonce). */
+    internal val ENTRY = Regex("^[a-z2-7]{56}\\.onion(:\\d+)?$")
 
     fun parse(raw: String): List<String> =
         raw.split(',', ';', ' ', '\t', '\n', '\r')

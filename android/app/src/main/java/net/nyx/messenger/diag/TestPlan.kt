@@ -52,8 +52,24 @@ object TestPlan {
         Item("regressions-replica2", "Régressions (test 2) : réplica temporaire actif + cycle sans serveur"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.24.md). */
-    fun items(): List<Item> = ITEMS_V0_2_24
+    /** v0.2.25 — items de validation (miroir de docs/releases/v0.2.25.md) :
+     *  fixes tor 0.4.9 (appels/P2P), partage logs (grants), réplicas
+     *  temporaires auto-partagés + failover, /admin/replicas console. */
+    val ITEMS_V0_2_25 = listOf(
+        Item("tor-resolve", "Appels/visio : « décrocher » ÉTABLIT le média (tor 0.4.9.14 — plus de « No more HSDir » : les deux téléphones se joignent en direct)"),
+        Item("fichier-p2p", "Fichier/média : envoi via P2P DIRECT quand les deux apps tournent (rapide) — le chemin journal reste le filet"),
+        Item("logs-partage2", "Partage sans Drive : le fichier nyx-logs-*.txt arrive COMPLET dans la cible choisie (FB Messenger, e-mail…)"),
+        Item("replica-auto", "Réplicas temporaires (test 2) : l'adresse du réplica d'un contact s'ajoute SEULE (log « annonce réplica ») et survit au redémarrage"),
+        Item("replica-failover", "Réplicas : couper le réplica courant → l'app bascule sur le suivant sans redémarrer (log « bascule sur »)"),
+        Item("restauration2", "Restauration fidèle (v0.2.21+) : ré-exporter la sauvegarde puis l'importer — alias + contacts reviennent"),
+        Item("regressions-msg2", "Régressions : messages texte + accusés ✓✓ inchangés"),
+        Item("regressions-medias2", "Régressions : onglet Fichiers & médias + pièces jointes (v0.2.19)"),
+        Item("regressions-appels2", "Régressions : appel/visio v0.2.20 toujours fonctionnels"),
+        Item("regressions-replica3", "Régressions (test 2) : réplica temporaire actif + cycle sans serveur"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.25.md). */
+    fun items(): List<Item> = ITEMS_V0_2_25
 
     /** L'horodatage de validation d'un test (0 = à faire). */
     fun doneAt(context: android.content.Context, id: String): Long =

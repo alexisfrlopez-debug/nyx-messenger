@@ -296,6 +296,10 @@ interface ContactDao {
     @Query("SELECT * FROM contacts WHERE status NOT IN ('declined', 'removed', 'removed_by_me') ORDER BY alias")
     fun allActive(): Flow<List<ContactEntity>>
 
+    /** v0.2.25 : contacts acceptés (émission des annonces de réplica temporaire). */
+    @Query("SELECT * FROM contacts WHERE status = 'accepted' ORDER BY alias")
+    suspend fun accepted(): List<ContactEntity>
+
     /** v0.2.14 : contacts archivés (refusés/supprimés) — anciennes conversations. */
     @Query("SELECT * FROM contacts WHERE status IN ('declined', 'removed', 'removed_by_me') ORDER BY alias")
     fun allArchived(): Flow<List<ContactEntity>>

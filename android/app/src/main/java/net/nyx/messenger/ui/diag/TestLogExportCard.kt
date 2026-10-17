@@ -141,37 +141,63 @@ fun TestLogExportCard() {
             // read-only via le FileProvider v0.2.20 déjà déclaré) contourne
             // la limite et préserve la pièce jointe (e-mail, Drive personnel,
             // stockage…). Ré-écrit à chaque partage (stamp unique).
+            // v0.2.25 — CLIPDATA OBLIGATOIRE (retour terrain : « j'ai sélectionné
+            // facebook messenger, la fenêtre s'est fermée puis plus rien ») :
+            // la grant READ du EXTRA_STREAM n'est pas toujours propagée aux
+            // cibles À TRAVERS le ChooserActivity (certaines ROMs / apps
+            // exigeantes lisent l'URI dans un process séparé, la refusent
+            // silencieusement et ferment) — le ClipData.newUri recopie la
+            // permission pour CHAQUE cible du chooser (mécanisme canonique).
+            // + EXTRA_TEXT court (résumé, utile e-mail) + try/catch : un
+            // échec de launch ne laisse plus l'écran dans le silence, et le
+            // partage est loggé (tag nyx-share) pour le diagnostic terrain.
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
                     if (sharing) return@OutlinedButton
                     sharing = true
                     scope.launch {
-                        val stamp = stamp()
-                        val send = withContext(Dispatchers.IO) {
-                            val text = LogCollector.collect(context)
-                            val dir = java.io.File(context.cacheDir, "logs")
-                                .apply { mkdirs() }
-                            val file = java.io.File(dir,
-                                "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-$stamp.txt")
-                            file.writeText(text, Charsets.UTF_8)
-                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                context, context.packageName + ".update", file)
-                            Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT,
-                                    "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-$stamp")
-                                putExtra(Intent.EXTRA_TITLE, file.name)
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        var send: Intent? = null
+                        try {
+                            val stamp = stamp()
+                            send = withContext(Dispatchers.IO) {
+                                val text = LogCollector.collect(context)
+                                val dir = java.io.File(context.cacheDir, "logs")
+                                    .apply { mkdirs() }
+                                val file = java.io.File(dir,
+                                    "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-$stamp.txt")
+                                file.writeText(text, Charsets.UTF_8)
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context, context.packageName + ".update", file)
+                                Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT,
+                                        "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-$stamp")
+                                    putExtra(Intent.EXTRA_TITLE, file.name)
+                                    putExtra(Intent.EXTRA_TEXT,
+                                        "Journaux de diagnostic Nyx v${net.nyx.messenger.BuildConfig.VERSION_NAME}")
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    // Grants propagées à TOUTES les cibles du chooser
+                                    // (FB Messenger etc. lisent l'URI hors-process).
+                                    clipData = android.content.ClipData.newUri(
+                                        context.contentResolver, file.name, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
                             }
+                            android.util.Log.i("nyx-share",
+                                "partage logs — fichier ${send?.extras?.getString(Intent.EXTRA_TITLE)}")
+                            context.startActivity(
+                                Intent.createChooser(send, null).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            android.util.Log.w("nyx-share", "partage impossible : ${e.message}")
+                            ok = false
+                            status = "Partage impossible : ${e.message ?: "?"}"
+                        } finally {
+                            sharing = false
                         }
-                        context.startActivity(
-                            Intent.createChooser(send, null).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                        )
-                        sharing = false
                     }
                 },
                 enabled = !sharing,

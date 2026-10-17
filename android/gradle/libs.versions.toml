@@ -28,11 +28,21 @@ androidxBiometric = "1.1.0"
 # fragment-ktx explicite (≥ 1.3.0) : requis par le lint dès que l'activité hérite
 # de FragmentActivity (BiometricPrompt + registerForActivityResult — v0.1.2).
 androidxFragment = "1.8.5"
-# tor-binary (topl, Maven Central) : embarque un exécutable tor 0.4.6.5 par ABI
-# sous le nom libTor.so, extrait dans nativeLibraryDir (useLegacyPackaging).
-# Choix du 2026-10-12 : maven.guardianproject.net (source de org.torproject.jni:tor-android)
-# est injoignable depuis certains environnements réseau/CI ; tor-binary est sur Central.
-torBinary = "0.4.6.5"
+# TOR EMBARQUÉ — v0.2.25 : le binaire tor ne vient plus d'une dépendance Maven.
+# L'ancien « tor-binary » (topl, Maven Central) embarquait tor 0.4.6.5 (EOL) : le
+# consensus Tor 2026 requiert les protocoles Desc=3-4 / Microdesc=3 / Relay=4-6 /
+# FlowCtrl=2 que cette version ignore — terrain 19:57 (v0.2.24) : « Fetch status:
+# No more HSDir available to query » → aucune résolution onion fresh possible →
+# appels directs onion-to-onion morts (sonnerie sans média) et P2P fichiers mort
+# (tout passait par le relais, lent). Les 4 binaires libTor.so (arm64-v8a,
+# armeabi-v7a, x86, x86_64) vivent désormais dans app/src/main/jniLibs/<abi>/ —
+# tor 0.4.9.14 (arm64) / 0.4.9.13 (autres ABIs), extraits des APK officiels Orbot
+# (guardianproject/orbot-android, releases « fullperm », tor 0.4.9.14 est une
+# security release) — utilisables directement comme daemon tor (README
+# guardianproject/tor-android), deps libevent/openssl/zlib statiques, PT_INTERP
+# /system/bin/linker64, minSdk 24 ≤ app minSdk 26. Provenance + SHA256 :
+# app/src/main/jniLibs/README.md. (gpmaven reste injoignable au poste ; JitPack
+# échoue en git clone — d'où les binaires vérifiés versionnés ici.)
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -62,7 +72,6 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
-tor-binary = { group = "io.matthewnelson.topl-android", name = "tor-binary", version.ref = "torBinary" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
