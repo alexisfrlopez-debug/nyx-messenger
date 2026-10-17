@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v0.2.20 — partage des APK téléchargés vers l'installateur système. -->
+<!-- v0.2.20 — partage des APK téléchargés vers l'installateur système.
+     v0.2.24 — partage des journaux de diagnostic (carte bouton rouge,
+     « Partager les logs ») via le même FileProvider : cache/logs/. -->
 <paths>
     <cache-path name="update" path="update/" />
+    <cache-path name="logs" path="logs/" />
 </paths>

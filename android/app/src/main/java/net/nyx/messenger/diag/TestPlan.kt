@@ -37,8 +37,23 @@ object TestPlan {
         Item("regressions-replica", "Régressions (test 2) : réplica temporaire actif + cycle sans serveur"),
     )
 
-    /** Items de la release courante (mettouth — une seule liste pour l'instant). */
-    fun items(): List<Item> = ITEMS_V0_2_20
+    /** v0.2.24 — items de validation (miroir de docs/releases/v0.2.24.md) :
+     *  reprise des validations en attente du terrain (0.2.21-0.2.23) + les
+     *  correctifs de CETTE release (défilement, envoi de logs). */
+    val ITEMS_V0_2_24 = listOf(
+        Item("replica-amorcage", "Connexion : plus de message « pas de réplica d'amorçage » — la création d'identité passe (rendezvous signé v0.2.23)"),
+        Item("logs-drive", "Gros bouton rouge : envoi Drive RÉUSSI — le fichier nyx-logs-*.txt apparaît dans le dossier de travail"),
+        Item("logs-partage", "Partage sans Drive : le fichier nyx-logs-*.txt arrive COMPLET à destination (pièce jointe, plus coupée)"),
+        Item("scroll-tests", "Liste des conversations : l'écran DÉFILE — plan de tests et contacts tous accessibles"),
+        Item("restauration", "Restauration fidèle (v0.2.21+) : ré-exporter la sauvegarde puis l'importer — alias + contacts reviennent, PAS de re-création d'alias"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ inchangés"),
+        Item("regressions-medias", "Régressions : onglet Fichiers & médias + pièces jointes (v0.2.19)"),
+        Item("regressions-appels", "Régressions (si utilisé) : appel/visio v0.2.20 toujours fonctionnels"),
+        Item("regressions-replica2", "Régressions (test 2) : réplica temporaire actif + cycle sans serveur"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.24.md). */
+    fun items(): List<Item> = ITEMS_V0_2_24
 
     /** L'horodatage de validation d'un test (0 = à faire). */
     fun doneAt(context: android.content.Context, id: String): Long =

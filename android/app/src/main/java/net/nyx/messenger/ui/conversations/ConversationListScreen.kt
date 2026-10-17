@@ -7,6 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,8 +20,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -220,7 +220,15 @@ fun ConversationListScreen(
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+        // v0.2.24 — SCROLL GLOBAL (retour terrain : « l'écran où s'affiche la
+        // liste des tests ne défile pas » — en build test, carte bouton rouge
+        // + plan de tests dépassaient la hauteur d'écran et le LazyColumn,
+        // sans weight, était mesuré à hauteur nulle : RIEN ne défilait, la
+        // liste des tests et les contacts restaient inaccessibles). Tout
+        // l'écran défile désormais ; les cartes ContactCard sont légères et
+        // le terrain reste à quelques contacts — pas de virtualisation requise.
+        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)
+            .verticalScroll(rememberScrollState())) {
             TorBanner(torState)
             // v0.2.16 — état du RÉPLICA sous la bannière Tor (retour terrain :
             // « après fermeture/réouverture, le client ne se connecte plus au
@@ -307,9 +315,9 @@ fun ConversationListScreen(
                 }
             }
 
-            LazyColumn(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                 // ── Contacts actifs ──
-                items(contacts, key = { it.onion }) { c ->
+                for (c in contacts) {
                     ContactCard(
                         c = c,
                         archived = false,
@@ -321,15 +329,13 @@ fun ConversationListScreen(
                 }
                 // ── Anciennes conversations (refusés/supprimés) ──
                 if (archived.isNotEmpty()) {
-                    item(key = "archived_header") {
-                        Text(
-                            stringResource(R.string.list_archived_header),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-                        )
-                    }
-                    items(archived, key = { "a_" + it.onion }) { c ->
+                    Text(
+                        stringResource(R.string.list_archived_header),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                    )
+                    for (c in archived) {
                         ContactCard(
                             c = c,
                             archived = true,

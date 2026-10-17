@@ -133,20 +133,38 @@ fun TestLogExportCard() {
             // embarqué à la compilation peut expirer/révoquer, l'envoi Drive
             // n'est pas garanti) : le partage système (ACTION_SEND) fonctionne
             // toujours — e-mail, fichier, cloud de l'utilisateur…
+            // v0.2.24 — LE PARTAGE PASSE PAR UN FICHIER (FileProvider) : le
+            // EXTRA_TEXT transitait par le binder Android (~1 Mo max) alors
+            // que la collecte peut atteindre ~1,5 Mo — TransactionTooLarge-
+            // Exception silencieuse, la cible ne recevait RIEN (retour terrain
+            // : « je n'ai pas pu envoyer les logs »). Le fichier (cache/logs/,
+            // read-only via le FileProvider v0.2.20 déjà déclaré) contourne
+            // la limite et préserve la pièce jointe (e-mail, Drive personnel,
+            // stockage…). Ré-écrit à chaque partage (stamp unique).
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
                     if (sharing) return@OutlinedButton
                     sharing = true
                     scope.launch {
-                        val text = withContext(Dispatchers.IO) {
-                            LogCollector.collect(context)
-                        }
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT,
-                                "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-${stamp()}")
-                            putExtra(Intent.EXTRA_TEXT, text)
+                        val stamp = stamp()
+                        val send = withContext(Dispatchers.IO) {
+                            val text = LogCollector.collect(context)
+                            val dir = java.io.File(context.cacheDir, "logs")
+                                .apply { mkdirs() }
+                            val file = java.io.File(dir,
+                                "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-$stamp.txt")
+                            file.writeText(text, Charsets.UTF_8)
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context, context.packageName + ".update", file)
+                            Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT,
+                                    "nyx-logs-v${net.nyx.messenger.BuildConfig.VERSION_NAME}-$stamp")
+                                putExtra(Intent.EXTRA_TITLE, file.name)
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
                         }
                         context.startActivity(
                             Intent.createChooser(send, null).apply {
