@@ -5,13 +5,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import net.nyx.messenger.crypto.B64
+import net.nyx.messenger.crypto.IdentityBackup
 import net.nyx.messenger.crypto.IdentityManager
 import net.nyx.messenger.crypto.MessageCipher
 import net.nyx.messenger.crypto.OnionCodec
+import net.nyx.messenger.crypto.RecoveryKey
 import net.nyx.messenger.data.db.AttachmentChunkEntity
 import net.nyx.messenger.data.db.AttachmentDao
 import net.nyx.messenger.data.db.AttachmentEntity
@@ -511,7 +514,19 @@ class NyxRepository(
             // pas — « kind » doit valoir exactement « call » avec un op connu.)
             val signal = CallSignal.parse(plain)
             if (signal != null) {
-                callSignalHandler?.invoke(author, signal)
+                // v0.2.21 : garde anti-sonnerie fantôme — une signalisation
+                // VIEILLE (re-livrée après restauration quand le curseur repart
+                // de zéro, ou simplement très en retard) ne doit jamais
+                // déclencher d'appel. Un appel vivant est traité par le poll
+                // en moins de 15 s — 120 s de marge est large.
+                if (ev.ts >= System.currentTimeMillis() / 1000 - 120) {
+                    callSignalHandler?.invoke(author, signal)
+                } else {
+                    android.util.Log.i(
+                        "nyx-recv",
+                        "   · signalisation d'appel périmée de ${author.take(16)}… — ignorée"
+                    )
+                }
                 continue
             }
 
@@ -608,6 +623,123 @@ class NyxRepository(
         val name = identity.alias ?: return@withContext
         if (identity.aliasClaimed || replicas.isEmpty()) return@withContext
         claimAlias(name).onSuccess { identity.markAliasClaimed() }
+    }
+
+    /* v0.2.21 — SAUVEGARDE v2 / RESTAURATION FIDÈLE DU COMPTE.
+     * Retour terrain (test 2) : « l'application me redemande de créer un alias
+     * et je reçois l'invitation du contact que j'ai déjà accepté ». Causes : la
+     * sauvegarde v1 ne portait que la graine (alias/contacts/curseurs exclus) ;
+     * au premier poll, le curseur reparti de 0 fait RE-LIVRER les anciens
+     * événements par le réplica et l'invitation re-recrée un contact
+     * « incoming ». Le correctif embarque l'état du compte dans la sauvegarde
+     * et reprend le poll où il s'était arrêté. */
+
+    /**
+     * Instantané de sauvegarde v2 complet : clé de récupération + adresse +
+     * alias + carte de profil propre (publics ET privés) + contacts + curseurs
+     * inbox. UN SEUL point de génération (audit RED-DUP) — utilisé par
+     * l'onboarding et par Paramètres.
+     */
+    suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
+        val me = identity.onionAddress ?: error("identité absente")
+        val key = RecoveryKey.encode(identity.seed())
+
+        // Contacts — instantané brut (tous, y compris archivés : la sauvegarde
+        // doit restituer l'état tel quel).
+        val contactsArr = org.json.JSONArray()
+        for (c in contactDao.all().first()) {
+            contactsArr.put(
+                org.json.JSONObject()
+                    .put("onion", c.onion)
+                    .put("alias", c.alias)
+                    .put("status", c.status)
+                    .put("addedAt", c.addedAt)
+                    .put("notifiedAt", c.notifiedAt)
+                    .put("notifyPending", c.notifyPending)
+                    .put("ackPending", c.ackPending)
+            )
+        }
+
+        // Curseurs inbox par réplica (le poll reprend où l'export l'a laissé).
+        val cursorsObj = org.json.JSONObject()
+        for (ps in pollStateDao.all()) {
+            cursorsObj.put(ps.replicaOnion, ps.cursor)
+        }
+
+        // Carte de profil PROPRE (publics + privés — les privés ne vivent
+        // que localement : la sauvegarde est le seul endroit qui les préserve).
+        val store = net.nyx.messenger.profile.ProfileStore.get(ServiceLocator.appContext())
+        val profileJson = net.nyx.messenger.profile.ProfileCodec
+            .encode(net.nyx.messenger.profile.ProfileBody(store.load().fields))
+
+        IdentityBackup.toJson(me, key, identity.alias, profileJson,
+            contactsArr.toString(), cursorsObj.toString())
+    }
+
+    /**
+     * Re-fusion des contacts d'une sauvegarde (jamais régresser l'état local) :
+     *  - absent localement → insertion telle quelle (flags compris — le travail
+     *    en vol à l'export repart par les boucles existantes) ;
+     *  - présent : une ligne ARCHIVÉE locale n'est JAMAIS touchée (action
+     *    délibérée post-export) ; sinon, si la sauvegarde dit « accepted » et
+     *    que le local n l'est pas → mise à niveau (répare une restauration
+     *    antérieure qui avait recréé une invitation « incoming » — le cas
+     *    exact du retour terrain).
+     */
+    suspend fun restoreContacts(items: List<IdentityBackup.BackupContact>) =
+        withContext(Dispatchers.IO) {
+            val me = identity.onionAddress ?: return@withContext
+            var inserted = 0
+            var upgraded = 0
+            for (c in items) {
+                val onion = c.onion.trim().lowercase()
+                if (onion == me || !onion.endsWith(".onion")) continue
+                val local = contactDao.get(onion)
+                when {
+                    local == null -> {
+                        contactDao.upsert(
+                            ContactEntity(
+                                onion, c.alias, c.addedAt,
+                                notifyPending = c.notifyPending,
+                                notifiedAt = c.notifiedAt,
+                                status = c.status,
+                                ackPending = c.ackPending
+                            )
+                        )
+                        inserted++
+                    }
+                    !ContactStatus.archived(local.status) &&
+                        c.status == ContactStatus.ACCEPTED &&
+                        local.status != ContactStatus.ACCEPTED -> {
+                        contactDao.setStatus(onion, ContactStatus.ACCEPTED)
+                        upgraded++
+                    }
+                    else -> {}
+                }
+            }
+            android.util.Log.i(
+                "nyx-restore",
+                "contacts de la sauvegarde : $inserted inséré(s), $upgraded mis à niveau"
+            )
+        }
+
+    /**
+     * Restaure les curseurs inbox de la sauvegarde : insertion SEULEMENT s'il
+     * n'existe pas déjà un curseur local (un curseur local existant est par
+     * définition plus récent — ne JAMAIS reculer, sinon re-lecture complète).
+     */
+    suspend fun restoreCursors(cursors: Map<String, Long>) = withContext(Dispatchers.IO) {
+        var applied = 0
+        for ((replica, cursor) in cursors) {
+            if (cursor <= 0) continue
+            if (pollStateDao.get(replica) == null) {
+                pollStateDao.upsert(PollStateEntity(replica, cursor))
+                applied++
+            }
+        }
+        if (applied > 0) {
+            android.util.Log.i("nyx-restore", "curseurs inbox restaurés : $applied")
+        }
     }
 
     /**

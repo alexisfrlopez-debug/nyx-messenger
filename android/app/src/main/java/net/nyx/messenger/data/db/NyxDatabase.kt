@@ -523,6 +523,10 @@ interface PollStateDao {
     @Query("SELECT * FROM poll_state WHERE replicaOnion = :replica")
     suspend fun get(replica: String): PollStateEntity?
 
+    // v0.2.21 : instantané des curseurs pour la sauvegarde v2.
+    @Query("SELECT * FROM poll_state")
+    suspend fun all(): List<PollStateEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(state: PollStateEntity)
 }

@@ -105,19 +105,13 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
     }
 
     // Export du fichier de sauvegarde (SAF — aucune permission).
+    // v0.2.21 : sauvegarde v2 GÉNÉRÉE PAR LE DÉPÔT (writeBackupToUri →
+    // exportBackupJson) — clé + alias + profil + contacts + curseurs inbox.
     val saveBackup = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri != null && onion != null && recoveryKey != null) {
-            scope.launch {
-                withContext(Dispatchers.IO) {
-                    runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use {
-                            it.write(IdentityBackup.toJson(onion!!, recoveryKey!!).toByteArray(Charsets.UTF_8))
-                        }
-                    }
-                }
-            }
+            scope.launch { net.nyx.messenger.ui.components.writeBackupToUri(context, uri) }
         }
     }
 
@@ -309,16 +303,48 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
 /** Restauration partagée (collage ou fichier) — état UI mis à jour via [apply]. */
 private suspend fun doRestore(text: String?, context: Context, apply: (String, String) -> Unit) {
     if (text == null) return
-    val found = IdentityBackup.extractKey(text)
+    val found = IdentityBackup.extract(text)
     if (found == null) {
         android.util.Log.w("nyx-restore", "contenu de sauvegarde méconnaissable")
         return
     }
-    val (key, _) = found
     runCatching {
         withContext(Dispatchers.IO) {
-            val seed = RecoveryKey.decode(key)
+            val seed = RecoveryKey.decode(found.recoveryKey)
             val addr = ServiceLocator.identity.restoreFromSeed(seed)
+
+            // v0.2.21 — RESTAURATION ÉLARGIE (sauvegarde v2) : alias, profil
+            // propre (publics + privés), contacts, curseurs inbox. Tout est
+            // best-effort : une sauvegarde v1 (clé seule) restaure quand même
+            // l'identité — c'était le comportement v0.2.20.
+            found.alias?.let { a ->
+                runCatching {
+                    val n = AliasValidator.normalize(a)
+                    if (AliasValidator.isValid(n)) ServiceLocator.identity.setAlias(n)
+                }
+            }
+            found.profileJson?.let { pj ->
+                runCatching {
+                    val body = net.nyx.messenger.profile.ProfileCodec.decode(pj) ?: return@let
+                    val store = net.nyx.messenger.profile.ProfileStore.get(context)
+                    store.save(net.nyx.messenger.profile.OwnProfile(body.fields))
+                    // Les champs publics se re-publient vers le réplica (boucle
+                    // 30 s) — même adresse, même carte, la publication est
+                    // idempotente côté journal (dernier seq gagne).
+                    if (body.fields.any { it.value.public }) store.markPublishPending()
+                }
+            }
+            if (found.contacts.isNotEmpty()) {
+                ServiceLocator.repository.restoreContacts(found.contacts)
+            }
+            if (found.cursors.isNotEmpty()) {
+                ServiceLocator.repository.restoreCursors(found.cursors)
+            }
+            android.util.Log.i(
+                "nyx-restore",
+                "restauration : alias=${found.alias != null}, profil=${found.profileJson != null}, " +
+                    "contacts=${found.contacts.size}, curseurs=${found.cursors.size}"
+            )
             addr to RecoveryKey.encode(ServiceLocator.identity.seed())
         }
     }.onSuccess { (addr, rk) ->

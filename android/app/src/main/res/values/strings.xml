@@ -24,14 +24,14 @@
     <string name="recovery_desc">Écrivez cette clé sur papier et conservez-la HORS de l\'appareil : elle seule recrée votre compte (même adresse) sur un autre téléphone. Qui la possède peut usurper votre identité.</string>
     <string name="recovery_save">Enregistrer dans un fichier…</string>
     <string name="restore_title">Restaurer une sauvegarde</string>
-    <string name="restore_desc">Collez votre clé de récupération « nyx1.… » ou importez le fichier de sauvegarde. Votre identité actuelle (si elle existe) sera remplacée.</string>
+    <string name="restore_desc">Collez votre clé de récupération « nyx1.… » ou importez le fichier de sauvegarde. Votre identité actuelle (si elle existe) sera remplacée. Un fichier de sauvegarde complet restaure aussi l\'alias, le profil, les contacts et la position de lecture — une simple clé restaure l\'identité seule.</string>
     <string name="restore_paste_hint">nyx1.…</string>
     <string name="restore_pick_file">Choisir un fichier de sauvegarde…</string>
     <string name="restore_confirm">Restaurer cette identité</string>
     <string name="cancel">Annuler</string>
     <string name="restore_invalid">Clé invalide : %1$s</string>
     <string name="settings_backup_title">Sauvegarde de l\'identité</string>
-    <string name="settings_backup_desc">Votre compte tient dans une clé : affichez-la, copiez-la ou exportez-la dans un fichier à conserver hors de l\'appareil.</string>
+    <string name="settings_backup_desc">Votre compte tient dans une clé : affichez-la, copiez-la ou exportez-la dans un fichier à conserver hors de l\'appareil. L\'export inclut aussi l\'alias, le profil, les contacts et la position de lecture — la restauration rend votre compte tel qu\'il était.</string>
     <string name="settings_backup_show">Afficher ma clé de récupération</string>
     <string name="settings_backup_hide">Masquer la clé</string>
     <string name="settings_backup_export">Exporter dans un fichier…</string>

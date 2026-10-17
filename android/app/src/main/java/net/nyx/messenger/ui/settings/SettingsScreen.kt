@@ -44,7 +44,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.nyx.messenger.R
-import net.nyx.messenger.crypto.IdentityBackup
 import net.nyx.messenger.crypto.RecoveryKey
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.settings.SettingsManager
@@ -269,17 +268,9 @@ private fun BackupCard() {
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri != null) {
-            scope.launch {
-                withContext(Dispatchers.IO) {
-                    runCatching {
-                        val key = RecoveryKey.encode(ServiceLocator.identity.seed())
-                        val onion = ServiceLocator.identity.onionAddress ?: ""
-                        context.contentResolver.openOutputStream(uri)?.use {
-                            it.write(IdentityBackup.toJson(onion, key).toByteArray(Charsets.UTF_8))
-                        }
-                    }
-                }
-            }
+            // v0.2.21 : sauvegarde v2 — clé + alias + profil (publics ET privés)
+            // + contacts + curseurs inbox, via le helper partagé (audit RED-DUP).
+            scope.launch { net.nyx.messenger.ui.components.writeBackupToUri(context, uri) }
         }
     }
 
