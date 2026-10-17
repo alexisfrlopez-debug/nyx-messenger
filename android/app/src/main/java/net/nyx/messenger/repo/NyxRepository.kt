@@ -18,6 +18,8 @@ import net.nyx.messenger.data.db.AttachmentEntity
 import net.nyx.messenger.data.db.ContactDao
 import net.nyx.messenger.data.db.ContactEntity
 import net.nyx.messenger.data.db.ContactStatus
+import net.nyx.messenger.data.db.DelPendingDao
+import net.nyx.messenger.data.db.DelPendingEntity
 import net.nyx.messenger.data.db.MessageDao
 import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.data.db.PeerProfileDao
@@ -30,6 +32,7 @@ import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.media.MediaIngest
 import net.nyx.messenger.net.RelayClient
 import net.nyx.messenger.net.WireEvent
+import java.io.File
 import net.nyx.messenger.p2p.CallSignal
 import net.nyx.messenger.p2p.P2pClient
 
@@ -49,6 +52,9 @@ class NyxRepository(
     private val peerProfileDao: PeerProfileDao,
     // v0.2.17 : méta + fragments des pièces jointes (photos/vidéos/fichiers).
     private val attachmentDao: AttachmentDao,
+    // v0.2.19 : demandes de suppression « pour tous » différées (réplica
+    // injoignable au moment de l'action — reparties par la boucle périodique).
+    private val delPendingDao: DelPendingDao,
 ) {
     /** Réplicas de rattachement — v0.1 : le premier configuré ; TODO : rotation.
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
@@ -242,7 +248,14 @@ class NyxRepository(
         val priv = identity.secretKey()
 
         val cursor = pollStateDao.get(replicas.first())?.cursor ?: 0L
-        val resp = relay.inbox(me, cursor)
+        // v0.2.19 : preuve d'identité du demandeur (signature NYX-INBOX) — le
+        // réplica embarqué (test 2) l'exige, le serveur Go l'ignore (paramètre
+        // inconnu). Le MÊME client parle aux deux.
+        val authTs = System.currentTimeMillis() / 1000
+        val auth = "$authTs:" + cipher.signEvent(
+            net.nyx.messenger.replica.ReplicaValidate.inboxCanonical(me, authTs), priv
+        )
+        val resp = relay.inbox(me, cursor, auth = auth)
         if (resp.events.isNotEmpty()) {
             android.util.Log.i("nyx-recv", "← inbox ${resp.events.size} évts (after=$cursor)")
         }
@@ -298,6 +311,31 @@ class NyxRepository(
                             "nyx-recv",
                             "   ✓ accusé « $kind » de ${author.take(16)}… (${ids.size} msg)"
                         )
+                    }
+                    continue
+                }
+                // v0.2.19 : DEMANDE DE SUPPRESSION ("del") — traitée AVANT la
+                // branche invitation/ack (le corps "del" n'est ni l'un ni l'autre).
+                // GARDE DE L'ASYMÉTRIE (demande opérateur : « suppression coté
+                // destinataire quand on est expéditeur, mais pas de suppression
+                // coté expéditeur quand on est destinataire ») : seuls NOS
+                // messages REÇUS de cet auteur (outgoing=0) sont effacés —
+                // l'auteur ne peut jamais effacer NOS propres messages.
+                val delIds = DeleteCodec.parse(plain)
+                if (delIds != null) {
+                    if (delIds.isNotEmpty()) {
+                        val rows = messageDao.byEventIds(delIds)
+                            .filter { it.peerOnion == author && !it.outgoing }
+                        val n = messageDao.deleteIncomingFrom(author, delIds)
+                        for (m in rows) {
+                            if (m.kind == 1 && m.fid.isNotBlank()) deleteAttachmentFile(m.fid)
+                        }
+                        if (n > 0) {
+                            android.util.Log.i(
+                                "nyx-recv",
+                                "   ✓ suppression distante de ${author.take(16)}… : $n message(s) effacé(s)"
+                            )
+                        }
                     }
                     continue
                 }
@@ -1261,6 +1299,158 @@ class NyxRepository(
             Unit
         }
     }
+
+    /* ---------------- suppression unitaire (v0.2.19) ---------------- */
+
+    /**
+     * v0.2.19 — SUPPRESSION LOCALE de messages (demande opérateur : « supprimer
+     * les messages un par un, idem pour les fichiers et médias échangés »).
+     * Chaque ligne est effacée de la base avec ses médias (fichiers chiffrés au
+     * repos + fragments en vol + méta). STRICTEMENT local — aucune demande wire.
+     */
+    suspend fun deleteMessagesLocally(eventIds: List<String>): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (eventIds.isEmpty()) return@runCatching
+                val rows = messageDao.byEventIds(eventIds)
+                for (m in rows) {
+                    if (m.kind == 1 && m.fid.isNotBlank()) deleteAttachmentFile(m.fid)
+                }
+                messageDao.deleteByIds(eventIds)
+                android.util.Log.i("nyx-repo", "message(s) supprimé(s) localement : ${eventIds.size}")
+                Unit
+            }
+        }
+
+    /**
+     * v0.2.19 — SUPPRESSION « POUR TOUS » d'un message SORTANT (demande
+     * opérateur : « possibilité de suppression coté destinataire quand on est
+     * expéditeur, mais pas de suppression coté expéditeur quand on est
+     * destinataire ») : le message est effacé ICI, et une demande signée (type
+     * « contact », corps chiffré {"alias":…,"del":[…]} — zéro changement
+     * serveur) est déposée au pair qui effacera SA copie. GARDES :
+     *  - seuls des messages QUE NOUS AVONS ENVOYÉS à ce pair sont concernés ;
+     *  - le destinataire d'un message n'a PAS cette option (UI + garde SQL côté
+     *    réception : `deleteIncomingFrom` ne touche que outgoing=0 de l'auteur).
+     * Échec réplica = demande DIFFÉRÉE (del_pending, repartie par la boucle
+     * périodique comme les accusés/acks) — la copie locale est déjà partie.
+     */
+    suspend fun deleteForEveryone(peerOnion: String, eventIds: List<String>): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val peer = peerOnion.trim().lowercase()
+                if (eventIds.isEmpty()) return@runCatching
+                if (contactDao.get(peer)?.status != ContactStatus.ACCEPTED) {
+                    error("suppression « pour tous » réservée aux contacts acceptés")
+                }
+                // Garde : uniquement des messages SORTANTS adressés à CE pair.
+                val mine = messageDao.byEventIds(eventIds)
+                    .filter { it.outgoing && it.peerOnion == peer }
+                    .map { it.eventId }
+                if (mine.isEmpty()) {
+                    error("seuls vos propres messages peuvent être supprimés chez le destinataire")
+                }
+                // 1. La copie locale part immédiatement (avec ses médias).
+                deleteMessagesLocally(mine).getOrThrow()
+                // 2. La demande au pair est mémorisée puis déposée.
+                delPendingDao.insert(
+                    DelPendingEntity(
+                        peer = peer,
+                        ids = DeleteCodec.encode(identity.alias ?: "", mine),
+                        createdAt = System.currentTimeMillis()
+                    )
+                )
+                ensureDeletionsSent()
+                Unit
+            }
+        }
+
+    /**
+     * Suppression « pour tous » d'un MÉDIA (onglet Fichiers & médias) : trouve
+     * la bulle porteuse (messages.fid) et applique la même sémantique —
+     * expéditeur = locale + demande au pair ; destinataire = locale seulement.
+     */
+    suspend fun deleteAttachment(peerOnion: String, fid: String, forEveryone: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val peer = peerOnion.trim().lowercase()
+                val msg = messageDao.byFid(fid)
+                    ?: error("message porteur introuvable pour ce média")
+                if (forEveryone) {
+                    if (!msg.outgoing) {
+                        // Un destinataire ne supprime JAMAIS chez l'expéditeur
+                        // (asymétrie exigée) — repli silencieux sur local seul.
+                        deleteAttachmentFile(fid)
+                        messageDao.deleteByIds(listOf(msg.eventId))
+                    } else {
+                        deleteForEveryone(peer, listOf(msg.eventId)).getOrThrow()
+                    }
+                } else {
+                    deleteAttachmentFile(fid)
+                    messageDao.deleteByIds(listOf(msg.eventId))
+                }
+                Unit
+            }
+        }
+
+    /**
+     * Dépose les demandes de suppression « pour tous » restées en attente —
+     * appelé en fin de [deleteForEveryone] ET par la boucle périodique (retry,
+     * même mécanique que les accusés/acks). Seuls les liens ACCEPTÉS reçoivent
+     * des demandes (pas de demande vers un pair archivé).
+     */
+    suspend fun ensureDeletionsSent(): Unit = withContext(Dispatchers.IO) {
+        if (replicas.isEmpty()) return@withContext
+        for (p in delPendingDao.all()) {
+            if (contactDao.get(p.peer)?.status != ContactStatus.ACCEPTED) {
+                // Lien archivé depuis : la demande n'a plus de sens — purge.
+                delPendingDao.delete(p.id)
+                continue
+            }
+            runCatching {
+                val ids = DeleteCodec.parse(p.ids).orEmpty()
+                if (ids.isEmpty()) error("demande vide")
+                val relay = relay() ?: error("aucun réplica configuré")
+                val me = identity.onionAddress ?: error("identité absente")
+                val priv = identity.secretKey()
+                val peerPub = OnionCodec.onionToPubKey(p.peer)
+                val body = cipher.encryptFor(peerPub, p.ids.toByteArray(Charsets.UTF_8))
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "contact", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, ttl = 0,
+                    to = p.peer, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                // La demande est acceptée par le réplica : on peut purger l'état
+                // local (le pair l'appliquera à son prochain poll — l'événement
+                // est dans son journal, re-déposer serait un doublon).
+                delPendingDao.delete(p.id)
+            }.onSuccess {
+                android.util.Log.i("nyx-send", "✓ demande de suppression déposée pour ${p.peer.take(16)}…")
+            }.onFailure { e ->
+                android.util.Log.w("nyx-send", "✗ demande de suppression DIFFÉRÉE pour ${p.peer.take(16)}… : ${e.message}")
+            }
+        }
+    }
+
+    /** Efface un média COMPLET : fichier chiffré sur disque + fragments + méta. */
+    private suspend fun deleteAttachmentFile(fid: String) {
+        val a = attachmentDao.get(fid)
+        attachmentDao.clearChunks(fid)
+        attachmentDao.deleteFid(fid)
+        val path = a?.localPath
+        if (!path.isNullOrBlank()) {
+            // filesDir/media/<fid>/<nom> — le dossier parent part avec le fichier.
+            runCatching { File(path).parentFile?.deleteRecursively() }
+                .onFailure { e -> android.util.Log.w("nyx-repo", "média $fid non effacé du disque : ${e.message}") }
+        }
+    }
+
+    /** Flux des médias échangés avec un pair (onglet « Fichiers & médias »). */
+    fun attachmentsByPeer(peerOnion: String): Flow<List<AttachmentEntity>> =
+        attachmentDao.byPeer(peerOnion.trim().lowercase())
 
     /* ---------------- profil (v0.2.0 — wire-format.md §7) ---------------- */
 

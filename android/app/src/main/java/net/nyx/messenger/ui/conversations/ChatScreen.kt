@@ -8,9 +8,11 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -45,6 +50,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,7 +60,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -83,6 +92,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.nyx.messenger.R
+import net.nyx.messenger.data.db.AttachmentEntity
 import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.p2p.CallManager
@@ -90,6 +100,8 @@ import net.nyx.messenger.media.MediaIngest
 import net.nyx.messenger.repo.ChunkCodec
 import net.nyx.messenger.repo.NyxRepository
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * Écran de chat — l'envoi et la réception passent par [NyxRepository]
@@ -108,6 +120,10 @@ import java.io.File
 class ChatViewModel(peerOnion: String) : ViewModel() {
     private val db = ServiceLocator.database
     val repo = ServiceLocator.repository
+
+    /** v0.2.19 : adresse normalisée du pair — les méthodes ne peuvent pas
+     *  relire un paramètre de constructeur ; capturée une fois pour toutes. */
+    private val peerLower = peerOnion.trim().lowercase()
 
     /** Conversation observable — re-émet à chaque écriture dans `messages`. */
     val messages: Flow<List<MessageEntity>> = db.messageDao().conversation(peerOnion)
@@ -163,6 +179,43 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
     /** Flux méta d'une pièce jointe (bulle média — progression/état en direct). */
     fun attachmentFlow(fid: String): Flow<net.nyx.messenger.data.db.AttachmentEntity?> =
         db.attachmentDao().byFid(fid)
+
+    /** v0.2.19 — tous les médias échangés avec ce pair (onglet dédié). */
+    val attachments: Flow<List<AttachmentEntity>> =
+        db.attachmentDao().byPeer(peerOnion.trim().lowercase())
+
+    /* ---------- suppression unitaire (v0.2.19) ---------- */
+
+    /** Suppression LOCALE d'un message (cet appareil uniquement). */
+    fun deleteLocally(m: MessageEntity, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repo.deleteMessagesLocally(listOf(m.eventId)).fold(
+                onSuccess = { onDone() },
+                onFailure = { e -> sendError.value = e.message ?: "suppression impossible" }
+            )
+        }
+    }
+
+    /** Suppression « POUR TOUS » d'un message SORTANT (ici + chez le pair). */
+    fun deleteForEveryone(m: MessageEntity, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repo.deleteForEveryone(peerLower, listOf(m.eventId)).fold(
+                onSuccess = { onDone() },
+                onFailure = { e -> sendError.value = e.message ?: "suppression impossible" }
+            )
+        }
+    }
+
+    /** Suppression d'un MÉDIA (onglet médias) — locale, ou « pour tous » si
+     *  nous en sommes l'expéditeur (l'asymétrie est appliquée par le dépôt). */
+    fun deleteMedia(a: AttachmentEntity, forEveryone: Boolean, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repo.deleteAttachment(peerLower, a.fid, forEveryone).fold(
+                onSuccess = { onDone() },
+                onFailure = { e -> sendError.value = e.message ?: "suppression impossible" }
+            )
+        }
+    }
 
     /** Flux du nombre de fragments reçus (progression de réception). */
     fun chunksFlow(fid: String): Flow<Int> = db.attachmentDao().chunksFlow(fid)
@@ -276,7 +329,8 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     val vm: ChatViewModel = viewModel(key = peerOnion, factory = viewModelFactory {
@@ -293,6 +347,11 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     val listState = rememberLazyListState()
     val peer = peerOnion.trim().lowercase()
     val ctx = LocalContext.current
+    // v0.2.19 : onglets (Messages / Fichiers & médias) + cible de suppression.
+    var tab by remember { mutableStateOf(0) }
+    var deleteMsg by remember { mutableStateOf<MessageEntity?>(null) }
+    var deleteAtt by remember { mutableStateOf<AttachmentEntity?>(null) }
+    val scope = rememberCoroutineScope()
 
     // v0.2.17 : pickers système — galerie (photos + vidéos) et documents.
     val pickMedia = rememberLauncherForActivityResult(
@@ -358,6 +417,14 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            // v0.2.19 : onglets « Messages » / « Fichiers & médias » (demande
+            // opérateur : « un onglet qui liste les fichiers et medias échangés »).
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 },
+                    text = { Text(stringResource(R.string.chat_tab_messages)) })
+                Tab(selected = tab == 1, onClick = { tab = 1 },
+                    text = { Text(stringResource(R.string.chat_tab_media)) })
+            }
             if (contact?.status != net.nyx.messenger.data.db.ContactStatus.ACCEPTED) {
                 Text(
                     stringResource(R.string.chat_not_mutual),
@@ -366,75 +433,87 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                 )
             }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp)
-            ) {
-                items(messages, key = { it.eventId }) { m ->
-                    MessageRow(
-                        m, vm, sendProgress,
-                        onOpenImage = { viewerPath = it }
-                    )
+            if (tab == 0) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp)
+                ) {
+                    items(messages, key = { it.eventId }) { m ->
+                        MessageRow(
+                            m, vm, sendProgress,
+                            onOpenImage = { viewerPath = it },
+                            onDelete = { deleteMsg = m }
+                        )
+                    }
                 }
-            }
-            // v0.2.17 : barre d'enregistrement vocal (appui = arrêt + envoi).
-            if (isRecording) {
+                // v0.2.17 : barre d'enregistrement vocal (appui = arrêt + envoi).
+                if (isRecording) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.errorContainer)
+                            .clickable { vm.stopAndSendVoice(peer) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Stop,
+                            contentDescription = stringResource(R.string.record_stop),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            stringResource(R.string.voice_recording),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.errorContainer)
-                        .clickable { vm.stopAndSendVoice(peer) }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(8.dp)
                 ) {
-                    Icon(
-                        Icons.Filled.Stop,
-                        contentDescription = stringResource(R.string.record_stop),
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                    Text(
-                        stringResource(R.string.voice_recording),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
-                }
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(8.dp)
-            ) {
-                IconButton(onClick = { showAttach = true }) {
-                    Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.attach_desc))
-                }
-                OutlinedTextField(
-                    value = input, onValueChange = { input = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text(stringResource(R.string.message_hint)) }
-                )
-                if (input.isBlank()) {
-                    IconButton(onClick = {
-                        micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
-                    }) {
-                        Icon(Icons.Filled.Mic, contentDescription = stringResource(R.string.record_start))
+                    IconButton(onClick = { showAttach = true }) {
+                        Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.attach_desc))
                     }
-                } else {
-                    IconButton(
-                        onClick = {
-                            val text = input.trim()
-                            if (text.isNotEmpty()) {
-                                input = ""
-                                vm.send(peer, text) { ok ->
-                                    if (!ok) android.util.Log.w("nyx-send", "envoi signalé en échec à l'UI")
+                    OutlinedTextField(
+                        value = input, onValueChange = { input = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text(stringResource(R.string.message_hint)) }
+                    )
+                    if (input.isBlank()) {
+                        IconButton(onClick = {
+                            micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }) {
+                            Icon(Icons.Filled.Mic, contentDescription = stringResource(R.string.record_start))
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                val text = input.trim()
+                                if (text.isNotEmpty()) {
+                                    input = ""
+                                    vm.send(peer, text) { ok ->
+                                        if (!ok) android.util.Log.w("nyx-send", "envoi signalé en échec à l'UI")
+                                    }
                                 }
                             }
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
                         }
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
                     }
                 }
+            } else {
+                // Onglet FICHIERS & MÉDIAS (v0.2.19) — liste complète des
+                // échanges de cette conversation, suppression par appui long.
+                MediaTab(
+                    vm = vm,
+                    onOpenImage = { viewerPath = it },
+                    onDelete = { deleteAtt = it },
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
             }
             sendError?.takeIf { it.isNotEmpty() }?.let {
                 Text(
@@ -445,6 +524,64 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                 )
             }
         }
+    }
+
+    // v0.2.19 : dialogue de SUPPRESSION (asymétrie exigée — l'expéditeur peut
+    // supprimer chez le destinataire, le destinataire ne supprime que SA copie).
+    val targetMsg = deleteMsg
+    val targetAtt = deleteAtt
+    if (targetMsg != null || targetAtt != null) {
+        val isMedia = targetMsg == null
+        val outgoing = targetMsg?.outgoing ?: targetAtt!!.outgoing
+        fun close() { deleteMsg = null; deleteAtt = null }
+        fun toastDone() = android.widget.Toast.makeText(
+            ctx, ctx.getString(R.string.delete_done), android.widget.Toast.LENGTH_SHORT
+        ).show()
+        AlertDialog(
+            onDismissRequest = { close() },
+            title = { Text(stringResource(if (isMedia) R.string.delete_media_title else R.string.delete_msg_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (outgoing) R.string.delete_for_everyone_desc
+                        else R.string.delete_local_only_note
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            },
+            confirmButton = {
+                Column {
+                    if (outgoing) {
+                        TextButton(onClick = {
+                            val m = targetMsg; val a = targetAtt
+                            close()
+                            scope.launch {
+                                if (m != null) vm.deleteForEveryone(m) { toastDone() }
+                                else if (a != null) vm.deleteMedia(a, forEveryone = true) { toastDone() }
+                            }
+                        }) {
+                            Icon(Icons.Filled.Delete, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(stringResource(R.string.delete_for_everyone),
+                                color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    TextButton(onClick = {
+                        val m = targetMsg; val a = targetAtt
+                        close()
+                        scope.launch {
+                            if (m != null) vm.deleteLocally(m) { toastDone() }
+                            else if (a != null) vm.deleteMedia(a, forEveryone = false) { toastDone() }
+                        }
+                    }) { Text(stringResource(R.string.delete_for_me)) }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { close() }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
     }
 
     // v0.2.17 : feuille de partage (galerie / documents).
@@ -485,21 +622,25 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     }
 }
 
-/** Une ligne de message : bulle texte OU carte média (v0.2.17) + accusés. */
+/** Une ligne de message : bulle texte OU carte média (v0.2.17) + accusés.
+ *  v0.2.19 : APPUI LONG = suppression (locale, ou « pour tous » si sortant). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(
     m: MessageEntity,
     vm: ChatViewModel,
     sendProgress: Map<String, Pair<Int, Int>>,
     onOpenImage: (String) -> Unit,
+    onDelete: () -> Unit = {},
 ) {
     val outgoing = m.outgoing
     Column(
         horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            .combinedClickable(onClick = {}, onLongClick = onDelete)
     ) {
         if (m.kind == 1) {
-            MediaBubble(m, vm, sendProgress, onOpenImage)
+            MediaBubble(m, vm, sendProgress, onOpenImage, onDelete)
         } else {
             Text(
                 m.text,
@@ -518,13 +659,16 @@ private fun MessageRow(
     }
 }
 
-/** Carte d'une pièce jointe (photo/vidéo/audio/fichier) avec progression. */
+/** Carte d'une pièce jointe (photo/vidéo/audio/fichier) avec progression.
+ *  v0.2.19 : appui long = suppression (même dialogue que les bulles texte). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MediaBubble(
     m: MessageEntity,
     vm: ChatViewModel,
     sendProgress: Map<String, Pair<Int, Int>>,
     onOpenImage: (String) -> Unit,
+    onDelete: () -> Unit = {},
 ) {
     val att by vm.attachmentFlow(m.fid).collectAsState(initial = null)
     val receivedChunks by vm.chunksFlow(m.fid).collectAsState(initial = 0)
@@ -539,6 +683,7 @@ private fun MediaBubble(
             .widthIn(max = 260.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .combinedClickable(onClick = {}, onLongClick = onDelete)
             .padding(8.dp)
     ) {
         when {
@@ -580,6 +725,150 @@ private fun MediaBubble(
                 )
             }
         }
+    }
+}
+
+/**
+ * v0.2.19 — ONGLET « FICHIERS & MÉDIAS » (demande opérateur : « un onglet qui
+ * liste les fichiers et medias échangés ») : tous les transferts de la
+ * conversation (photos, vidéos, vocaux, documents), du plus récent au plus
+ * ancien. Appui = ouvrir (image) ou enregistrer dans Téléchargements ; appui
+ * long = suppression (locale, ou « pour tous » si nous en sommes l'expéditeur).
+ */
+@Composable
+private fun MediaTab(
+    vm: ChatViewModel,
+    onOpenImage: (String) -> Unit,
+    onDelete: (AttachmentEntity) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val atts by vm.attachments.collectAsState(initial = emptyList())
+    if (atts.isEmpty()) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Text(
+                stringResource(R.string.media_none),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(24.dp)
+            )
+        }
+        return
+    }
+    LazyColumn(modifier.padding(horizontal = 12.dp)) {
+        items(atts, key = { it.fid }) { a ->
+            MediaListItem(a, onOpenImage, onDelete)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MediaListItem(
+    a: AttachmentEntity,
+    onOpenImage: (String) -> Unit,
+    onDelete: (AttachmentEntity) -> Unit,
+) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {
+                    if (a.state == NyxRepository.AT_READY) {
+                        if (a.mime.startsWith("image/")) {
+                            onOpenImage(a.localPath)
+                        } else {
+                            scope.launch {
+                                val saved = withContext(Dispatchers.IO) {
+                                    MediaIngest.saveToDownloads(ctx, a.localPath, a.mime)
+                                }
+                                android.widget.Toast.makeText(
+                                    ctx,
+                                    saved?.let { ctx.getString(R.string.media_saving, it) }
+                                        ?: ctx.getString(R.string.media_save_failed),
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                },
+                onLongClick = { onDelete(a) }
+            )
+            .padding(vertical = 6.dp)
+    ) {
+        if (a.state == NyxRepository.AT_READY && a.mime.startsWith("image/")) {
+            MediaThumbnail(a.localPath)
+        } else {
+            Icon(
+                when {
+                    a.mime.startsWith("image/") -> Icons.Filled.Image
+                    a.mime.startsWith("video/") -> Icons.Filled.Videocam
+                    a.mime.startsWith("audio/") -> Icons.Filled.Mic
+                    else -> Icons.Filled.InsertDriveFile
+                },
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(a.name, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                ChunkCodec.humanSize(a.size) + " — " +
+                    stringResource(if (a.outgoing) R.string.media_direction_out else R.string.media_direction_in) +
+                    " — " + DateFormat.getDateInstance(DateFormat.SHORT).format(Date(a.createdAt)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        when (a.state) {
+            NyxRepository.AT_TRANSFER -> {
+                Text(
+                    stringResource(R.string.media_receiving, 0, a.totalChunks)
+                        .substringBefore(" ") + "…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            NyxRepository.AT_FAILED -> {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = stringResource(R.string.media_failed),
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+}
+
+/** Vignette d'une image prête (décode échantillonné ~256 px — média chiffré au repos). */
+@Composable
+private fun MediaThumbnail(path: String) {
+    val ctx = LocalContext.current
+    val bitmap = remember(path) {
+        runCatching {
+            val bytes = net.nyx.messenger.media.MediaVault.readBytes(ctx, path)
+                ?: return@runCatching null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0) return@runCatching null
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 256) sample *= 2
+            BitmapFactory.decodeByteArray(
+                bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }
+            )
+        }.getOrNull()
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp))
+        )
+    } else {
+        Icon(Icons.Filled.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
     }
 }
 

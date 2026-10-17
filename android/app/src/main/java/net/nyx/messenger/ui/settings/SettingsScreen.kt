@@ -150,6 +150,16 @@ fun SettingsScreen(onBack: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
+            // ---- v0.2.19 : réplica temporaire + liste des réplicas (TEST 2) ----
+            if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA) {
+                EmbeddedReplicaCard()
+                Spacer(Modifier.height(8.dp))
+                ReplicasListCard()
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+            }
+
             // ---- sauvegarde de l'identité (v0.2.3 — ADR-003) ----
             BackupCard()
             Spacer(Modifier.height(8.dp))
@@ -355,6 +365,174 @@ private fun PasswordsCard() {
                 }
             }
         )
+    }
+}
+
+/**
+ * v0.2.19 — CARTE RÉPLICA TEMPORAIRE (build « test 2 » uniquement) : interrupteur
+ * (actif tant que l'application tourne), adresse à partager, statistiques de
+ * stockage, purge manuelle. Les plafonds (dépôts/min, taille, TTL 48 h) sont
+ * documentés dans le texte — la promesse « ne pas bouffer les ressources ».
+ */
+@Composable
+private fun EmbeddedReplicaCard() {
+    val context = LocalContext.current
+    val settings = remember { SettingsManager.get(context) }
+    val enabled by settings.replicaEnabled.collectAsState()
+    val scope = rememberCoroutineScope()
+    var statsTick by remember { mutableStateOf(0) }
+    val stats = remember(statsTick) {
+        runCatching {
+            val dao = ServiceLocator.database.replicaDao()
+            kotlinx.coroutines.runBlocking {
+                Pair(dao.count(), dao.totalBytes())
+            }
+        }.getOrDefault(Pair(0, 0L))
+    }
+    val onion = remember { ServiceLocator.identity.onionAddress ?: "" }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.settings_replica_title), style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.settings_replica_desc), style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(
+                            if (enabled) R.string.settings_replica_status_on
+                            else R.string.settings_replica_status_off
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (enabled) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = { settings.setReplicaEnabled(it) })
+            }
+            if (onion.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.settings_replica_address), style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "$onion:80",
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("nyx_replica", "$onion:80"))
+                    }) { Text(stringResource(R.string.copy)) }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(
+                    R.string.settings_replica_stats,
+                    stats.first,
+                    if (stats.second > 0) net.nyx.messenger.repo.ChunkCodec.humanSize(stats.second) else "0 o"
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        runCatching { ServiceLocator.database.replicaDao().clear() }
+                    }
+                    statsTick++
+                }
+            }) {
+                Text(stringResource(R.string.settings_replica_purge))
+            }
+        }
+    }
+}
+
+/**
+ * v0.2.19 — CARTE LISTE DES RÉPLICAS (build « test 2 » uniquement) : les
+ * adresses custom passent AVANT les réplicas d'amorçage embarqués (le premier
+ * de la liste est utilisé). Permet de pointer les DEUX téléphones vers le
+ * réplica temporaire de l'un d'eux — le réseau fonctionne sans le serveur
+ * central. Validée par le même format que l'amorçage (BootstrapReplicas).
+ */
+@Composable
+private fun ReplicasListCard() {
+    val context = LocalContext.current
+    val settings = remember { SettingsManager.get(context) }
+    var customs by remember { mutableStateOf(settings.customReplicas) }
+    var input by remember { mutableStateOf("") }
+    var invalid by remember { mutableStateOf(false) }
+    val bootstraps = remember {
+        net.nyx.messenger.net.BootstrapReplicas.parse(net.nyx.messenger.BuildConfig.BOOTSTRAP_REPLICAS)
+    }
+
+    fun apply(list: List<String>) {
+        customs = list
+        settings.customReplicas = list
+        ServiceLocator.repository.setReplicas((list + bootstraps).distinct())
+    }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.settings_replicas_list_title), style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.settings_replicas_list_desc), style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            if (customs.isEmpty() && bootstraps.isNotEmpty()) {
+                Text(
+                    bootstraps.first(),
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            customs.forEach { r ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        r,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { apply(customs - r) }) {
+                        Text(
+                            stringResource(R.string.settings_replicas_remove),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it; invalid = false },
+                    label = { Text("…onion:80") },
+                    singleLine = true,
+                    isError = invalid,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = {
+                    val cleaned = input.trim().lowercase()
+                    val ok = Regex("^[a-z2-7]{56}\\.onion(:\\d+)?$").matches(cleaned)
+                    if (ok && !customs.contains(cleaned)) {
+                        apply(customs + cleaned)
+                        input = ""
+                    } else {
+                        invalid = true
+                    }
+                }) { Text(stringResource(R.string.settings_replicas_add)) }
+            }
+            if (invalid) {
+                Text(
+                    stringResource(R.string.settings_replicas_invalid),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
     }
 }
 

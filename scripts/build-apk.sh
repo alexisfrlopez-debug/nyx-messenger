@@ -3,9 +3,10 @@
 # Nyx — Pipeline de build APK (règle permanente, RESTART.md §9)
 #
 #   1. Audit pré-compilation STRICT (bloquant : CRIT/MAJOR → pas de build)
-#   2. Build release signé — DEUX variants depuis v0.2.2 (règle release :
-#      chaque version livre un APK « standard » ET un APK « test » à gros
-#      bouton rouge d'export de logs vers le dossier de travail Drive)
+#   2. Build release signé — TROIS variants depuis v0.2.19 (règle release :
+#      chaque version livre un APK « standard », un APK « test » à gros
+#      bouton rouge d'export de logs, et un APK « test 2 » à réplica
+#      temporaire embarqué — version de validation, demande opérateur)
 #   3. Vérification d'autonomie des 2 APK (signature, Tor embarqué, ABIs,
 #      permissions, absence de splits) — CRIT si un manquement
 #   4. Livraison : livrables/dernieres-livrables/ (local) — l'ancienne version
@@ -69,19 +70,22 @@ else
 fi
 
 # ---------- 2. build ----------
-echo "${YLW}═══ 2/4 BUILD RELEASE SIGNÉ — variants standard + test ═══${NC}"
+echo "${YLW}═══ 2/4 BUILD RELEASE SIGNÉ — variants standard + test + test 2 ═══${NC}"
 # Mémoire bornée par ligne de commande (priorité sur GRADLE_USER_HOME/gradle.properties
 # qui porte -Xmx2g) : conteneur 4,1 Go — sans borne, le JVM culmine à ~2,3 Go RSS
 # et l'OOM-killer du noyau tue le build (session 15). Kotlin in-process + 1 worker.
-( cd android && ./gradlew :app:assembleStandardRelease :app:assembleDiagRelease --console=plain -q --no-daemon \
+( cd android && ./gradlew :app:assembleStandardRelease :app:assembleDiagRelease :app:assembleDiag2Release --console=plain -q --no-daemon \
     -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
     -Dorg.gradle.workers.max=1 )
 APK_STD=$(ls -t android/app/build/outputs/apk/standard/release/*.apk | head -1)
 APK_TEST=$(ls -t android/app/build/outputs/apk/diag/release/*.apk | head -1)
+APK_TEST2=$(ls -t android/app/build/outputs/apk/diag2/release/*.apk | head -1)
 [ -f "$APK_STD" ] || { echo "${RED}APK standard introuvable après build${NC}"; exit 1; }
 [ -f "$APK_TEST" ] || { echo "${RED}APK test introuvable après build${NC}"; exit 1; }
+[ -f "$APK_TEST2" ] || { echo "${RED}APK test 2 introuvable après build${NC}"; exit 1; }
 echo "APK standard : $APK_STD ($(du -h "$APK_STD" | cut -f1))"
 echo "APK test     : $APK_TEST ($(du -h "$APK_TEST" | cut -f1))"
+echo "APK test 2   : $APK_TEST2 ($(du -h "$APK_TEST2" | cut -f1))"
 
 # ---------- 3. vérification d'autonomie (les 2 APK) ----------
 BT="$ANDROID_HOME/build-tools/34.0.0"
@@ -164,6 +168,7 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
 }
 check_apk "$APK_STD" "standard"
 check_apk "$APK_TEST" "test"
+check_apk "$APK_TEST2" "test 2"
 echo "${GRN}Autonomie : vérifiée (Tor embarqué, signé, universel, zéro dépendance externe)${NC}"
 
 # ---------- 4. livraison ----------
@@ -172,6 +177,7 @@ echo "${YLW}═══ 4/4 LIVRAISON ═══${NC}"
 VERSION=$(aapt2="$BT/aapt2"; "$aapt2" dump badging "$APK_STD" | rg -o "versionName='[^']+'" | cut -d"'" -f2)
 NAME_STD="nyx-v${VERSION}-${STAMP}-release.apk"
 NAME_TEST="nyx-v${VERSION}-${STAMP}-test.apk"
+NAME_TEST2="nyx-v${VERSION}-${STAMP}-test2.apk"
 
 # a) archivage de la version précédente (rangement session 13 : une version
 #    remplacée quitte dernieres-livrables/ pour archives/v<version>/)
@@ -189,18 +195,22 @@ for old_apk in "$LIVRABLES"/nyx-v*-release.apk; do
 done
 shopt -u nullglob
 
-# b) dépôt des deux livrables
+# b) dépôt des trois livrables
 cp "$APK_STD"  "$LIVRABLES/$NAME_STD"
 cp "$APK_TEST" "$LIVRABLES/$NAME_TEST"
+cp "$APK_TEST2" "$LIVRABLES/$NAME_TEST2"
 SHA_STD=$(sha256sum "$LIVRABLES/$NAME_STD" | cut -d' ' -f1)
 SHA_TEST=$(sha256sum "$LIVRABLES/$NAME_TEST" | cut -d' ' -f1)
+SHA_TEST2=$(sha256sum "$LIVRABLES/$NAME_TEST2" | cut -d' ' -f1)
 {
   echo "$SHA_STD  $NAME_STD"
   echo "$SHA_TEST  $NAME_TEST"
+  echo "$SHA_TEST2  $NAME_TEST2"
 } > "$LIVRABLES/SHA256SUMS-latest.txt"
 {
   echo "$SHA_STD  $NAME_STD"
   echo "$SHA_TEST  $NAME_TEST"
+  echo "$SHA_TEST2  $NAME_TEST2"
 } > "$LIVRABLES/SHA256SUMS-v${VERSION}.txt"
 # rapport d'audit de ce cycle joint → livrables/documents/
 LAST_REPORT=$(ls -t reports/audit-*.md 2>/dev/null | head -1 || true)
@@ -209,11 +219,13 @@ LAST_REPORT=$(ls -t reports/audit-*.md 2>/dev/null | head -1 || true)
 cat << EOF
 
 ${GRN}════════════════════════════════════════════════${NC}
-${GRN}✅ LIVRABLES PRODUITS (standard + test)${NC}
-  APK std  : $LIVRABLES/$NAME_STD
-             SHA-256 $SHA_STD
-  APK test : $LIVRABLES/$NAME_TEST
-             SHA-256 $SHA_TEST
-  Suivant  : scripts/release.sh --version $VERSION --apk "$LIVRABLES/$NAME_STD" --test-apk "$LIVRABLES/$NAME_TEST"
+${GRN}✅ LIVRABLES PRODUITS (standard + test + test 2)${NC}
+  APK std    : $LIVRABLES/$NAME_STD
+               SHA-256 $SHA_STD
+  APK test   : $LIVRABLES/$NAME_TEST
+               SHA-256 $SHA_TEST
+  APK test 2 : $LIVRABLES/$NAME_TEST2 (réplica temporaire embarqué)
+               SHA-256 $SHA_TEST2
+  Suivant    : scripts/release.sh --version $VERSION --apk "$LIVRABLES/$NAME_STD" --test-apk "$LIVRABLES/$NAME_TEST" --test2-apk "$LIVRABLES/$NAME_TEST2"
 ${GRN}════════════════════════════════════════════════${NC}
 EOF

@@ -85,7 +85,7 @@ object ServiceLocator {
                 .addMigrations(
                     NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3,
                     NyxDatabase.MIGRATION_3_4, NyxDatabase.MIGRATION_4_5,
-                    NyxDatabase.MIGRATION_5_6
+                    NyxDatabase.MIGRATION_5_6, NyxDatabase.MIGRATION_6_7
                 )
                 .build()
 
@@ -93,10 +93,12 @@ object ServiceLocator {
             // redondante dans Onboarding/ConversationList/Chat — audit cycle 1).
             // v0.2.15 : + peerProfileDao (cache avatars/noms publics des contacts).
             // v0.2.17 : + attachmentDao (pièces jointes — photos/vidéos/fichiers).
+            // v0.2.19 : + delPendingDao (suppressions « pour tous » différées).
             repository = NyxRepository(
                 identity, cipher,
                 database.messageDao(), database.contactDao(), database.pollStateDao(),
-                database.seqStateDao(), database.peerProfileDao(), database.attachmentDao()
+                database.seqStateDao(), database.peerProfileDao(), database.attachmentDao(),
+                database.delPendingDao()
             )
 
             // v0.2.14 : notifications système du cycle de vie des contacts
@@ -135,6 +137,31 @@ object ServiceLocator {
             }
             net.nyx.messenger.p2p.P2pServer.start()
             net.nyx.messenger.p2p.CallManager.init(repoRef, context)
+
+            // v0.2.19 — RÉPLICA TEMPORAIRE EMBARQUÉ (BUILD « TEST 2 » UNIQUEMENT —
+            // demande opérateur : « lorsque l'application est lancée, le téléphone
+            // devienne lui-même un replica temporaire » ; version de validation,
+            // intégration aux versions normale et test après retour terrain).
+            // Écouteur démarré AVANT la publication onion (le port 80 doit être
+            // servi dès l'annonce — même ordre que P2pServer) ; Interrupteur et
+            // plafonds dans Paramètres.
+            if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA) {
+                val settingsRef = net.nyx.messenger.settings.SettingsManager.get(context)
+                net.nyx.messenger.replica.EmbeddedReplica.serving = settingsRef.replicaEnabled.value
+                net.nyx.messenger.replica.EmbeddedReplica.verify = { author, canonical, sig ->
+                    runCatching {
+                        cipher.verifyEvent(canonical, sig, OnionCodec.onionToPubKey(author))
+                    }.getOrDefault(false)
+                }
+                net.nyx.messenger.replica.EmbeddedReplica.isAllowed = { onion ->
+                    val st = runBlocking { database.contactDao().get(onion)?.status }
+                    st == net.nyx.messenger.data.db.ContactStatus.ACCEPTED ||
+                        st == net.nyx.messenger.data.db.ContactStatus.PENDING
+                }
+                net.nyx.messenger.replica.EmbeddedReplica.start(
+                    database, identity.onionAddress ?: "", net.nyx.messenger.BuildConfig.VERSION_NAME
+                )
+            }
 
             startInboxPolling()
 
@@ -254,6 +281,9 @@ object ServiceLocator {
                     // v0.2.15 : accusés de réception/lecture restés en attente
                     // (échec au flush inline — même retry que les annonces/acks).
                     runCatching { repository.ensureReceiptsSent() }
+                    // v0.2.19 : demandes de suppression « pour tous » restées en
+                    // attente (même mécanique de reprise que les accusés).
+                    runCatching { repository.ensureDeletionsSent() }
                     val t1 = android.os.SystemClock.elapsedRealtime()
                     nextPollAt = t1 + if (t1 < fastUntil) FAST_INTERVAL_MS else POLL_INTERVAL_MS
                 }

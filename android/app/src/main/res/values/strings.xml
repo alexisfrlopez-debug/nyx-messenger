@@ -278,4 +278,37 @@
     <string name="lock_password_label">Mot de passe</string>
     <string name="lock_password_submit">Valider</string>
     <string name="lock_password_wrong">Mot de passe inconnu.</string>
+
+    <!-- v0.2.19 — onglet fichiers & médias + suppression unitaire -->
+    <string name="chat_tab_messages">Messages</string>
+    <string name="chat_tab_media">Fichiers &amp; médias</string>
+    <string name="media_none">Aucun fichier ou média échangé dans cette conversation.</string>
+    <string name="media_direction_out">Envoyé</string>
+    <string name="media_direction_in">Reçu</string>
+    <string name="delete_msg_title">Supprimer ce message ?</string>
+    <string name="delete_media_title">Supprimer ce média ?</string>
+    <string name="delete_for_me">Supprimer pour moi (cet appareil)</string>
+    <string name="delete_for_everyone">Supprimer pour tous</string>
+    <string name="delete_for_everyone_desc">Le message sera également supprimé sur le téléphone de votre contact (à sa prochaine connexion).</string>
+    <string name="delete_local_only_note">Seule la copie de CET appareil sera supprimée — celle de votre contact reste en place.</string>
+    <string name="delete_done">Supprimé</string>
+    <string name="delete_queued">Supprimé ici — la suppression chez votre contact partira dès que le réplica sera joignable.</string>
+
+    <!-- v0.2.19 — réplica temporaire embarqué (version « test 2 » uniquement) -->
+    <string name="settings_replica_title">Réplica temporaire (test 2)</string>
+    <string name="settings_replica_desc">Quand l\'application tourne, ce téléphone héberge un réplica temporaire : les contacts de confiance peuvent y déposer et récupérer leurs messages (chiffrés, opaques). Borné : plafonds de stockage, limite de dépôts, purge automatique après 48 h — arrêt avec l\'application. À valider avant intégration aux versions normale et test.</string>
+    <string name="settings_replica_enabled">Actif quand l\'application tourne</string>
+    <string name="settings_replica_status_on">Actif — servi sur le port 80 de votre adresse onion.</string>
+    <string name="settings_replica_status_off">En pause — les dépôts sont refusés (l\'adresse reste publiée jusqu\'à la relance de Tor).</string>
+    <string name="settings_replica_address">Adresse à ajouter chez vos contacts</string>
+    <string name="settings_replica_stats">%1$d événements — %2$s stockés (purge après 48 h)</string>
+    <string name="settings_replica_purge">Vider maintenant</string>
+    <string name="settings_replica_purged">Réplica vidé.</string>
+
+    <!-- v0.2.19 — liste des réplicas (édition locale, version « test 2 ») -->
+    <string name="settings_replicas_list_title">Réplicas</string>
+    <string name="settings_replicas_list_desc">Le premier de la liste est utilisé pour l\'envoi et la boîte de réception. Ajoutez l\'adresse du réplica temporaire d\'un contact (…onion:80) pour fonctionner sans le serveur central — les DEUX téléphones doivent pointer vers le même réplica.</string>
+    <string name="settings_replicas_add">Ajouter</string>
+    <string name="settings_replicas_invalid">Adresse onion invalide (format attendu : xxx….onion ou xxx….onion:80).</string>
+    <string name="settings_replicas_remove">Retirer</string>
 </resources>

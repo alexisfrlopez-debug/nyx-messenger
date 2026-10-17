@@ -61,10 +61,39 @@ class SettingsManager private constructor(context: Context) {
         _closeBehavior.value = b
     }
 
+    // ---- réplica temporaire embarqué (v0.2.19 — build « test 2 ») ----
+
+    private val _replicaEnabled = MutableStateFlow(prefs.getBoolean(KEY_REPLICA_ENABLED, true))
+    /**
+     * Interrupteur du réplica temporaire embarqué (pris en compte PAR
+     * CONNEXION — [net.nyx.messenger.replica.EmbeddedReplica.serving] suit ce
+     * flux). Par défaut ACTIF : « lorsque l'application est lancée, le
+     * téléphone devienne lui-même un replica temporaire ».
+     */
+    val replicaEnabled: StateFlow<Boolean> = _replicaEnabled
+
+    fun setReplicaEnabled(v: Boolean) {
+        prefs.edit().putBoolean(KEY_REPLICA_ENABLED, v).apply()
+        _replicaEnabled.value = v
+        net.nyx.messenger.replica.EmbeddedReplica.serving = v
+    }
+
+    /**
+     * Réplicas SUPPLÉMENTAIRES (v0.2.19 — test 2) : adresses « onion[:port] »
+     * ajoutées par l'utilisateur, PLACÉES AVANT les réplicas d'amorçage
+     * embarqués (le premier de la liste effective est utilisé). Permet de
+     * rattacher le client au réplica temporaire d'un contact.
+     */
+    var customReplicas: List<String>
+        get() = net.nyx.messenger.net.BootstrapReplicas.parse(prefs.getString(KEY_CUSTOM_REPLICAS, "") ?: "")
+        set(value) = prefs.edit().putString(KEY_CUSTOM_REPLICAS, value.joinToString(",")).apply()
+
     companion object {
         private const val KEY_BIOMETRIC_LOCK = "biometric_lock"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_CLOSE = "close_behavior"
+        private const val KEY_REPLICA_ENABLED = "replica_enabled"
+        private const val KEY_CUSTOM_REPLICAS = "custom_replicas"
 
         @Volatile private var instance: SettingsManager? = null
         fun get(context: Context): SettingsManager =

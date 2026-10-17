@@ -155,6 +155,55 @@ data class PeerProfileEntity(
     val fetchedAt: Long                  // horodatage du dernier fetch réussi
 )
 
+/**
+ * v0.2.19 — SUPPRESSION À DISTANCE EN ATTENTE (demande opérateur : « possibilité
+ * de suppression coté destinataire quand on est expéditeur »). Une demande de
+ * suppression « pour tous » émise alors que le réplica est injoignable est
+ * MÉMORISÉE ici et repartie par la boucle périodique ([NyxRepository.ensureDeletionsSent])
+ * — même mécanique que les accusés (rcptPending) et les acks (ackPending).
+ * ids = tableau JSON d'eventId (sha256 canonique — partagés par les deux côtés).
+ */
+@Entity(tableName = "del_pending")
+data class DelPendingEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val peer: String,                    // destinataire de la demande (onion)
+    val ids: String,                     // tableau JSON ["<eventId>",…]
+    val createdAt: Long
+)
+
+/**
+ * v0.2.19 — RÉPLICA TEMPORAIRE EMBARQUÉ (version « test 2 » uniquement —
+ * BuildConfig.EMBEDDED_REPLICA) : le téléphone héberge un réplica pendant que
+ * l'application tourne. Les événements y sont stockés OPaques (corps chiffrés
+ * E2E, jamais déchiffrés par le réplica — même rôle que le serveur Go), dans
+ * la base SQLCipher, avec plafonds + purge 48 h ([net.nyx.messenger.replica.EmbeddedReplica]).
+ * gid = curseur global 1-based (miroir de journal.maxIndex côté Go — sert de
+ * curseur d'inbox). Cette table existe dans TOUTES les versions (schéma unique)
+ * mais reste vide hors test 2.
+ */
+@Entity(tableName = "replica_events")
+data class ReplicaEventEntity(
+    @PrimaryKey val eventId: String,     // sha256 de la représentation canonique
+    val gid: Long,                       // curseur global (insertion, 1-based)
+    val type: String,
+    val author: String,
+    val seq: Long,
+    val ts: Long,
+    val ttl: Long,
+    val to: String,                      // "" = diffusion (alias/profile)
+    val body: String,                    // base64, OPAQUE (chiffré E2E)
+    val sig: String,
+    val bytes: Long,                     // taille du corps (plafond global)
+    val insertedAt: Long                 // purge TTL 48 h
+)
+
+/** État du réplica embarqué (une ligne, id=1). */
+@Entity(tableName = "replica_state")
+data class ReplicaStateEntity(
+    @PrimaryKey val id: Int = 1,
+    val lastPurgeAt: Long = 0
+)
+
 @Entity(tableName = "poll_state")
 data class PollStateEntity(
     @PrimaryKey val replicaOnion: String,
@@ -303,6 +352,27 @@ interface MessageDao {
     /** Accusé « read » reçu du pair (implique delivered) — CÔTÉ EXPÉDITEUR. */
     @Query("UPDATE messages SET deliveredAt = CASE WHEN deliveredAt = 0 THEN :at ELSE deliveredAt END, readAt = :at WHERE eventId IN (:ids) AND peerOnion = :peer AND outgoing = 1 AND readAt = 0")
     suspend fun markRead(peer: String, ids: List<String>, at: Long)
+
+    // ── v0.2.19 — suppression unitaire (locale + à distance) ──
+
+    /** Lignes complètes d'un lot d'eventId (récupérer les fid AVANT effacement). */
+    @Query("SELECT * FROM messages WHERE eventId IN (:ids)")
+    suspend fun byEventIds(ids: List<String>): List<MessageEntity>
+
+    /** Le message porteur d'une pièce jointe (onglet médias → suppression). */
+    @Query("SELECT * FROM messages WHERE fid = :fid LIMIT 1")
+    suspend fun byFid(fid: String): MessageEntity?
+
+    /** Suppression locale SANS garde (usage interne après fetch des fid). */
+    @Query("DELETE FROM messages WHERE eventId IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
+    /** Application d'une demande de suppression À DISTANCE — GARDE DE
+     *  L'ASYMÉTRIE : seuls les messages QUE NOUS AVONS REÇUS de cet auteur
+     *  (outgoing = 0, peerOnion = auteur) sont touchés. L'auteur ne peut
+     *  jamais effacer nos propres messages, ni ceux d'un tiers. */
+    @Query("DELETE FROM messages WHERE eventId IN (:ids) AND peerOnion = :peer AND outgoing = 0")
+    suspend fun deleteIncomingFrom(peer: String, ids: List<String>): Int
 }
 
 /** Projection du compteur de non-lus par pair (v0.2.15). */
@@ -345,6 +415,15 @@ interface AttachmentDao {
 
     @Query("DELETE FROM attachments WHERE peerOnion = :peer")
     suspend fun deleteByPeer(peer: String)
+
+    // ── v0.2.19 — onglet médias + suppression unitaire ──
+
+    /** Tous les médias échangés avec un pair (onglet « Fichiers & médias »). */
+    @Query("SELECT * FROM attachments WHERE peerOnion = :peer ORDER BY createdAt DESC")
+    fun byPeer(peer: String): Flow<List<AttachmentEntity>>
+
+    @Query("DELETE FROM attachments WHERE fid = :fid")
+    suspend fun deleteFid(fid: String)
 }
 
 @Dao
@@ -360,6 +439,83 @@ interface PeerProfileDao {
 
     @Query("DELETE FROM peer_profiles WHERE onion = :onion")
     suspend fun delete(onion: String)
+}
+
+/** v0.2.19 — demandes de suppression « pour tous » différées (réplica injoignable). */
+@Dao
+interface DelPendingDao {
+    @Insert
+    suspend fun insert(p: DelPendingEntity)
+
+    @Query("SELECT * FROM del_pending ORDER BY id ASC")
+    suspend fun all(): List<DelPendingEntity>
+
+    @Query("DELETE FROM del_pending WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM del_pending")
+    suspend fun clear()
+}
+
+/** v0.2.19 — stockage du réplica temporaire embarqué (voir [ReplicaEventEntity]). */
+@Dao
+interface ReplicaDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertEvent(e: ReplicaEventEntity)
+
+    @Query("SELECT * FROM replica_events WHERE eventId = :id")
+    suspend fun event(id: String): ReplicaEventEntity?
+
+    /** Dernier seq accepté d'un auteur (miroir journal.lastSeq côté Go). */
+    @Query("SELECT COALESCE(MAX(seq), 0) FROM replica_events WHERE author = :author")
+    suspend fun lastSeq(author: String): Long
+
+    /** Curseur global courant (miroir journal.maxIndex — 0 si vide). */
+    @Query("SELECT COALESCE(MAX(gid), 0) FROM replica_events")
+    suspend fun maxGid(): Long
+
+    /** Boîte d'un destinataire au-delà d'un curseur global (miroir journal.Inbox). */
+    @Query("SELECT * FROM replica_events WHERE `to` = :to AND gid > :after ORDER BY gid ASC LIMIT :limit")
+    suspend fun inbox(to: String, after: Long, limit: Int): List<ReplicaEventEntity>
+
+    /** Carte de profil publique courante d'un auteur (dernier seq gagne). */
+    @Query("SELECT * FROM replica_events WHERE type = 'profile' AND `to` = '' AND author = :author ORDER BY seq DESC LIMIT 1")
+    suspend fun profileOf(author: String): ReplicaEventEntity?
+
+    /** Claims d'alias (règle du plus petit id résolue en Kotlin). */
+    @Query("SELECT * FROM replica_events WHERE type = 'alias' AND `to` = ''")
+    suspend fun aliasEvents(): List<ReplicaEventEntity>
+
+    @Query("SELECT COUNT(*) FROM replica_events")
+    suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(bytes), 0) FROM replica_events")
+    suspend fun totalBytes(): Long
+
+    /** Purge TTL (48 h). */
+    @Query("DELETE FROM replica_events WHERE insertedAt < :before")
+    suspend fun purgeOlderThan(before: Long): Int
+
+    /** Plafond global d'événements : supprime les PLUS ANCIENS au-delà de :keep. */
+    @Query("DELETE FROM replica_events WHERE eventId IN (SELECT eventId FROM replica_events ORDER BY gid ASC LIMIT :n)")
+    suspend fun deleteOldest(n: Int): Int
+
+    /** Plafond par boîte : supprime les plus anciens au-delà de :keep pour :to. */
+    @Query("DELETE FROM replica_events WHERE `to` = :to AND eventId IN (SELECT eventId FROM replica_events WHERE `to` = :to ORDER BY gid ASC LIMIT :n)")
+    suspend fun deleteOldestForInbox(to: String, n: Int): Int
+
+    /** Nombre d'événements dans la boîte d'un destinataire (plafond par inbox). */
+    @Query("SELECT COUNT(*) FROM replica_events WHERE `to` = :to")
+    suspend fun countForInbox(to: String): Int
+
+    @Query("DELETE FROM replica_events")
+    suspend fun clear()
+
+    @Query("SELECT * FROM replica_state WHERE id = 1")
+    suspend fun state(): ReplicaStateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertState(s: ReplicaStateEntity)
 }
 
 @Dao
@@ -389,8 +545,9 @@ interface SeqStateDao {
 @Database(
     entities = [ContactEntity::class, MessageEntity::class, PeerProfileEntity::class,
         AttachmentEntity::class, AttachmentChunkEntity::class,
-        PollStateEntity::class, SeqStateEntity::class],
-    version = 6,
+        PollStateEntity::class, SeqStateEntity::class,
+        DelPendingEntity::class, ReplicaEventEntity::class, ReplicaStateEntity::class],
+    version = 7,
     exportSchema = false
 )
 abstract class NyxDatabase : RoomDatabase() {
@@ -400,6 +557,8 @@ abstract class NyxDatabase : RoomDatabase() {
     abstract fun attachmentDao(): AttachmentDao
     abstract fun pollStateDao(): PollStateDao
     abstract fun seqStateDao(): SeqStateDao
+    abstract fun delPendingDao(): DelPendingDao
+    abstract fun replicaDao(): ReplicaDao
 
     companion object {
         const val NAME = "nyx.db"
@@ -505,6 +664,47 @@ abstract class NyxDatabase : RoomDatabase() {
                         "idx INTEGER NOT NULL, " +
                         "data BLOB NOT NULL, " +
                         "PRIMARY KEY(fid, idx))"
+                )
+            }
+        }
+
+        /**
+         * v6 → v7 (v0.2.19) : suppression unitaire + réplica temporaire embarqué.
+         * MIGRATION ADDITIVE — aucune donnée détruite : trois tables NEUVES
+         * (del_pending vide, replica_events vide hors test 2, replica_state vide).
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS del_pending (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "peer TEXT NOT NULL, " +
+                        "ids TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS replica_events (" +
+                        "eventId TEXT NOT NULL PRIMARY KEY, " +
+                        "gid INTEGER NOT NULL, " +
+                        "type TEXT NOT NULL, " +
+                        "author TEXT NOT NULL, " +
+                        "seq INTEGER NOT NULL, " +
+                        "ts INTEGER NOT NULL, " +
+                        "ttl INTEGER NOT NULL, " +
+                        "`to` TEXT NOT NULL, " +
+                        "body TEXT NOT NULL, " +
+                        "sig TEXT NOT NULL, " +
+                        "bytes INTEGER NOT NULL, " +
+                        "insertedAt INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_replica_events_to_gid " +
+                        "ON replica_events(`to`, gid)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS replica_state (" +
+                        "id INTEGER NOT NULL PRIMARY KEY, " +
+                        "lastPurgeAt INTEGER NOT NULL)"
                 )
             }
         }

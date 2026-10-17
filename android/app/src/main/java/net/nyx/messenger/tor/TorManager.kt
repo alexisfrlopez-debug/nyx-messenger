@@ -140,11 +140,20 @@ class TorManager private constructor(context: Context) {
 
     /** Publie (ou re-publie) le service onion de l'utilisateur. Auto après bootstrap.
      *  v0.2.18 : + port média P2P (appels/fichiers direct) — écouteur démarré
-     *  au préalable par ServiceLocator ([net.nyx.messenger.p2p.P2pServer.start]). */
+     *  au préalable par ServiceLocator ([net.nyx.messenger.p2p.P2pServer.start]).
+     *  v0.2.19 : en build « TEST 2 » (BuildConfig.EMBEDDED_REPLICA), le port 80
+     *  de l'onion sert le RÉPLICA TEMPORAIRE ([net.nyx.messenger.replica.EmbeddedReplica],
+     *  écouteur démarré au préalable par ServiceLocator) au lieu du port local
+     *  inutilisé — un contact ajoute donc « <notre onion>:80 » dans ses réplicas. */
     suspend fun publishOwnOnion(localPort: Int? = null): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val cfg = config ?: error("Tor non démarré")
-            val target = localPort ?: cfg.onionLocalPort
+            var target = localPort ?: cfg.onionLocalPort
+            if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
+                net.nyx.messenger.replica.EmbeddedReplica.localPort > 0
+            ) {
+                target = net.nyx.messenger.replica.EmbeddedReplica.localPort
+            }
             val key = keyProvider?.invoke() ?: error("identité absente (onboarding ?)")
             TorControlClient(cfg.controlPort).use { control ->
                 control.authenticate(cfg.cookieFile)

@@ -130,9 +130,16 @@ class RelayClient private constructor(
      * 32 lots × 171 Ko ≈ 5,5 Mo max par poll, dans le readTimeout 120 s.
      * Le curseur ne s'arrête que lorsque TOUS les événements au-delà sont
      * livrés (le serveur recadre le curseur — rien n'est perdu).
+     *
+     * v0.2.19 : [auth] = preuve « ts:sig » que le demandeur détient bien
+     * l'adresse `to` (signature ed25519 de [net.nyx.messenger.replica.ReplicaValidate.inboxCanonical]).
+     * Le réplica EMBARQUÉ (v0.2.19, build test 2) l'exige ; le serveur Go
+     * IGNORE ce paramètre inconnu — le même client parle aux deux, zéro
+     * changement serveur.
      */
-    suspend fun inbox(to: String, after: Long, limit: Int = 32): InboxResponse = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url("$base/client/inbox?to=$to&after=$after&limit=$limit").build()
+    suspend fun inbox(to: String, after: Long, limit: Int = 32, auth: String? = null): InboxResponse = withContext(Dispatchers.IO) {
+        val authPart = auth?.let { "&auth=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: ""
+        val req = Request.Builder().url("$base/client/inbox?to=$to&after=$after&limit=$limit$authPart").build()
         client.newCall(req).execute().use { resp ->
             check(resp.code == 200) { "GET /client/inbox → HTTP ${resp.code}" }
             json.decodeFromString(InboxResponse.serializer(), resp.body!!.string())

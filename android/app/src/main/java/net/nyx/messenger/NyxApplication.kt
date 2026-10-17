@@ -24,10 +24,16 @@ class NyxApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ServiceLocator.init(this)
-        val list = BootstrapReplicas.parse(BuildConfig.BOOTSTRAP_REPLICAS)
-        if (list.isNotEmpty()) {
-            ServiceLocator.repository.setReplicas(list)
-            Log.i("nyx-boot", "réplicas d'amorçage : ${list.size} (${list.first().take(16)}…)")
+        // v0.2.19 : les réplicas CUSTOM (Paramètres — build « test 2 ») passent
+        // AVANT les réplicas d'amorçage embarqués : le premier de la liste est
+        // utilisé (envoi + inbox). Permet de rattacher le client au réplica
+        // temporaire d'un contact (fonctionnement sans le serveur central).
+        val settings = net.nyx.messenger.settings.SettingsManager.get(this)
+        val merged = (settings.customReplicas + BootstrapReplicas.parse(BuildConfig.BOOTSTRAP_REPLICAS))
+            .distinct()
+        if (merged.isNotEmpty()) {
+            ServiceLocator.repository.setReplicas(merged)
+            Log.i("nyx-boot", "réplicas : ${merged.size} (${merged.first().take(16)}…)")
         } else {
             Log.w("nyx-boot", "aucun réplica d'amorçage embarqué — réseau en attente de configuration")
         }

@@ -44,8 +44,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.2.18"
+        versionCode = 23
+        versionName = "0.2.19"
         // Credentials Drive du build test (vides si test-upload.properties absent)
         buildConfigField("String", "DRIVE_CLIENT_ID",     "\"${testUpload("drive.clientId")}\"")
         buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${testUpload("drive.clientSecret")}\"")
@@ -53,14 +53,21 @@ android {
         buildConfigField("String", "DRIVE_FOLDER_ID",     "\"${testUpload("drive.folderId")}\"")
         // Réplicas d'amorçage embarqués (v0.2.3 — vide si replica-bootstrap.properties absent)
         buildConfigField("String", "BOOTSTRAP_REPLICAS", "\"$bootstrapReplicas\"")
+        // v0.2.19 : réplica temporaire embarqué — ACTIVÉ dans le flavor « diag2 »
+        // (version « test 2 » de validation ; faux dans standard et diag).
+        buildConfigField("boolean", "EMBEDDED_REPLICA", "false")
     }
 
-    // Deux livrables par release (règle v0.2.2) :
+    // Trois livrables par release depuis v0.2.19 (demande opérateur : le
+    // RÉPLICA temporaire embarqué vit d'abord dans une version « test 2 »
+    // séparée, jusqu'à validation pour intégration aux versions normale et test) :
     //  - « standard » : l'app publique, inchangée ;
     //  - « diag »     : + gros bouton rouge (écran conversations) qui collecte
-    //    les logs et les dépose dans le dossier de travail Drive pour examen.
-    //    NB : le flavor s'appelle « diag » car AGP interdit les noms commençant
-    //    par « test » — l'UTILISATEUR voit toujours « Nyx TEST » / « -test ».
+    //    les logs et les dépose dans le dossier de travail Drive pour examen ;
+    //  - « diag2 »    : = diag + RÉPLICA TEMPORAIRE EMBARQUÉ (le téléphone
+    //    héberge un réplica sur le port 80 de son onion tant que l'app tourne).
+    //    NB : le flavor s'appelle « diag2 » car AGP interdit les noms commençant
+    //    par « test » — l'UTILISATEUR voit toujours « Nyx TEST 2 » / « -test2 ».
     flavorDimensions += "mode"
     productFlavors {
         create("standard") {
@@ -73,6 +80,14 @@ android {
             versionNameSuffix = "-test"
             resValue("string", "app_name", "Nyx TEST")
             buildConfigField("boolean", "TEST_BUILD", "true")
+        }
+        create("diag2") {
+            dimension = "mode"
+            applicationIdSuffix = ".test2"         // cohabite avec standard ET test
+            versionNameSuffix = "-test2"
+            resValue("string", "app_name", "Nyx TEST 2")
+            buildConfigField("boolean", "TEST_BUILD", "true")
+            buildConfigField("boolean", "EMBEDDED_REPLICA", "true")
         }
     }
     signingConfigs {
