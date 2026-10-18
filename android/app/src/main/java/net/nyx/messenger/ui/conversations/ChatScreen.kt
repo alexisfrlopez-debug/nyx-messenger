@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,6 +61,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -257,8 +259,10 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
      * Envoi d'une pièce jointe choisie via un Uri (picker galerie/documents) :
      * lecture bornée, compression image (≤ 1600 px JPEG — divise le temps de
      * transport par ~10), puis dépôt fragmenté avec progression.
+     * v0.2.28 : [viewPolicy] = politique d'affichage choisie dans le dialogue
+     * ("forever" défaut | "once" | "twice").
      */
-    fun sendUri(peer: String, uri: Uri) {
+    fun sendUri(peer: String, uri: Uri, viewPolicy: String = net.nyx.messenger.data.db.AttachmentEntity.VIEW_FOREVER) {
         viewModelScope.launch {
             runCatching {
                 val ctx = ServiceLocator.appContext()
@@ -271,17 +275,21 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
                         }
                     }
                 }
-                deposit(peer, bytes, name, mime)
+                deposit(peer, bytes, name, mime, viewPolicy)
             }.onFailure { e ->
                 sendError.value = e.message ?: "envoi impossible"
             }
         }
     }
 
-    private suspend fun deposit(peer: String, bytes: ByteArray, name: String, mime: String) {
+    private suspend fun deposit(
+        peer: String, bytes: ByteArray, name: String, mime: String,
+        viewPolicy: String = net.nyx.messenger.data.db.AttachmentEntity.VIEW_FOREVER,
+    ) {
         var currentFid = ""
         repo.sendFile(
             peer, bytes, name, mime,
+            viewPolicy = viewPolicy,
             onStart = { fid ->
                 currentFid = fid
                 sendProgress.value = sendProgress.value + (fid to (0 to 1))
@@ -301,6 +309,17 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
                 if (currentFid.isNotEmpty()) sendProgress.value = sendProgress.value - currentFid
             }
         )
+    }
+
+    /**
+     * v0.2.28 — consommation d'une vue d'un média à affichage limité (récep-
+     * teur) : décrémente le compteur et détruit le fichier à 0 vue restante.
+     */
+    fun consumeView(fid: String) {
+        viewModelScope.launch {
+            runCatching { repo.consumeMediaView(fid) }
+                .onFailure { e -> android.util.Log.w("nyx-media", "vue non consommée : ${e.message}") }
+        }
     }
 
     /* ---------- notes vocales (v0.2.17) ---------- */
@@ -387,14 +406,26 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     var deleteMsg by remember { mutableStateOf<MessageEntity?>(null) }
     var deleteAtt by remember { mutableStateOf<AttachmentEntity?>(null) }
     val scope = rememberCoroutineScope()
+    // v0.2.28 — média en attente de choix de politique d'affichage.
+    var pendingMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    // v0.2.28 — horloge du compte à rebours éphémère (tick 30 s).
+    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            nowTick = System.currentTimeMillis()
+        }
+    }
 
     // v0.2.17 : pickers système — galerie (photos + vidéos) et documents.
+    // v0.2.28 : l'URI passe d'abord par le dialogue « politique d'affichage »
+    // (permanent / vue unique / 1 relecture) AVANT l'envoi.
     val pickMedia = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { vm.sendUri(peer, it) } }
+    ) { uri -> uri?.let { pendingMediaUri = it } }
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { vm.sendUri(peer, it) } }
+    ) { uri -> uri?.let { pendingMediaUri = it } }
 
     // v0.2.17 : permission micro → enregistrement.
     val micPermission = rememberLauncherForActivityResult(
@@ -501,7 +532,8 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                         MessageRow(
                             m, vm, sendProgress,
                             onOpenImage = { viewerPath = it },
-                            onDelete = { deleteMsg = m }
+                            onDelete = { deleteMsg = m },
+                            nowMs = nowTick
                         )
                     }
                 }
@@ -714,10 +746,24 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
             onDismiss = { viewerPath = null }
         )
     }
+
+    // v0.2.28 — choix de la politique d'affichage du média AVANT l'envoi
+    // (demande opérateur : « afficher le média 1 fois puis destruction du
+    // média, relecture autorisée 1 fois, ou affichage permanent »).
+    pendingMediaUri?.let { uri ->
+        MediaViewPolicyDialog(
+            onPick = { policy ->
+                pendingMediaUri = null
+                vm.sendUri(peer, uri, policy)
+            },
+            onDismiss = { pendingMediaUri = null }
+        )
+    }
 }
 
 /** Une ligne de message : bulle texte OU carte média (v0.2.17) + accusés.
- *  v0.2.19 : APPUI LONG = suppression (locale, ou « pour tous » si sortant). */
+ *  v0.2.19 : APPUI LONG = suppression (locale, ou « pour tous » si sortant).
+ *  v0.2.28 : compte à rebours éphémère sous la bulle ([nowMs] tick 30 s). */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(
@@ -726,6 +772,7 @@ private fun MessageRow(
     sendProgress: Map<String, Pair<Int, Int>>,
     onOpenImage: (String) -> Unit,
     onDelete: () -> Unit = {},
+    nowMs: Long = System.currentTimeMillis(),
 ) {
     val outgoing = m.outgoing
     Column(
@@ -742,6 +789,16 @@ private fun MessageRow(
                 modifier = Modifier.padding(4.dp)
             )
         }
+        // v0.2.28 — COMPTE À REBOURS ÉPHÉMÈRE (demande opérateur : « un
+        // compteur à côté du message qui indique le temps restant »).
+        if (m.expireAt > 0L) {
+            Text(
+                ephemeralCountdownLabel(m.expireAt - nowMs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
         outgoingStatusLabel(m)?.let { label ->
             Text(
                 label,
@@ -751,6 +808,66 @@ private fun MessageRow(
             )
         }
     }
+}
+
+/** v0.2.28 — libellé humain du temps restant d'un message éphémère. */
+private fun ephemeralCountdownLabel(remainingMs: Long): String = when {
+    remainingMs <= 0L -> "éphémère : expiration imminente"
+    remainingMs < 60_000L -> "éphémère : moins d'1 min"
+    remainingMs < 3_600_000L -> "éphémère : ${remainingMs / 60_000L} min restantes"
+    remainingMs < 86_400_000L -> "éphémère : ${remainingMs / 3_600_000L} h restantes"
+    else -> "éphémère : ${remainingMs / 86_400_000L} j restants"
+}
+
+/**
+ * v0.2.28 — dialogue de politique d'affichage d'un média AVANT l'envoi
+ * (style Instagram) : affichage permanent / vue unique (destruction après
+ * affichage) / vue unique + 1 relecture autorisée.
+ */
+@Composable
+private fun MediaViewPolicyDialog(
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var choice by remember {
+        mutableStateOf(net.nyx.messenger.data.db.AttachmentEntity.VIEW_FOREVER)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Affichage du média") },
+        text = {
+            Column {
+                listOf(
+                    net.nyx.messenger.data.db.AttachmentEntity.VIEW_FOREVER to
+                        "Affichage permanent (défaut)",
+                    net.nyx.messenger.data.db.AttachmentEntity.VIEW_ONCE to
+                        "Vue unique — détruit après affichage",
+                    net.nyx.messenger.data.db.AttachmentEntity.VIEW_TWICE to
+                        "Vue unique + 1 relecture autorisée",
+                ).forEach { (value, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        RadioButton(selected = choice == value, onClick = { choice = value })
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                Text(
+                    "La politique s'applique chez le destinataire : le média y est " +
+                        "détruit après la (ou les) vue(s) autorisée(s). Votre copie reste relisible.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onPick(choice) }) { Text("Envoyer") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
 }
 
 /** Carte d'une pièce jointe (photo/vidéo/audio/fichier) avec progression.
@@ -771,6 +888,13 @@ private fun MediaBubble(
         Text(m.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(4.dp))
         return
     }
+    // v0.2.28 — VUE LIMITÉE (récepteur) : un média « once »/« twice » pas
+    // encore révélé s'affiche verrouillé ; chaque révélation consomme une vue
+    // (compteur DB) ; à 0 vues le fichier est DÉTRUIT ([NyxRepository
+    // .consumeMediaView]) et la bulle affiche « média expiré ».
+    var revealed by remember(m.fid) { mutableStateOf(false) }
+    val limited = !m.outgoing &&
+        a.viewPolicy != net.nyx.messenger.data.db.AttachmentEntity.VIEW_FOREVER
     Column(
         horizontalAlignment = if (m.outgoing) Alignment.End else Alignment.Start,
         modifier = Modifier
@@ -780,6 +904,18 @@ private fun MediaBubble(
             .combinedClickable(onClick = {}, onLongClick = onDelete)
             .padding(8.dp)
     ) {
+        // Badge politique (les deux côtés) : la vue limitée est explicite.
+        if (a.viewPolicy == net.nyx.messenger.data.db.AttachmentEntity.VIEW_ONCE ||
+            a.viewPolicy == net.nyx.messenger.data.db.AttachmentEntity.VIEW_TWICE
+        ) {
+            Text(
+                if (a.viewPolicy == net.nyx.messenger.data.db.AttachmentEntity.VIEW_ONCE)
+                    "vue unique"
+                else "vue unique + 1 relecture",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        }
         when {
             a.state == NyxRepository.AT_FAILED -> {
                 Text(
@@ -787,6 +923,41 @@ private fun MediaBubble(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
+            }
+            limited && a.viewsLeft <= 0 -> {
+                // v0.2.28 — vues épuisées : le média a été détruit localement.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Image, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "${a.name} — média expiré (vue(s) consommée(s))",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            limited && !revealed -> {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .clickable {
+                            revealed = true
+                            vm.consumeView(m.fid)
+                        }
+                        .padding(10.dp)
+                ) {
+                    Icon(Icons.Filled.Image, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (a.viewPolicy == net.nyx.messenger.data.db.AttachmentEntity.VIEW_ONCE)
+                            "Toucher pour afficher (1 vue, puis destruction)"
+                        else "Toucher pour afficher (${a.viewsLeft} vue(s) restante(s))",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
             a.state == NyxRepository.AT_READY -> when {
                 a.mime.startsWith("image/") -> ReadyImage(a.localPath, onOpenImage)

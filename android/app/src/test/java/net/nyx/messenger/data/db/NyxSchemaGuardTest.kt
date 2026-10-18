@@ -186,12 +186,12 @@ class NyxSchemaGuardTest {
     /* ---------- Version de la base ---------- */
 
     @Test
-    fun `la base est en version 9`() {
+    fun `la base est en version 10`() {
         assertEquals(
             "version de la base (Delegate Room généré) — une montée de version " +
                 "SANS migration correspondante casse TOUS les appareils installés " +
-                "(v9 v0.2.26 : messages.expireAt, cf. MIGRATION_8_9)",
-            9, runDelegateCapture(true).first
+                "(v10 v0.2.28 : attachments.viewPolicy + viewsLeft, cf. MIGRATION_9_10)",
+            10, runDelegateCapture(true).first
         )
     }
 

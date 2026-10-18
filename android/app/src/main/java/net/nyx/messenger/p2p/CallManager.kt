@@ -161,10 +161,22 @@ object CallManager {
             //    le pair sonne et accepte pendant ce temps.
             var socket: java.net.Socket? = null
             val deadline = System.currentTimeMillis() + CONNECT_WINDOW_MS
+            var attempt = 0
             while (socket == null && System.currentTimeMillis() < deadline) {
                 if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) return@run
+                attempt++
+                // v0.2.28 — la cible RÉELLE est loguée (préfixe 16 car — le
+                // tor.log scrubbe les onions, le logcat app est la seule trace
+                // exploitable pour diagnostiquer « impossible de décrocher »).
+                android.util.Log.i(
+                    "nyx-call",
+                    "média essai $attempt → ${peer.take(16)}…:${P2pProtocol.MEDIA_ONION_PORT}"
+                )
                 socket = runCatching { P2pClient.connect(peer, CONNECT_ATTEMPT_MS) }.getOrElse { e ->
-                    android.util.Log.i("nyx-call", "connexion directe impossible (${e.message}) — nouvelle tentative")
+                    android.util.Log.i(
+                        "nyx-call",
+                        "connexion directe impossible vers ${peer.take(16)}… (${e.message}) — nouvelle tentative"
+                    )
                     null
                 }
                 if (socket == null) delay(3_000)

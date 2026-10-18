@@ -57,7 +57,12 @@ object ChunkCodec {
         val sha256: String,
         val i: Int,
         val n: Int,
-        val data: String
+        val data: String,
+        // v0.2.28 — politique d'affichage (style Instagram), répétée sur CHAQUE
+        // fragment (crash-safe comme name/mime) : "forever" (défaut — les
+        // fragments v0.2.16-27 sans ce champ lisent la valeur par défaut,
+        // rétrocompatible via ignoreUnknownKeys) | "once" | "twice".
+        val view: String = "forever"
     )
 
     /** Fragment décodé et VALIDÉ (data déjà décodée en binaire). */
@@ -69,16 +74,19 @@ object ChunkCodec {
         val sha256: String,
         val index: Int,
         val total: Int,
-        val data: ByteArray
+        val data: ByteArray,
+        /** v0.2.28 — "forever" | "once" | "twice" (vue unique / 1 relecture). */
+        val view: String = "forever"
     )
 
     /** Corps JSON du fragment (chiffré ensuite par le canal « msg »). */
     fun encode(
         fid: String, name: String, mime: String, size: Long,
-        sha256: String, index: Int, total: Int, dataB64: String
+        sha256: String, index: Int, total: Int, dataB64: String,
+        view: String = "forever"
     ): String = json.encodeToString(
         FileChunkJson.serializer(),
-        FileChunkJson(WIRE_VERSION, KIND, fid, sanitizeName(name), mime, size, sha256, index, total, dataB64)
+        FileChunkJson(WIRE_VERSION, KIND, fid, sanitizeName(name), mime, size, sha256, index, total, dataB64, view)
     )
 
     /**
@@ -103,8 +111,13 @@ object ChunkCodec {
         }.getOrNull() ?: return null
         if (data.size > CHUNK_PAYLOAD) return null
         if (dto.i == dto.n - 1 && data.isEmpty()) return null
+        // v0.2.28 — politique d'affichage normalisée (valeur inconnue = forever).
+        val view = when (dto.view) {
+            "once", "twice" -> dto.view
+            else -> "forever"
+        }
         return FileChunk(dto.fid, name, dto.mime.ifBlank { "application/octet-stream" },
-            dto.size, dto.sha256, dto.i, dto.n, data)
+            dto.size, dto.sha256, dto.i, dto.n, data, view)
     }
 
     /** Découpe un fichier en fragments binaires (base64 par la suite). */

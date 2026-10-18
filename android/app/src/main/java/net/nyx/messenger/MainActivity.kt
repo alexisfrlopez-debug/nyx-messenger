@@ -48,6 +48,15 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v0.2.28 — INTERDICTION DES CAPTURES D'ÉCRAN (demande opérateur :
+        // « je veux interdire les captures d'écran dans l'application ») :
+        // FLAG_SECURE sur la fenêtre racine = captures d'écran et
+        // enregistrements d'écran NOIRS, aperçu multi-tâches masqué.
+        // Inconditionnel (toute l'app : chats, médias, appels, réglages).
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE
+        )
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         startEmbeddedTor()

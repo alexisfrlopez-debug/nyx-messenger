@@ -120,4 +120,44 @@ class ChunkCodecTest {
         assertEquals("96 Ko", ChunkCodec.humanSize(96 * 1024))
         assertEquals("1,5 Mo", ChunkCodec.humanSize((1.5 * 1024 * 1024).toLong()))
     }
+
+/* ---------------- v0.2.28 — politique d'affichage (vue limitée) ---------------- */
+
+@Test
+fun `politique par défaut = forever rétrocompatible sans le champ`() {
+    val data = ByteArray(64) { it.toByte() }
+    val b64 = java.util.Base64.getEncoder().encodeToString(data)
+    val json = ChunkCodec.encode(
+        "aabbccdd00112233445566778899eeff", "photo.jpg", "image/jpeg",
+        96_000, "ff".repeat(32), 0, 1, b64
+    )
+    // le champ view est bien SÉRIALISÉ (encodeDefaults) pour les nouveaux clients
+    assertTrue(json.contains("\"view\":\"forever\""))
+    // et un fragment SANS champ (ancien client) lit « forever »
+    val legacy = json.replace(",\"view\":\"forever\"", "")
+    val chunk = ChunkCodec.parse(legacy)
+    assertNotNull(chunk)
+    assertEquals("forever", chunk!!.view)
+}
+
+@Test
+fun `politique once et twice round-trip et valeur inconnue normalisée forever`() {
+    val b64 = java.util.Base64.getEncoder().encodeToString(ByteArray(32))
+    val once = ChunkCodec.parse(
+        ChunkCodec.encode("aabbccdd00112233445566778899eeff", "a.jpg", "image/jpeg",
+            96_000, "ff".repeat(32), 0, 1, b64, "once")
+    )
+    assertEquals("once", once!!.view)
+    val twice = ChunkCodec.parse(
+        ChunkCodec.encode("aabbccdd00112233445566778899eeff", "a.jpg", "image/jpeg",
+            96_000, "ff".repeat(32), 0, 1, b64, "twice")
+    )
+    assertEquals("twice", twice!!.view)
+    val unknown = ChunkCodec.parse(
+        ChunkCodec.encode("aabbccdd00112233445566778899eeff", "a.jpg", "image/jpeg",
+            96_000, "ff".repeat(32), 0, 1, b64, "une-valeur-inconnue")
+    )
+    assertEquals("forever", unknown!!.view)
+}
+
 }

@@ -88,7 +88,9 @@ object ServiceLocator {
                     NyxDatabase.MIGRATION_5_6, NyxDatabase.MIGRATION_6_7,
                     NyxDatabase.MIGRATION_7_8,
                     // v0.2.26 : messages éphémères (colonne expireAt).
-                    NyxDatabase.MIGRATION_8_9
+                    NyxDatabase.MIGRATION_8_9,
+                    // v0.2.28 : politique d'affichage média (vue unique / 2 vues).
+                    NyxDatabase.MIGRATION_9_10
                 )
                 .build()
 

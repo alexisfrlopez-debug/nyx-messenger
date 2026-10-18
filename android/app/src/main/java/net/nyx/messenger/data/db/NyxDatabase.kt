@@ -127,8 +127,21 @@ data class AttachmentEntity(
     val totalChunks: Int,                // nombre de fragments annoncés
     val state: Int,                      // AT_TRANSFER / AT_READY / AT_FAILED
     val localPath: String,               // rempli quand state = AT_READY
-    val createdAt: Long
-)
+    val createdAt: Long,
+    // v0.2.28 — politique d'affichage (style Instagram) : "forever" (défaut,
+    // rétrocompatible avec les fragments v0.2.16-27 sans ce champ), "once"
+    // (vue unique puis destruction locale) ou "twice" (1 relecture autorisée).
+    @ColumnInfo(defaultValue = "forever") val viewPolicy: String = VIEW_FOREVER,
+    // v0.2.28 — vues restantes côté récepteur : -1 = illimité (forever) ;
+    // décrémenté à chaque fermeture du visualiseur ; 0 = média détruit.
+    @ColumnInfo(defaultValue = "-1") val viewsLeft: Int = -1
+) {
+    companion object {
+        const val VIEW_FOREVER = "forever"
+        const val VIEW_ONCE = "once"
+        const val VIEW_TWICE = "twice"
+    }
+}
 
 /**
  * v0.2.17 — fragment binaire en vol (stocké par (fid, idx), REPLACE idempotent
@@ -422,6 +435,14 @@ interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE fid = :fid")
     suspend fun get(fid: String): AttachmentEntity?
 
+    /** v0.2.28 — décrémente les vues restantes (jamais sous 0) ; renvoie la valeur après. */
+    @Query("UPDATE attachments SET viewsLeft = viewsLeft - 1 WHERE fid = :fid AND viewsLeft > 0")
+    suspend fun decrementViews(fid: String)
+
+    /** v0.2.28 — relecture de la ligne après décrément. */
+    @Query("SELECT viewsLeft FROM attachments WHERE fid = :fid")
+    suspend fun viewsLeftOf(fid: String): Int?
+
     /** Flux observable par la bulle média (progression/état en direct). */
     @Query("SELECT * FROM attachments WHERE fid = :fid")
     fun byFid(fid: String): Flow<AttachmentEntity?>
@@ -589,7 +610,9 @@ interface SeqStateDao {
         DelPendingEntity::class, ReplicaEventEntity::class, ReplicaStateEntity::class],
     // v0.2.22 — version 8 : réparation du schéma replica_events (MIGRATION_7_8).
     // v0.2.26 — version 9 : colonne messages.expireAt (messages éphémères).
-    version = 9,
+    // v0.2.28 — version 10 : politique d'affichage média (vue unique / 1
+    //            relecture / permanent) — attachments.viewPolicy + viewsLeft.
+    version = 10,
     exportSchema = false
 )
 abstract class NyxDatabase : RoomDatabase() {
@@ -786,6 +809,20 @@ abstract class NyxDatabase : RoomDatabase() {
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE messages ADD COLUMN expireAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v0.2.28 — MIGRATION_9_10 : politique d'affichage des médias
+         * (demande opérateur : « afficher le média 1 fois puis destruction,
+         * relecture autorisée 1 fois, ou affichage permanent »).
+         * viewPolicy : "forever" (défaut, rétrocompatible) | "once" | "twice" ;
+         * viewsLeft  : -1 = illimité (forever), sinon vues restantes.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE attachments ADD COLUMN viewPolicy TEXT NOT NULL DEFAULT 'forever'")
+                db.execSQL("ALTER TABLE attachments ADD COLUMN viewsLeft INTEGER NOT NULL DEFAULT -1")
             }
         }
 

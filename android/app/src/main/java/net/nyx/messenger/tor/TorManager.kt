@@ -154,13 +154,25 @@ class TorManager private constructor(context: Context) {
             ) {
                 target = net.nyx.messenger.replica.EmbeddedReplica.localPort
             }
+            // v0.2.28 — ATTENTE DU PORT MÉDIA (race de démarrage) : si l'écouteur
+            // P2P n'est pas encore lié au moment de l'ADD_ONION, le descripteur
+            // publié N'AURAIT PAS le port 47471 → tous les appels/fichiers
+            // directs échoueraient (« Connect timed out » côté pair) jusqu'à la
+            // prochaine republication. On attend gracieusement (≤ 8 s) que
+            // P2pServer expose son port local avant de publier.
+            var mediaPort = net.nyx.messenger.p2p.P2pServer.localPort
+            if (mediaPort == 0) {
+                var waited = 0
+                while (mediaPort == 0 && waited < 8_000) {
+                    delay(500)
+                    waited += 500
+                    mediaPort = net.nyx.messenger.p2p.P2pServer.localPort
+                }
+            }
             val key = keyProvider?.invoke() ?: error("identité absente (onboarding ?)")
             TorControlClient(cfg.controlPort).use { control ->
                 control.authenticate(cfg.cookieFile)
-                val sid = control.publishOnionEd25519V3(
-                    key, target,
-                    net.nyx.messenger.p2p.P2pServer.localPort.takeIf { it > 0 } ?: 0
-                )
+                val sid = control.publishOnionEd25519V3(key, target, mediaPort)
                 onionServiceId = sid
                 // Cohérence clé ↔ adresse (miroir de l'avertissement du serveur Go) :
                 // la clé privée ed25519 contient la clé publique à [32..64). Si tor et
@@ -170,9 +182,58 @@ class TorManager private constructor(context: Context) {
                 check(published.equals(expected, ignoreCase = true)) {
                     "ServiceID tor ($published) ≠ adresse calculée ($expected)"
                 }
+                // v0.2.28 — trace de diagnostic décisive : le descripteur publié
+                // porte-t-il le port média ? (le pair qui appelle ne peut joindre
+                // que ce qui est DANS le descripteur HSDir.)
+                if (mediaPort > 0) {
+                    android.util.Log.i(
+                        "nyx-tor", "onion publié : $published ports=80→$target, " +
+                            "${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT}→$mediaPort"
+                    )
+                    // SONDE AUTO (v0.2.28) : 15 s après publication (délai de
+                    // propagation HSDir), l'app appelle SON PROPRE port média —
+                    // échec = descripteur non propagé / port absent → la cause
+                    // « impossible de décrocher » est visible DANS le log.
+                    scope.launch {
+                        delay(15_000)
+                        selfTestMediaPort(published)
+                    }
+                } else {
+                    android.util.Log.w(
+                        "nyx-tor", "onion publié SANS port média (écouteur P2P non lié) — " +
+                            "appels directs indisponibles jusqu'à republication"
+                    )
+                }
                 published
             }
         }.onFailure { setState(TorState.Failed("publication onion : ${it.message}")) }
+    }
+
+    /**
+     * v0.2.28 — sonde auto du port média : connexion à notre PROPRE onion sur
+     * MEDIA_ONION_PORT via le SOCKS local (chemin onion complet, comme un
+     * pair). OK = descripteur propagé + port servi ; échec = diagnostic
+     * « impossible de décrocher » enregistré dans le log terrain.
+     */
+    private fun selfTestMediaPort(ownOnion: String) {
+        runCatching {
+            val s = net.nyx.messenger.p2p.P2pClient.connect(ownOnion, 20_000)
+            runCatching { s.close() }
+        }.fold(
+            onSuccess = {
+                android.util.Log.i(
+                    "nyx-p2p", "auto-sonde média OK : ${ownOnion.take(16)}…:" +
+                        "${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT} joignable (descripteur publié)"
+                )
+            },
+            onFailure = { e ->
+                android.util.Log.w(
+                    "nyx-p2p", "auto-sonde média ÉCHOUÉE : ${ownOnion.take(16)}…:" +
+                        "${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT} (${e.message}) " +
+                        "— descripteur non propagé ou port média absent : les appels ENTRANTS ne pourront pas établir le média"
+                )
+            }
+        )
     }
 
     suspend fun unpublishOwnOnion() {

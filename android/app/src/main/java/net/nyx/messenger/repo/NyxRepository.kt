@@ -1172,10 +1172,18 @@ class NyxRepository(
         mime: String,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
         onStart: (fid: String) -> Unit = {},
+        // v0.2.28 — politique d'affichage choisie à l'envoi (style Instagram) :
+        // "forever" (défaut) | "once" (vue unique) | "twice" (1 relecture).
+        viewPolicy: String = AttachmentEntity.VIEW_FOREVER,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
+            // Normalisation (valeur inconnue → permanent).
+            val view = when (viewPolicy) {
+                AttachmentEntity.VIEW_ONCE, AttachmentEntity.VIEW_TWICE -> viewPolicy
+                else -> AttachmentEntity.VIEW_FOREVER
+            }
             android.util.Log.i("nyx-send", "→ fichier peer=${peerOnion.trim().take(16)}… " +
-                "name=$name mime=$mime taille=${ChunkCodec.humanSize(data.size.toLong())}")
+                "name=$name mime=$mime taille=${ChunkCodec.humanSize(data.size.toLong())} vue=$view")
             if (data.isEmpty()) error("fichier vide")
             if (data.size > ChunkCodec.MAX_FILE_SIZE) {
                 error("fichier trop volumineux (max ${ChunkCodec.humanSize(ChunkCodec.MAX_FILE_SIZE)})")
@@ -1206,7 +1214,10 @@ class NyxRepository(
             attachmentDao.upsertMeta(
                 AttachmentEntity(
                     fid, peer, outgoing = true, safeName, mime.ifBlank { "application/octet-stream" },
-                    data.size.toLong(), sha, n, AT_TRANSFER, localPath, System.currentTimeMillis()
+                    data.size.toLong(), sha, n, AT_TRANSFER, localPath, System.currentTimeMillis(),
+                    // v0.2.28 : la COPIE DE L'EXPÉDITEUR reste toujours relisible
+                    // (viewsLeft = -1) — la politique s'applique au récepteur.
+                    viewPolicy = view, viewsLeft = -1
                 )
             )
 
@@ -1224,7 +1235,7 @@ class NyxRepository(
             val directBodies = chunks.mapIndexed { idx, chunk ->
                 val json = ChunkCodec.encode(
                     fid, safeName, mime, data.size.toLong(), sha, idx, n,
-                    B64.encode(chunk)
+                    B64.encode(chunk), view
                 )
                 cipher.encryptFor(peerPub, json.toByteArray(Charsets.UTF_8))
             }
@@ -1240,7 +1251,7 @@ class NyxRepository(
                     val ts = System.currentTimeMillis() / 1000
                     val bodyJson = ChunkCodec.encode(
                         fid, safeName, mime, data.size.toLong(), sha, idx, n,
-                        B64.encode(chunk)
+                        B64.encode(chunk), view
                     )
                     val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
                     val ev = WireEvent("msg", me, seq, ts, 0, peer, body, "")
@@ -1416,7 +1427,28 @@ class NyxRepository(
                     chunk.fid, author, outgoing = false, chunk.name,
                     chunk.mime.ifBlank { "application/octet-stream" },
                     chunk.size, chunk.sha256, chunk.total, AT_TRANSFER,
-                    "", System.currentTimeMillis()
+                    "", System.currentTimeMillis(),
+                    // v0.2.28 — politique d'affichage portée par le fragment :
+                    // once = 1 vue, twice = 2 vues (vue + 1 relecture), forever = -1.
+                    viewPolicy = chunk.view,
+                    viewsLeft = when (chunk.view) {
+                        AttachmentEntity.VIEW_ONCE -> 1
+                        AttachmentEntity.VIEW_TWICE -> 2
+                        else -> -1
+                    }
+                )
+            )
+        } else if (existing.viewPolicy != chunk.view && chunk.view != AttachmentEntity.VIEW_FOREVER) {
+            // Ligne créée par un fragment antérieur sans politique (v0.2.27-) :
+            // le premier fragment vu portant une politique l'applique.
+            attachmentDao.upsertMeta(
+                existing.copy(
+                    viewPolicy = chunk.view,
+                    viewsLeft = when (chunk.view) {
+                        AttachmentEntity.VIEW_ONCE -> 1
+                        AttachmentEntity.VIEW_TWICE -> 2
+                        else -> -1
+                    }
                 )
             )
         }
@@ -1898,6 +1930,32 @@ class NyxRepository(
     /** Flux des médias échangés avec un pair (onglet « Fichiers & médias »). */
     fun attachmentsByPeer(peerOnion: String): Flow<List<AttachmentEntity>> =
         attachmentDao.byPeer(peerOnion.trim().lowercase())
+
+    /**
+     * v0.2.28 — CONSOMMATION D'UNE VUE (médias « vue unique » / « 1 relecture »,
+     * demande opérateur : « afficher le média 1 fois puis destruction du média,
+     * relecture autorisée 1 fois, ou affichage permanent »). Appelé À LA
+     * FERMETURE du visualiseur par le RÉCEPTEUR : décrémente viewsLeft ; à 0,
+     * le fichier local est DÉTRUIT (le blob chiffré + le fichier assemblé —
+     * la bulle affichera « média expiré »). L'expéditeur n'est jamais touché
+     * (viewsLeft = -1). Renvoie les vues restantes après consommation.
+     */
+    suspend fun consumeMediaView(fid: String): Int {
+        val a = attachmentDao.get(fid) ?: return -1
+        if (a.outgoing || a.viewPolicy == AttachmentEntity.VIEW_FOREVER || a.viewsLeft <= 0) {
+            return a.viewsLeft
+        }
+        attachmentDao.decrementViews(fid)
+        val left = attachmentDao.viewsLeftOf(fid) ?: a.viewsLeft
+        if (left <= 0 && a.localPath.isNotBlank()) {
+            runCatching {
+                val f = java.io.File(a.localPath)
+                if (f.exists()) f.delete()
+                android.util.Log.i("nyx-media", "média à vue limitée détruit : ${a.name} (fid=${fid.take(8)}…)")
+            }
+        }
+        return left
+    }
 
     /* ---------------- profil (v0.2.0 — wire-format.md §7) ---------------- */
 
