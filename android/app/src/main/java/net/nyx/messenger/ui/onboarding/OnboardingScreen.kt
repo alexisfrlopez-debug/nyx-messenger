@@ -48,6 +48,8 @@ import net.nyx.messenger.crypto.IdentityBackup
 import net.nyx.messenger.crypto.RecoveryKey
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.repo.NyxRepository
+import net.nyx.messenger.ui.components.ErrorLine
+import net.nyx.messenger.ui.components.PasswordField
 import net.nyx.messenger.tor.TorManager
 
 /**
@@ -107,28 +109,46 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
     // Export du fichier de sauvegarde (SAF — aucune permission).
     // v0.2.21 : sauvegarde v2 GÉNÉRÉE PAR LE DÉPÔT (writeBackupToUri →
     // exportBackupJson) — clé + alias + profil + contacts + curseurs inbox.
+    // v0.2.26 : fichier CHIFFRÉ par le mot de passe du compte (confirmation
+    // avant l'export — le fichier seul ne vaut plus rien sans lui).
+    var showExportPwd by remember { mutableStateOf(false) }
+    var exportPwd by remember { mutableStateOf("") }
+    var exportPwdErr by remember { mutableStateOf<String?>(null) }
     val saveBackup = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri != null && onion != null && recoveryKey != null) {
-            scope.launch { net.nyx.messenger.ui.components.writeBackupToUri(context, uri) }
+            scope.launch {
+                net.nyx.messenger.ui.components.writeBackupToUri(context, uri, exportPwd)
+                    .onFailure { e ->
+                        android.widget.Toast.makeText(
+                            context, e.message ?: "export impossible", android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                exportPwd = "" // le mot de passe ne survit pas à l'export
+            }
         }
     }
 
     // Import du fichier de sauvegarde (SAF — aucune permission).
+    // v0.2.26 : le mot de passe est EXIGÉ à l'importation — le mot de passe
+    // DESTRUCTION efface le fichier importé (anti-contrainte), PANIQUE est
+    // refusé, NORMAL dévérouille (enveloppe) ou autorise (clair hérité).
+    var importPendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var importPendingText by remember { mutableStateOf<String?>(null) }
+    var showImportPwd by remember { mutableStateOf(false) }
     val openBackup = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val text = withContext(Dispatchers.IO) {
-                    runCatching {
-                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
-                    }.getOrNull()
-                }
-                doRestore(text, context) { addr, key ->
-                    onion = addr
-                    recoveryKey = key
+                val text = net.nyx.messenger.ui.components.readSafText(context, uri)
+                if (text == null) {
+                    android.util.Log.w("nyx-restore", "fichier de sauvegarde illisible")
+                } else {
+                    importPendingUri = uri
+                    importPendingText = text
+                    showImportPwd = true
                 }
             }
         }
@@ -196,7 +216,7 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
                                 cm.setPrimaryClip(ClipData.newPlainText("nyx_recovery", rk))
                             }) { Text(stringResource(R.string.copy)) }
                             TextButton(onClick = {
-                                saveBackup.launch("nyx-sauvegarde-${System.currentTimeMillis() / 1000}.json")
+                                exportPwd = ""; exportPwdErr = null; showExportPwd = true
                             }) { Text(stringResource(R.string.recovery_save)) }
                         }
                     }
@@ -298,6 +318,92 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
             }
         )
     }
+
+    // v0.2.26 — export chiffré : confirmation du mot de passe du compte
+    // (dialogue partagé [BackupPasswordDialog] — même mécanique que Paramètres).
+    if (showExportPwd) {
+        net.nyx.messenger.ui.components.BackupPasswordDialog(
+            onDismiss = { showExportPwd = false },
+            onConfirmed = { pwd ->
+                exportPwd = pwd
+                showExportPwd = false
+                saveBackup.launch("nyx-sauvegarde-${System.currentTimeMillis() / 1000}.json")
+            }
+        )
+    }
+
+    // v0.2.26 — mot de passe EXIGÉ à l'importation (fichier) : NORMAL dévérouille,
+    // DESTRUCTION efface le fichier importé, PANIQUE refuse.
+    if (showImportPwd) {
+        var p by remember { mutableStateOf("") }
+        var err by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { showImportPwd = false },
+            title = { Text(stringResource(R.string.import_pwd_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.import_pwd_desc), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    PasswordField(
+                        p, { p = it; err = null },
+                        stringResource(R.string.gate_pwd), isError = err != null
+                    )
+                    ErrorLine(err)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val uri = importPendingUri
+                    val text = importPendingText
+                    if (text == null) { showImportPwd = false; return@Button }
+                    val vaultSet = net.nyx.messenger.security.PasswordVault.anySet(context)
+                    val mode = if (vaultSet && p.isNotBlank()) {
+                        net.nyx.messenger.security.PasswordVault.verify(context, p)
+                    } else null
+                    when {
+                        mode == net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION -> {
+                            // ANTI-CONTRAINTE : le fichier importé est EFFACÉ, rien
+                            // n'est restauré (demande opérateur).
+                            uri?.let { u -> wipeImportedFile(context, u) }
+                            android.util.Log.i("nyx-restore", "mot de passe destruction — fichier importé effacé")
+                            android.widget.Toast.makeText(
+                                context, R.string.import_wiped, android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            showImportPwd = false
+                            importPendingUri = null; importPendingText = null
+                        }
+                        mode == net.nyx.messenger.security.PasswordVault.Mode.PANIC -> {
+                            err = context.getString(R.string.import_pwd_panic)
+                        }
+                        net.nyx.messenger.crypto.PasswordCrypto.isEncrypted(text) -> {
+                            val plain = runCatching {
+                                net.nyx.messenger.crypto.PasswordCrypto.decrypt(text, p.toCharArray())
+                                    ?.toString(Charsets.UTF_8)
+                            }.getOrNull()
+                            if (plain == null) {
+                                err = context.getString(R.string.import_pwd_wrong)
+                            } else {
+                                showImportPwd = false
+                                importPendingUri = null; importPendingText = null
+                                scope.launch { doRestore(plain, context) { addr, key -> onion = addr; recoveryKey = key } }
+                            }
+                        }
+                        vaultSet && mode != net.nyx.messenger.security.PasswordVault.Mode.NORMAL -> {
+                            err = context.getString(R.string.import_pwd_wrong)
+                        }
+                        else -> {
+                            showImportPwd = false
+                            importPendingUri = null; importPendingText = null
+                            scope.launch { doRestore(text, context) { addr, key -> onion = addr; recoveryKey = key } }
+                        }
+                    }
+                }) { Text(stringResource(R.string.import_pwd_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportPwd = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
 }
 
 /** Restauration partagée (collage ou fichier) — état UI mis à jour via [apply]. */
@@ -356,6 +462,21 @@ private suspend fun doRestore(text: String?, context: Context, apply: (String, S
     }
 }
 
+/**
+ * v0.2.26 — EFFACEMENT du fichier de clé de récupération importé : saisi du
+ * mot de passe DESTRUCTION à l'importation → le document SAF est supprimé
+ * (sinon tronqué, selon le fournisseur) et RIEN n'est restauré.
+ */
+private fun wipeImportedFile(context: Context, uri: android.net.Uri) {
+    runCatching {
+        android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+    }.onFailure {
+        runCatching {
+            context.contentResolver.openOutputStream(uri, "w")?.use { it.write(ByteArray(0)) }
+        }
+    }
+}
+
 /** Dialogue de restauration : collage de la clé ou import de fichier. */
 @Composable
 private fun RestoreDialog(
@@ -365,6 +486,8 @@ private fun RestoreDialog(
 ) {
     val context = LocalContext.current
     var input by remember { mutableStateOf("") }
+    // v0.2.26 : mot de passe du compte (contrôle anti-contrainte sur collage).
+    var pwd by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -387,13 +510,39 @@ private fun RestoreDialog(
                 TextButton(onClick = onPickFile, modifier = Modifier.padding(top = 4.dp)) {
                     Text(stringResource(R.string.restore_pick_file))
                 }
+                Spacer(Modifier.height(4.dp))
+                // v0.2.26 : contrôle contre le coffre local quand il est défini
+                // (NORMAL = restaure, DESTRUCTION = annule, PANIQUE = refuse) ;
+                // première installation (coffre vide) : la création est forcée
+                // APRÈS la restauration par le calque PasswordGate.
+                if (net.nyx.messenger.security.PasswordVault.anySet(context)) {
+                    PasswordField(pwd, { pwd = it; err = null }, stringResource(R.string.gate_pwd))
+                }
+                Text(
+                    stringResource(R.string.restore_pwd_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         confirmButton = {
             Button(onClick = {
                 try {
                     RecoveryKey.decode(input) // validation immédiate (checksum)
-                    onRestore(input)
+                    if (net.nyx.messenger.security.PasswordVault.anySet(context)) {
+                        when (net.nyx.messenger.security.PasswordVault.verify(context, pwd)) {
+                            net.nyx.messenger.security.PasswordVault.Mode.NORMAL -> onRestore(input)
+                            net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION -> {
+                                // Clé collée : pas de fichier à effacer — import annulé.
+                                err = context.getString(R.string.restore_wiped_paste)
+                            }
+                            net.nyx.messenger.security.PasswordVault.Mode.PANIC ->
+                                err = context.getString(R.string.import_pwd_panic)
+                            null -> err = context.getString(R.string.import_pwd_wrong)
+                        }
+                    } else {
+                        onRestore(input)
+                    }
                 } catch (e: Exception) {
                     err = context.getString(R.string.restore_invalid, e.message ?: "format")
                 }

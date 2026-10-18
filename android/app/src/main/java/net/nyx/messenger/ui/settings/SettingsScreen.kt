@@ -163,12 +163,23 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 ReplicasListCard()
                 Spacer(Modifier.height(8.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
             }
+
+            // ---- v0.2.26 : liste vivante des réplicas + réplicas temporaires,
+            //      avec indicateur ACTIF/UTILISÉ (demande opérateur) ----
+            ReplicaStatusCard()
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
 
             // ---- sauvegarde de l'identité (v0.2.3 — ADR-003) ----
             BackupCard()
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            // ---- v0.2.26 : export/import des conversations (fichier chiffré) ----
+            ConversationsCard()
             Spacer(Modifier.height(8.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
@@ -263,6 +274,11 @@ private fun BackupCard() {
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var revealed by remember { mutableStateOf(false) }
+    // v0.2.26 : le fichier de sauvegarde est CHIFFRÉ avec le mot de passe du
+    // compte (dialogue de confirmation avant l'export SAF).
+    var showPwd by remember { mutableStateOf(false) }
+    var pwd by remember { mutableStateOf("") }
+    var pwdErr by remember { mutableStateOf<String?>(null) }
 
     val export = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -270,7 +286,16 @@ private fun BackupCard() {
         if (uri != null) {
             // v0.2.21 : sauvegarde v2 — clé + alias + profil (publics ET privés)
             // + contacts + curseurs inbox, via le helper partagé (audit RED-DUP).
-            scope.launch { net.nyx.messenger.ui.components.writeBackupToUri(context, uri) }
+            // v0.2.26 : enveloppe chiffrée par le mot de passe saisi.
+            scope.launch {
+                net.nyx.messenger.ui.components.writeBackupToUri(context, uri, pwd)
+                    .onFailure { e ->
+                        android.widget.Toast.makeText(
+                            context, e.message ?: "export impossible", android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                pwd = "" // le mot de passe ne survit pas à l'export
+            }
         }
     }
 
@@ -302,7 +327,9 @@ private fun BackupCard() {
                         key?.let { cm.setPrimaryClip(ClipData.newPlainText("nyx_recovery", it)) }
                     }) { Text(stringResource(R.string.copy)) }
                     TextButton(onClick = {
-                        export.launch("nyx-sauvegarde-${System.currentTimeMillis() / 1000}.json")
+                        // v0.2.26 : confirmation du mot de passe du compte AVANT
+                        // l'export (le fichier est chiffré avec lui).
+                        pwd = ""; pwdErr = null; showPwd = true
                     }) { Text(stringResource(R.string.settings_backup_export)) }
                     TextButton(onClick = { revealed = false }) {
                         Text(stringResource(R.string.settings_backup_hide))
@@ -314,6 +341,19 @@ private fun BackupCard() {
                 }
             }
         }
+    }
+
+    // v0.2.26 — dialogue du mot de passe du compte (export chiffré) —
+    // composant partagé [BackupPasswordDialog] (identique à l'onboarding).
+    if (showPwd) {
+        net.nyx.messenger.ui.components.BackupPasswordDialog(
+            onDismiss = { showPwd = false },
+            onConfirmed = { p ->
+                pwd = p
+                showPwd = false
+                export.launch("nyx-sauvegarde-${System.currentTimeMillis() / 1000}.json")
+            }
+        )
     }
 }
 

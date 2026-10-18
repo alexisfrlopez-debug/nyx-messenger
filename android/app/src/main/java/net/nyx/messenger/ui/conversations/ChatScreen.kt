@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -144,6 +145,9 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
     private var voiceFile: File? = null
 
     init {
+        // v0.2.26 : la conversation est OUVERTE — pas de notification pour ce pair
+        // (sinon marquage « lu » et notification se battent à chaque poll).
+        net.nyx.messenger.notify.MessageNotifier.suppressedPeer = peerLower
         viewModelScope.launch {
             while (true) {
                 // v0.2.18 : mode panique = AUCUN poll (ne pas consommer la
@@ -164,9 +168,18 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
         }
     }
 
+    /** v0.2.26 : sortie de l'écran — les notifications reprennent. */
+    override fun onCleared() {
+        net.nyx.messenger.notify.MessageNotifier.suppressedPeer = null
+        super.onCleared()
+    }
+
     fun send(peer: String, text: String, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
-            repo.send(peer, text).fold(
+            // v0.2.26 : ttl éphémère de la conversation (0 = permanent) —
+            // voyage signé dans l'événement, purge locale des deux côtés.
+            val ttl = ephemeralTtl.value
+            repo.send(peer, text, ttlSeconds = ttl).fold(
                 onSuccess = { sendError.value = null; onDone(true) },
                 onFailure = { e ->
                     sendError.value = e.message ?: "envoi impossible"
@@ -174,6 +187,27 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
                 }
             )
         }
+    }
+
+    /* ---------- éphémère (v0.2.26) ---------- */
+
+    /** TTL éphémère de cette conversation (0 = désactivé) — réactif pour l'UI. */
+    val ephemeralTtl = MutableStateFlow(
+        net.nyx.messenger.settings.SettingsManager.get(ServiceLocator.appContext()).ephemeralTtl(peerLower)
+    )
+
+    /** Cycle OFF → 1 h → 24 h → 7 j → OFF (persisté par conversation). */
+    fun cycleEphemeralTtl(): Long {
+        val next = when (ephemeralTtl.value) {
+            0L -> 3_600L
+            3_600L -> 86_400L
+            86_400L -> 604_800L
+            else -> 0L
+        }
+        ephemeralTtl.value = next
+        net.nyx.messenger.settings.SettingsManager.get(ServiceLocator.appContext())
+            .setEphemeralTtl(peerLower, next)
+        return next
     }
 
     /** Flux méta d'une pièce jointe (bulle média — progression/état en direct). */
@@ -340,6 +374,8 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     val contact by vm.contact.collectAsState(initial = null)
     val sendProgress by vm.sendProgress.collectAsState()
     val isRecording by vm.isRecording.collectAsState()
+    // v0.2.26 : éphémère de la conversation (0 = désactivé).
+    val ephemeralTtl by vm.ephemeralTtl.collectAsState()
     var input by remember { mutableStateOf("") }
     var showAttach by remember { mutableStateOf(false) }
     var viewerPath by remember { mutableStateOf<String?>(null) }
@@ -498,6 +534,31 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(8.dp)
                 ) {
+                    // v0.2.26 — MESSAGES ÉPHÉMÈRES : cycle OFF → 1 h → 24 h → 7 j.
+                    // Le TTL s'applique aux MESSAGES TEXTE (voyage signé, purge
+                    // locale des deux côtés) ; les pièces jointes restent permanentes.
+                    IconButton(onClick = {
+                        val next = vm.cycleEphemeralTtl()
+                        val label = when (next) {
+                            3_600L -> "1 h"
+                            86_400L -> "24 h"
+                            604_800L -> "7 j"
+                            else -> null
+                        }
+                        android.widget.Toast.makeText(
+                            ctx,
+                            if (label == null) ctx.getString(R.string.chat_ephemeral_off)
+                            else ctx.getString(R.string.chat_ephemeral_on, label),
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }) {
+                        Icon(
+                            Icons.Filled.Timer,
+                            contentDescription = stringResource(R.string.chat_ephemeral_desc),
+                            tint = if (ephemeralTtl > 0) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = { showAttach = true }) {
                         Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.attach_desc))
                     }

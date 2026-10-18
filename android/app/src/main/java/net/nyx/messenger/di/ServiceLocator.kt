@@ -86,7 +86,9 @@ object ServiceLocator {
                     NyxDatabase.MIGRATION_1_2, NyxDatabase.MIGRATION_2_3,
                     NyxDatabase.MIGRATION_3_4, NyxDatabase.MIGRATION_4_5,
                     NyxDatabase.MIGRATION_5_6, NyxDatabase.MIGRATION_6_7,
-                    NyxDatabase.MIGRATION_7_8
+                    NyxDatabase.MIGRATION_7_8,
+                    // v0.2.26 : messages éphémères (colonne expireAt).
+                    NyxDatabase.MIGRATION_8_9
                 )
                 .build()
 
@@ -105,6 +107,8 @@ object ServiceLocator {
             // v0.2.14 : notifications système du cycle de vie des contacts
             // (invitation avec actions Accepter/Refuser, refus, suppression).
             net.nyx.messenger.notify.ContactNotifier.init(context)
+            // v0.2.26 : notifications de MESSAGES reçus (texte + pièces jointes).
+            net.nyx.messenger.notify.MessageNotifier.init(context)
 
             if (mode == SessionMode.PANIC) {
                 // Mode panique : AUCUN poll (les messages du vrai compte
@@ -250,6 +254,8 @@ object ServiceLocator {
             var lastFailLog = 0L
             // v0.2.25 : annonce du réplica embarqué — 0 = dès le premier tick Tor Ready.
             var nextAnnounceAt = 0L
+            // v0.2.26 : purge périodique des messages éphémères.
+            var nextEphemeralSweepAt = 0L
             // v0.2.17 : compteur d'échecs de transport consécutifs (auto-guérison).
             var transportFails = 0
             var lastHealAt = 0L
@@ -315,6 +321,11 @@ object ServiceLocator {
                     // v0.2.19 : demandes de suppression « pour tous » restées en
                     // attente (même mécanique de reprise que les accusés).
                     runCatching { repository.ensureDeletionsSent() }
+                    // v0.2.26 : purge locale des messages éphémères (30 s).
+                    if (now >= nextEphemeralSweepAt) {
+                        nextEphemeralSweepAt = now + EPHEMERAL_SWEEP_MS
+                        runCatching { repository.sweepEphemeral() }
+                    }
                     // v0.2.25 — ANNONCE PÉRIODIQUE DU RÉPLICA EMBARQUÉ (build « test 2 ») :
                     // au premier tick Tor Ready puis toutes les 30 min, l'app annonce
                     // son réplica temporaire à ses contacts acceptés (type « contact »
@@ -350,6 +361,8 @@ object ServiceLocator {
     private const val FAIL_THROTTLE_MS = 60_000L
     // v0.2.25 — annonce périodique du réplica embarqué aux contacts.
     private const val ANNOUNCE_PERIOD_MS = 30 * 60_000L
+    // v0.2.26 — purge locale des messages éphémères.
+    private const val EPHEMERAL_SWEEP_MS = 30_000L
     // v0.2.17 — auto-guérison tor : seuil + cooldown.
     private const val HEAL_THRESHOLD = 3
     private const val HEAL_COOLDOWN_MS = 5 * 60_000L

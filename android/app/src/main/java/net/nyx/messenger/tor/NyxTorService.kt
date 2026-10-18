@@ -94,6 +94,30 @@ class NyxTorService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        // v0.2.26 — EMPREINTE DU BINAIRE EXÉCUTÉ (diagnostic terrain : un
+        // export v0.2.25 montrait des bannières tor 0.4.6.5 historiques à
+        // côté du 0.4.9.14 réel — le tor.log est APPEND et survit aux mises
+        // à jour ; la version du démon qui tourne VRAIMENT doit être visible
+        // dans les logs sans ambiguïté : chemin + taille + SHA-256).
+        run {
+            val size = runCatching { binary.length() }.getOrDefault(0L)
+            val sha = runCatching {
+                val md = java.security.MessageDigest.getInstance("SHA-256")
+                binary.inputStream().use { ins ->
+                    val buf = ByteArray(65536)
+                    while (true) {
+                        val n = ins.read(buf)
+                        if (n < 0) break
+                        md.update(buf, 0, n)
+                    }
+                    md.digest().joinToString("") { "%02x".format(it) }.take(16)
+                }
+            }.getOrDefault("?")
+            android.util.Log.i(
+                "nyx-tor",
+                "binaire tor : ${binary.name} (${size} o, sha256:${sha}) dans ${binary.parent}"
+            )
+        }
         config.writeTorrc(android.os.Process.myPid())
         TorManager.get(this).attachConfig(config)
 

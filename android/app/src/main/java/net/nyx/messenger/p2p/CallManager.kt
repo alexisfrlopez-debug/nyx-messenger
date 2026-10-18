@@ -30,6 +30,13 @@ import net.nyx.messenger.repo.NyxRepository
  * connexion directe onion-to-onion port 47471 — l'appelant ouvre (HELLO signé
  * + csd-0 AAC), l'appelé répond F_CALL_ACCEPT (son csd-0) ou F_CALL_REJECT.
  * Verrou contact mutuel identique aux messages ; un seul appel à la fois.
+ *
+ * v0.2.26 — ANTI-ÉTAT COLLANT (terrain : « offre ignorée (déjà en appel) » en
+ * boucle, appels qui sonnent sans jamais décrocher) : watchdog WAIT (60 s sans
+ * média → fin + BYE), garde-fou global (aucune phase > 4 min), try/catch sur
+ * tout le cycle (une exception tuait la coroutine SANS end() → phase figée),
+ * OP_REJECT renvoyé à l'appelant quand une offre est ignorée (il cesse de
+ * sonner), journalisation des transitions.
  */
 object CallManager {
 
@@ -45,6 +52,8 @@ object CallManager {
         val speaker: Boolean = false,
         val message: String = "",
         val videoEnabled: Boolean = false, // v0.2.20 : visio négociée (les DEUX côtés)
+        // v0.2.26 : horodatage du DERNIER changement de phase (watchdogs).
+        val phaseChangedAt: Long = 0L,
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
@@ -76,6 +85,29 @@ object CallManager {
         repoRef.callSignalHandler = { author, signal ->
             runBlocking { onSignal(author, signal) }
         }
+        watchdogGlobal()
+    }
+
+    /** v0.2.26 — filet de sécurité GLOBAL : aucune phase ne peut durer plus de
+     *  [GLOBAL_CALL_CAP_MS] (terrain v0.2.25 : un état « en appel » collé rendait
+     *  l'appareil sourd à toute offre entrante — « offre ignorée (déjà en appel) »). */
+    private fun watchdogGlobal() {
+        scope.launch {
+            while (true) {
+                delay(15_000)
+                val st = _ui.value
+                if (st.phase != Phase.IDLE && st.phase != Phase.ENDED &&
+                    st.phaseChangedAt > 0 &&
+                    nowMs() - st.phaseChangedAt > GLOBAL_CALL_CAP_MS
+                ) {
+                    android.util.Log.w(
+                        "nyx-call",
+                        "garde-fou global : ${st.phase} depuis > ${GLOBAL_CALL_CAP_MS / 1000} s — fin forcée"
+                    )
+                    end("appel interrompu (délai)")
+                }
+            }
+        }
     }
 
     /* ----------------------------- APPEL SORTANT ----------------------------- */
@@ -87,15 +119,32 @@ object CallManager {
         if (_ui.value.phase != Phase.IDLE) return
         val cid = CallSignal.newCid()
         _ui.value = CallUi(Phase.OUTGOING, peer, alias, cid,
-            message = "sonnerie…", videoEnabled = withVideo)
+            message = "sonnerie…", videoEnabled = withVideo, phaseChangedAt = nowMs())
         scope.launch {
+            // v0.2.26 : TOUTE exception dans le cycle sortant finit désormais
+            // par end() — avant, une IOException tuait la coroutine SANS
+            // nettoyage et la phase OUTGOING restait collée à jamais.
+            try {
+                runOutgoing(r, peer, alias, cid)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                android.util.Log.w("nyx-call", "appel sortant interrompu : ${e::class.simpleName} ${e.message}")
+                end("erreur : ${e.message ?: e::class.simpleName}")
+            }
+        }
+    }
+
+    /** Corps du cycle sortant (extrait de [call] v0.2.26 pour le try/catch). */
+    private suspend fun runOutgoing(r: NyxRepository, peer: String, alias: String, cid: String) {
+        run {
             // 1. Sonnerie chez le pair (journal chiffré — ≤ 15 s de poll).
             val offered = r.sendCallSignal(
                 peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS()).encode()
             )
             if (offered.isFailure) {
                 end("réplica injoignable — appel impossible")
-                return@launch
+                return@run
             }
             // 2. Connexion média directe — FENÊTRE DE TENTATIVES (fix terrain
             //    v0.2.18 : un seul essai de 40 s partait IMMÉDIATEMENT après
@@ -107,7 +156,7 @@ object CallManager {
             var socket: java.net.Socket? = null
             val deadline = System.currentTimeMillis() + CONNECT_WINDOW_MS
             while (socket == null && System.currentTimeMillis() < deadline) {
-                if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) return@launch
+                if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) return@run
                 socket = runCatching { P2pClient.connect(peer, CONNECT_ATTEMPT_MS) }.getOrElse { e ->
                     android.util.Log.i("nyx-call", "connexion directe impossible (${e.message}) — nouvelle tentative")
                     null
@@ -116,7 +165,7 @@ object CallManager {
             }
             if (socket == null) {
                 runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
-                end("pas de réponse"); return@launch
+                end("pas de réponse"); return@run
             }
             val c = P2pCallConnection(socket, P2pProtocol.Hello("call", P2pClient.me ?: "", alias, cid, "", 0, ""))
             conn = c
@@ -124,14 +173,18 @@ object CallManager {
             val audioEngine = CallAudio(c.input, { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
             audio = audioEngine
             myCsd = runCatching { audioEngine.startSending() }.getOrElse { e ->
-                end("micro indisponible : ${e.message}"); return@launch
+                end("micro indisponible : ${e.message}"); return@run
             }
             // v0.2.20 — VISIO : si demandée et caméra dispo, le csd H.264 part
             // dans le HELLO (le pair prépare son décodeur et répond le sien).
             // Caméra indisponible → AUDIO-ONLY (jamais d'appel raté pour ça).
             var vCsdB64 = ""
             if (_ui.value.videoEnabled) {
-                val engine = CallVideo(appContext ?: return@launch,
+                val ctx = appContext
+                if (ctx == null) {
+                    end("contexte indisponible"); return@run
+                }
+                val engine = CallVideo(ctx,
                     { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
                 val vcsd = runCatching { engine.startSending() }.getOrNull()
                 if (vcsd != null) {
@@ -144,14 +197,25 @@ object CallManager {
                     _ui.value = _ui.value.copy(videoEnabled = false)
                 }
             }
-            val me = P2pClient.me ?: ""
+            val me = P2pClient.me
+            if (me == null) {
+                end("identité indisponible"); return@run
+            }
             val csdB64 = java.util.Base64.getEncoder().encodeToString(myCsd)
             val sig = P2pClient.signer?.invoke(
                 P2pProtocol.helloSignedString("call", me, cid)
             ) ?: ""
-            c.send(P2pProtocol.F_HELLO, P2pProtocol.encodeHello(
-                P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64), sig
-            ))
+            // v0.2.26 : le HELLO non remis (pair raccroché entre-temps) ne tue
+            // plus la coroutine sans nettoyage — BYE + fin propre.
+            runCatching {
+                c.send(P2pProtocol.F_HELLO, P2pProtocol.encodeHello(
+                    P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64), sig
+                ))
+            }.getOrElse { e ->
+                android.util.Log.w("nyx-call", "HELLO non remis : ${e.message}")
+                runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
+                end("connexion perdue"); return@run
+            }
             // 3. Attendre la réponse (60 s — l'appelé sonne et accepte pendant
             //    ce temps ; la fenêtre totale reste sous le watchdog appelé).
             runCatching { socket.soTimeout = 60_000 }
@@ -178,7 +242,7 @@ object CallManager {
                         runCatching { video?.stop() }
                         video = null
                     }
-                    _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "")
+                    _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "", phaseChangedAt = nowMs())
                     android.util.Log.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…)")
                 }
                 P2pProtocol.F_CALL_REJECT -> end("refusé")
@@ -205,12 +269,25 @@ object CallManager {
                     return
                 }
                 if (_ui.value.phase != Phase.IDLE) {
-                    android.util.Log.i("nyx-call", "offre ignorée (déjà en appel) de ${author.take(16)}…")
+                    // v0.2.26 : la phase fautive est JOURNALISÉE (diagnostic terrain)
+                    // et l'appelant est LIBÉRÉ par OP_REJECT — avant, il sonnait
+                    // jusqu'à son propre timeout sans jamais savoir pourquoi.
+                    android.util.Log.i(
+                        "nyx-call",
+                        "offre ignorée (déjà en appel : ${_ui.value.phase}) de ${author.take(16)}… — OP_REJECT renvoyé"
+                    )
+                    scope.launch {
+                        runCatching {
+                            r.sendCallSignal(author, CallSignal(CallSignal.OP_REJECT, signal.cid, "", nowS()).encode())
+                        }
+                    }
                     return
                 }
                 pendingOffer = signal
                 val label = signal.alias.ifBlank { author.take(10) + "…" }
-                _ui.value = CallUi(Phase.INCOMING, author, label, signal.cid, message = "appel entrant…")
+                android.util.Log.i("nyx-call", "appel entrant de ${author.take(16)}… (cid ${signal.cid.take(8)}…)")
+                _ui.value = CallUi(Phase.INCOMING, author, label, signal.cid,
+                    message = "appel entrant…", phaseChangedAt = nowMs())
                 net.nyx.messenger.notify.ContactNotifier.incomingCall(author, label)
                 // v0.2.20 : la CONNEXION média a pu arriver AVANT l'offre
                 // (course journal/poll — terrain v0.2.18) : l'adopter si gardée.
@@ -250,10 +327,37 @@ object CallManager {
         val state = _ui.value
         if (state.phase != Phase.INCOMING) return
         acceptedCid = state.cid
-        _ui.value = state.copy(phase = Phase.WAIT, message = "connexion…")
+        _ui.value = state.copy(phase = Phase.WAIT, message = "connexion…", phaseChangedAt = nowMs())
         // Si la connexion P2P est déjà là (HELLO reçu avant l'appui) —
         // [onIncomingConnection] l'a gardée en attente : finalise maintenant.
         tryFinalizeWaitedConnection()
+        watchdogWait(state.cid)
+    }
+
+    /** v0.2.26 — watchdog WAIT : CAUSE RACINE du terrain v0.2.25 (« sonnent
+     *  mais ne décrochent pas »). Après acceptation, la phase WAIT n'avait
+     *  AUCUN timeout (le watchdog 120 s ne couvre que INCOMING) : si le média
+     *  n'arrivait jamais, « connexion… » restait à l'écran pour toujours et
+     *  toute offre suivante était ignorée (« déjà en appel »). Désormais :
+     *  sous [WAIT_WATCHDOG_MS] sans finalisation → BYE au pair + fin propre. */
+    private fun watchdogWait(cid: String) {
+        scope.launch {
+            delay(WAIT_WATCHDOG_MS)
+            val st = _ui.value
+            if (st.phase == Phase.WAIT && st.cid == cid) {
+                val r = repo
+                scope.launch {
+                    runCatching {
+                        r?.sendCallSignal(st.peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode())
+                    }
+                }
+                android.util.Log.w(
+                    "nyx-call",
+                    "WAIT sans média sous ${WAIT_WATCHDOG_MS / 1000} s — fin de l'appel (cid ${cid.take(8)}…)"
+                )
+                end("connexion impossible")
+            }
+        }
     }
 
     /** Refuse un appel entrant — trace chez l'appelant (journal) + socket. */
@@ -339,9 +443,22 @@ object CallManager {
         }
     }
 
-    /** Côté appelé : démarre l'audio (et la visio si négociée) puis répond au pair. */
+    /** Côté appelé : démarre l'audio (et la visio si négociée) puis répond au pair.
+     *  v0.2.26 : TOUTE exception → end() propre (avant : une IOException sur
+     *  F_CALL_ACCEPT figeait WAIT à jamais — cf. [watchdogWait]). */
     private fun finalizeIncoming() {
         val c = conn ?: return
+        try {
+            finalizeIncomingBody(c)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            android.util.Log.w("nyx-call", "finalisation entrante échouée : ${e::class.simpleName} ${e.message}")
+            end("connexion impossible : ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    private fun finalizeIncomingBody(c: P2pCallConnection) {
         val peerCsd = runCatching {
             java.util.Base64.getDecoder().decode(c.hello.csd)
         }.getOrElse { ByteArray(0) }
@@ -357,8 +474,9 @@ object CallManager {
         // nôtre et on répond en JSON {csd, vcsd} (pair forcément v0.2.20).
         var myVCsdB64 = ""
         val peerWantVideo = c.hello.vcsd.isNotEmpty()
-        if (peerWantVideo) {
-            val vEngine = CallVideo(appContext ?: return,
+        val ctx = appContext
+        if (peerWantVideo && ctx != null) {
+            val vEngine = CallVideo(ctx,
                 { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
             val myVCsd = runCatching { vEngine.startSending() }.getOrNull()
             if (myVCsd != null) {
@@ -374,13 +492,20 @@ object CallManager {
                 vEngine.stop()
             }
         }
-        c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(myCsdB64, myVCsdB64)
-            .toByteArray(Charsets.UTF_8))
+        // v0.2.26 : la réponse d'acceptation non remise (pair disparu) ne fige
+        // plus WAIT — fin propre immédiate.
+        runCatching {
+            c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(myCsdB64, myVCsdB64)
+                .toByteArray(Charsets.UTF_8))
+        }.getOrElse { e ->
+            android.util.Log.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
+            end("connexion perdue"); return
+        }
         runCatching { engine.startReceiving(peerCsd) }
         engine.transmit = true // l'appelé a accepté explicitement
         _ui.value = _ui.value.copy(
             phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "",
-            videoEnabled = myVCsdB64.isNotEmpty()
+            videoEnabled = myVCsdB64.isNotEmpty(), phaseChangedAt = nowMs()
         )
         android.util.Log.i("nyx-call", "appel actif avec ${_ui.value.peer.take(16)}… (côté appelé)")
     }
@@ -457,10 +582,14 @@ object CallManager {
     }
 
     private fun nowS(): Long = System.currentTimeMillis() / 1000
+    private fun nowMs(): Long = System.currentTimeMillis()
 
     /** v0.2.20 — fenêtres d'appel (terrain v0.2.18 : un seul essai 40 s tuait
      *  l'appel avant même le poll de l'appelé — « Connect timed out »). */
     private const val CONNECT_WINDOW_MS = 75_000L  // essais jusqu'à 75 s de sonnerie
     private const val CONNECT_ATTEMPT_MS = 12_000  // essai individuel (tor : 10-30 s)
     private const val WAITED_TTL_MS = 90_000L      // connexion gardée avant l'offre
+    // v0.2.26 — anti-état collant.
+    private const val WAIT_WATCHDOG_MS = 60_000L   // WAIT sans média → fin (BYE au pair)
+    private const val GLOBAL_CALL_CAP_MS = 240_000L // aucune phase > 4 min (filet global)
 }

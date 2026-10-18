@@ -88,12 +88,29 @@ class SettingsManager private constructor(context: Context) {
         get() = net.nyx.messenger.net.BootstrapReplicas.parse(prefs.getString(KEY_CUSTOM_REPLICAS, "") ?: "")
         set(value) = prefs.edit().putString(KEY_CUSTOM_REPLICAS, value.joinToString(",")).apply()
 
+    // ---- messages éphémères (v0.2.26) ----
+
+    /**
+     * TTL éphémère d'une conversation, en secondes (0 = désactivé — défaut).
+     * Valeurs proposées par l'UI : 0 / 3600 (1 h) / 86 400 (24 h) / 604 800
+     * (7 j). Le TTL voyage SIGNÉ dans l'événement (wire-format.md — ttl) et
+     * la péremption locale est appliquée des DEUX côtés (purge toutes les
+     * 30 s + refus des événements déjà expirés à l'arrivée).
+     */
+    fun ephemeralTtl(peer: String): Long =
+        prefs.getLong(KEY_EPHEMERAL_PREFIX + peer.trim().lowercase(), 0L)
+
+    fun setEphemeralTtl(peer: String, seconds: Long) {
+        prefs.edit().putLong(KEY_EPHEMERAL_PREFIX + peer.trim().lowercase(), seconds).apply()
+    }
+
     companion object {
         private const val KEY_BIOMETRIC_LOCK = "biometric_lock"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_CLOSE = "close_behavior"
         private const val KEY_REPLICA_ENABLED = "replica_enabled"
         private const val KEY_CUSTOM_REPLICAS = "custom_replicas"
+        private const val KEY_EPHEMERAL_PREFIX = "eph_ttl_"
 
         @Volatile private var instance: SettingsManager? = null
         fun get(context: Context): SettingsManager =

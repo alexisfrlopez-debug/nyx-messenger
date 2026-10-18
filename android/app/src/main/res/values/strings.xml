@@ -329,8 +329,71 @@
     <string name="update_notification_text">La version %1$s a été téléchargée — appuyez pour l\'installer.</string>
 
     <!-- v0.2.20 — plan de tests (versions test uniquement) -->
-    <string name="testplan_title">Plan de tests v0.2.24</string>
+    <string name="testplan_title">Plan de tests v0.2.26</string>
     <string name="testplan_desc">Appuyez sur un test une fois effectué : le résultat est journalisé (nyx-test) et part dans l\'export de logs — il sert à valider la mise en production.</string>
     <string name="testplan_progress">%1$d / %2$d test(s) fait(s)</string>
     <string name="testplan_reset">Tout réinitialiser</string>
+    <string name="testplan_redundancy_required">Redondance requise (≥ 2 réplicas) — bloqué tant que la flotte est unique</string>
+
+    <!-- v0.2.26 — notifications de messages reçus -->
+    <string name="notif_channel_messages">Messages</string>
+
+    <!-- v0.2.26 — messages éphémères -->
+    <string name="chat_ephemeral_off">Messages éphémères : désactivés</string>
+    <string name="chat_ephemeral_on">Messages éphémères : %1$s (les deux côtés)</string>
+    <string name="chat_ephemeral_desc">Minuteur des messages éphémères</string>
+
+    <!-- v0.2.26 — création forcée des mots de passe -->
+    <string name="gate_title_normal">Protégez votre compte</string>
+    <string name="gate_desc_normal">Le mot de passe protège désormais LE COMPTE : les sauvegardes sont chiffrées avec lui et son importation l\'exige. Créez-le (6 caractères minimum).</string>
+    <string name="gate_title_destruction">Mot de passe « destruction »</string>
+    <string name="gate_desc_destruction">Si vous saisissez CE mot de passe lors de l\'importation d\'une clé de récupération, le fichier importé est EFFACÉ sur-le-champ (protection en cas de contrainte). Créez-le (différent du mot de passe normal).</string>
+    <string name="gate_pwd">Mot de passe</string>
+    <string name="gate_pwd_confirm">Confirmer le mot de passe</string>
+    <string name="gate_confirm">Valider</string>
+    <string name="gate_pwd_too_short">6 caractères minimum</string>
+    <string name="gate_pwd_mismatch">Les deux mots de passe diffèrent</string>
+    <string name="gate_pwd_conflict">Ce mot de passe est déjà utilisé par un autre rôle — choisissez-en un autre</string>
+
+    <!-- v0.2.26 — sauvegarde chiffrée + import avec mot de passe -->
+    <string name="backup_pwd_title">Chiffrer la sauvegarde</string>
+    <string name="backup_pwd_desc">Le fichier sera chiffré avec le mot de passe du compte : son importation exigera ce mot de passe (saisir le mot de passe « destruction » effacera le fichier importé).</string>
+    <string name="backup_pwd_confirm">Chiffrer et exporter</string>
+    <string name="backup_pwd_wrong">Ce n\'est pas le mot de passe du compte</string>
+    <string name="import_pwd_title">Mot de passe requis</string>
+    <string name="import_pwd_desc">Saisissez le mot de passe du compte dont provient cette sauvegarde. Le mot de passe « destruction » efface le fichier importé.</string>
+    <string name="import_pwd_confirm">Déverrouiller</string>
+    <string name="import_pwd_wrong">Mot de passe incorrect</string>
+    <string name="import_pwd_panic">Le mot de passe « panique » est refusé ici</string>
+    <string name="import_wiped">Fichier de clé de récupération EFFACÉ — rien n\'a été restauré</string>
+    <string name="restore_pwd_note">Première installation ? La création des mots de passe sera demandée juste après la restauration.</string>
+    <string name="restore_wiped_paste">Import annulé (mot de passe destruction) — collez la clé normale pour restaurer</string>
+
+    <!-- v0.2.26 — carte Réplicas -->
+    <string name="replica_status_title">Réplicas connectés</string>
+    <string name="replica_status_desc">Liste vivante des réplicas et réplicas temporaires utilisés par ce téléphone — indicateur ACTIF (point + badge) et dernière utilisation.</string>
+    <string name="replica_badge_active">ACTIF</string>
+    <string name="replica_src_custom">CUSTOM</string>
+    <string name="replica_src_discovered">TEMPORAIRE (découvert)</string>
+    <string name="replica_src_builtin">AMORCE</string>
+    <string name="replica_src_embedded">TEMPORAIRE (embarqué)</string>
+    <string name="replica_embedded_on">sert</string>
+    <string name="replica_embedded_off">arrêté</string>
+
+    <!-- v0.2.26 — export/import des conversations -->
+    <string name="conv_card_title">Export / import des conversations</string>
+    <string name="conv_card_desc">Exportez les conversations choisies dans un fichier chiffré par mot de passe, ré-importable sur n\'importe quelle installation (textes ; les fichiers joints ne partent pas en binaire).</string>
+    <string name="conv_export">Exporter</string>
+    <string name="conv_import">Importer</string>
+    <string name="conv_select_title">Choisir les conversations</string>
+    <string name="conv_select_empty">Aucun contact accepté</string>
+    <string name="conv_select_next">Continuer</string>
+    <string name="conv_pwd_title">Mot de passe du fichier</string>
+    <string name="conv_pwd_desc">Ce mot de passe protégera le fichier — il sera demandé à l\'importation (peut différer du mot de passe du compte).</string>
+    <string name="conv_import_pwd_title">Déverrouiller le fichier</string>
+    <string name="conv_import_pwd_desc">Saisissez le mot de passe choisi lors de l\'export des conversations.</string>
+    <string name="conv_import_wrong_pwd">Mot de passe incorrect</string>
+    <string name="conv_import_bad_file">Fichier non reconnu</string>
+    <string name="conv_import_read_fail">Fichier illisible</string>
+    <string name="conv_import_done">%1$d message(s) importé(s)</string>
 </resources>

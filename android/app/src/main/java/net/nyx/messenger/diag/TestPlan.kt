@@ -21,8 +21,17 @@ package net.nyx.messenger.diag
  */
 object TestPlan {
 
-    /** Un test de validation de la release courante. */
-    data class Item(val id: String, val label: String)
+    /**
+     * Un test de validation de la release courante.
+     * v0.2.26 : [requiresRedundancy] = le test exige PLUSIEURS réplicas
+     * (couper le réplica courant, cycle sans serveur) — demande opérateur :
+     * « ça nécessite de mettre le seul serveur/replica hors ligne et je
+     * préfère éviter ce genre de prise de risque tant que je n'ai pas de
+     * redondance autre que les réplicas temporaires » → l'item s'affiche
+     * BLOQUÉ (badge « redondance requise ») tant que la flotte n'a pas
+     * ≥ 2 réplicas, sans pouvoir être marqué fait.
+     */
+    data class Item(val id: String, val label: String, val requiresRedundancy: Boolean = false)
 
     /** v0.2.20 — items de validation (miroir de docs/releases/v0.2.20.md). */
     val ITEMS_V0_2_20 = listOf(
@@ -54,22 +63,53 @@ object TestPlan {
 
     /** v0.2.25 — items de validation (miroir de docs/releases/v0.2.25.md) :
      *  fixes tor 0.4.9 (appels/P2P), partage logs (grants), réplicas
-     *  temporaires auto-partagés + failover, /admin/replicas console. */
+     *  temporaires auto-partagés + failover, /admin/replicas console.
+     *  v0.2.26 : les items destructeurs sont marqués requiresRedundancy. */
     val ITEMS_V0_2_25 = listOf(
         Item("tor-resolve", "Appels/visio : « décrocher » ÉTABLIT le média (tor 0.4.9.14 — plus de « No more HSDir » : les deux téléphones se joignent en direct)"),
         Item("fichier-p2p", "Fichier/média : envoi via P2P DIRECT quand les deux apps tournent (rapide) — le chemin journal reste le filet"),
         Item("logs-partage2", "Partage sans Drive : le fichier nyx-logs-*.txt arrive COMPLET dans la cible choisie (FB Messenger, e-mail…)"),
         Item("replica-auto", "Réplicas temporaires (test 2) : l'adresse du réplica d'un contact s'ajoute SEULE (log « annonce réplica ») et survit au redémarrage"),
-        Item("replica-failover", "Réplicas : couper le réplica courant → l'app bascule sur le suivant sans redémarrer (log « bascule sur »)"),
+        Item("replica-failover", "Réplicas : couper le réplica courant → l'app bascule sur le suivant sans redémarrer (log « bascule sur »)", requiresRedundancy = true),
         Item("restauration2", "Restauration fidèle (v0.2.21+) : ré-exporter la sauvegarde puis l'importer — alias + contacts reviennent"),
         Item("regressions-msg2", "Régressions : messages texte + accusés ✓✓ inchangés"),
         Item("regressions-medias2", "Régressions : onglet Fichiers & médias + pièces jointes (v0.2.19)"),
         Item("regressions-appels2", "Régressions : appel/visio v0.2.20 toujours fonctionnels"),
-        Item("regressions-replica3", "Régressions (test 2) : réplica temporaire actif + cycle sans serveur"),
+        Item("regressions-replica3", "Régressions (test 2) : réplica temporaire actif + cycle sans serveur", requiresRedundancy = true),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.25.md). */
-    fun items(): List<Item> = ITEMS_V0_2_25
+    /** v0.2.26 — items de validation (miroir de docs/releases/v0.2.26.md) :
+     *  anti-état collant appels, notifications de messages, carte Réplicas,
+     *  sécurité mot de passe du compte, export conversations, éphémères. */
+    val ITEMS_V0_2_26 = listOf(
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT l'appel — plus de « offre ignorée (déjà en appel) » ni de WAIT bloqué (watchdogs v0.2.26 ; l'appelant reçoit « refusé » si occupé)"),
+        Item("notif-message", "Notification à la réception d'un message : canal « Messages », sonnerie, aperçu — PAS de notif si la conversation est ouverte"),
+        Item("replicas-liste", "Paramètres → Réplicas : liste à jour (custom/découverts/amorce/embarqué) avec indicateur ACTIF et « UTILISÉ il y a… »"),
+        Item("pwd-force", "Sécurité : à l'ouverture avec identité sans mot de passe → création FORCÉE du mot de passe NORMAL puis DESTRUCTION"),
+        Item("sauvegarde-chiffree", "Sauvegarde de compte : fichier chiffré par le mot de passe — import sans mot de passe IMPOSSIBLE"),
+        Item("import-destruction", "Import de clé : le mot de passe DESTRUCTION EFFACE le fichier importé (fichier disparu, rien restauré)"),
+        Item("conv-export", "Export de conversations : sélection des conversations → fichier chiffré par mot de passe"),
+        Item("conv-import", "Import de conversations : le fichier exporté réapparaît (textes), un ré-import ne duplique rien"),
+        Item("ephemere", "Messages éphémères : minuteur 1 h/24 h/7 j dans le chat — les messages disparaissent des DEUX côtés (purge 30 s)"),
+        Item("regressions-msg3", "Régressions : messages texte + accusés ✓✓ inchangés"),
+        Item("regressions-replica4", "Régressions : réplica temporaire actif (cycle sans serveur : voir redondance — BLOQUÉ sans flotte ≥ 2)", requiresRedundancy = true),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.26.md). */
+    fun items(): List<Item> = ITEMS_V0_2_26
+
+    /**
+     * v0.2.26 — la redondance est-elle disponible ? (≥ 2 réplicas effectifs,
+     * OU réplica temporaire embarqué servi — un deuxième nœud réel existe.)
+     * Prédicat partagé par la carte plan de tests et la synthèse journal.
+     */
+    fun redundancyAvailable(): Boolean {
+        val repo = runCatching { net.nyx.messenger.di.ServiceLocator.repository }.getOrNull() ?: return false
+        return repo.replicas.size >= 2 ||
+            (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
+                net.nyx.messenger.replica.EmbeddedReplica.serving &&
+                net.nyx.messenger.replica.EmbeddedReplica.localPort > 0)
+    }
 
     /** L'horodatage de validation d'un test (0 = à faire). */
     fun doneAt(context: android.content.Context, id: String): Long =
@@ -103,10 +143,16 @@ object TestPlan {
     fun logSummary(context: android.content.Context) {
         val items = items()
         val done = doneCount(context)
-        val missing = items.filter { doneAt(context, it.id) == 0L }.map { it.id }
+        val redundancy = redundancyAvailable()
+        // v0.2.26 : les items à redondance requise SANS flotte sont signalés
+        // SKIPPED (pas « manquants ») — la synthèse reste exploitable.
+        val blocked = items.filter { it.requiresRedundancy && !redundancy }.map { it.id }
+        val missing = items.filter { doneAt(context, it.id) == 0L && it.id !in blocked }.map { it.id }
         android.util.Log.i(
             "nyx-test",
-            "SYNTHÈSE : $done/${items.size} validés" + if (missing.isEmpty()) " — TOUS PASS" else " — manquants : ${missing.joinToString(", ")}"
+            "SYNTHÈSE : $done/${items.size} validés" +
+                (if (blocked.isNotEmpty()) " — SKIPPED (redondance absente) : ${blocked.joinToString(", ")}" else "") +
+                (if (missing.isEmpty()) " — TOUS PASS" else " — manquants : ${missing.joinToString(", ")}")
         )
     }
 }

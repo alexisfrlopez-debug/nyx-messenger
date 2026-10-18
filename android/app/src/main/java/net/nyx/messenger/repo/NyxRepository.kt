@@ -81,8 +81,37 @@ class NyxRepository(
     // dès que le port courant change.
     private var relayPort: Int = -1
     private var relayClient: RelayClient? = null
-    /** v0.2.25 : index du réplica actif dans [replicas] (failover round-robin). */
+    /** v0.2.25 : index du réplica actif dans [replicas] (failover round-robin).
+     *  v0.2.26 : @Volatile — muté par le thread de poll, lu par l'UI (carte Réplicas). */
+    @Volatile
     private var replicaIndex: Int = 0
+
+    /** v0.2.26 — ÉTAT VIVANT PAR RÉPLICA (demande opérateur : « une liste mise
+     *  à jour des réplicas et réplicas temporaires sur lesquels le téléphone
+     *  est connecté, avec un indicateur pour montrer celui/ceux qui sont
+     *  actifs et utilisés »). Alimenté aux 3 seuls endroits où cette
+     *  connaissance naît : [relay] (utilisé), [markReplicaFailed] (échec),
+     *  [replicaHealth] (sonde OK/échec). Affiché par la carte « Réplicas »
+     *  de Paramètres + l'export de diagnostic. */
+    data class ReplicaState(
+        val addr: String,
+        val lastUsedAt: Long = 0L,
+        val lastOkAt: Long = 0L,
+        val lastFailAt: Long = 0L,
+        val lastFailReason: String = "",
+    )
+
+    private val _replicaStates = MutableStateFlow<Map<String, ReplicaState>>(emptyMap())
+    val replicaStates: StateFlow<Map<String, ReplicaState>> = _replicaStates.asStateFlow()
+
+    /** Réplica PORTANT le trafic courant (failover v0.2.25) — indicateur ACTIF. */
+    val activeReplica: String? get() = replicas.getOrNull(replicaIndex)
+
+    private fun noteReplica(addr: String?, update: (ReplicaState) -> ReplicaState) {
+        if (addr.isNullOrBlank()) return
+        val cur = _replicaStates.value[addr] ?: ReplicaState(addr)
+        _replicaStates.value = _replicaStates.value + (addr to update(cur))
+    }
 
     fun setReplicas(onions: List<String>) {
         replicas = onions.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
@@ -107,6 +136,8 @@ class NyxRepository(
         val next = (replicaIndex + 1) % replicas.size
         replicaIndex = next
         relayClient = null
+        // v0.2.26 : l'échec est tracé par réplica (carte Réplicas).
+        noteReplica(old) { s -> s.copy(lastFailAt = System.currentTimeMillis(), lastFailReason = reason) }
         android.util.Log.w(
             "nyx-repo",
             "réplica ${old.take(16)}… en échec ($reason) → bascule sur ${replicas[next].take(16)}…"
@@ -120,6 +151,8 @@ class NyxRepository(
         val c = relayClient
         if (c != null && port == relayPort) return c
         val fresh = replicas.getOrNull(replicaIndex)?.let {
+            // v0.2.26 : « UTILISÉ » — le réplica porte le trafic maintenant.
+            noteReplica(it) { s -> s.copy(lastUsedAt = System.currentTimeMillis()) }
             RelayClient.forReplica(it, socksPort = port).also { _ ->
                 android.util.Log.i("nyx-repo", "relais réplica : ${it.take(16)}… (socks $port)")
             }
@@ -149,11 +182,17 @@ class NyxRepository(
         }
         try {
             val rep = relay()?.healthDetailed()
+            val now = System.currentTimeMillis()
             if (rep == null) {
-                _lastProbe.value = ReplicaProbeReport(false, 0, "aucun réplica configuré", System.currentTimeMillis())
+                _lastProbe.value = ReplicaProbeReport(false, 0, "aucun réplica configuré", now)
                 return false
             }
-            _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail, System.currentTimeMillis())
+            // v0.2.26 : la sonde porte sur le réplica ACTIF — tracée (carte Réplicas).
+            noteReplica(activeReplica) { s ->
+                if (rep.ok) s.copy(lastOkAt = now)
+                else s.copy(lastFailAt = now, lastFailReason = rep.detail ?: "échec")
+            }
+            _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail, now)
             return rep.ok
         } finally {
             probeMutex.unlock()
@@ -164,7 +203,7 @@ class NyxRepository(
 
     /* ---------------- envoi ---------------- */
 
-    suspend fun send(peerOnion: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun send(peerOnion: String, text: String, ttlSeconds: Long = 0L): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             // v0.2.12 : le log d'entrée passe EN PREMIER — le terrain a montré un
             // échec SANS aucune trace du cycle (04:26:43, export Xiaomi v0.2.11) :
@@ -193,11 +232,12 @@ class NyxRepository(
             // 1. Chiffrement E2E (sealed box, v0.1)
             val body = cipher.encryptFor(peerPub, text.toByteArray(Charsets.UTF_8))
 
-            // 2. Événement signé
+            // 2. Événement signé — v0.2.26 : ttl éphémère paramétrable
+            //    (0 = permanent ; voyage signé dans le canonique — wire-format.md).
             val seq = nextSeqFor(me)
             val ev = WireEvent(
                 type = "msg", author = me, seq = seq,
-                ts = System.currentTimeMillis() / 1000, ttl = 0,
+                ts = System.currentTimeMillis() / 1000, ttl = ttlSeconds,
                 to = peer, body = body, sig = ""
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
@@ -206,7 +246,9 @@ class NyxRepository(
             // 3. Stockage local (en attente) puis dépôt (auto-réparation seq v0.2.10)
             val id = eventIdOf(canonical)
             messageDao.insert(
-                MessageEntity(id, peer, outgoing = true, text, ev.ts, ev.ts, STATE_PENDING)
+                MessageEntity(id, peer, outgoing = true, text, ev.ts, ev.ts, STATE_PENDING,
+                    // v0.2.26 : péremption locale cohérente avec celle du pair.
+                    expireAt = if (ttlSeconds > 0) System.currentTimeMillis() + ttlSeconds * 1000 else 0L)
             )
             android.util.Log.i("nyx-send", "   stocké local id=${id.take(12)}… seq=$seq → dépôt réplica")
             postSigned(relay, me, signed, canonical, priv).fold(
@@ -270,8 +312,23 @@ class NyxRepository(
 
     /* ---------------- réception ---------------- */
 
-    /** Poll de la boîte de réception sur le réplica rattaché. */
-    suspend fun pollInbox(): Int = withContext(Dispatchers.IO) {
+    /** v0.2.26 — verrou ANTI-DOUBLE-LIVRAISON : trois boucles concurrentes
+     *  (app 15 s, chat 10 s, one-shot écran) lisaient le MÊME curseur et
+     *  livraient DEUX FOIS les mêmes événements (double sonnerie d'appel,
+     *  « offre ignorée (déjà en appel) » fantôme, notifications dupliquées).
+     *  Un poll concurrent repart simplement — le suivant prendra la suite. */
+    private val pollMutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun pollInbox(): Int {
+        if (!pollMutex.tryLock()) return 0
+        try {
+            return pollInboxLocked()
+        } finally {
+            pollMutex.unlock()
+        }
+    }
+
+    private suspend fun pollInboxLocked(): Int = withContext(Dispatchers.IO) {
         val relay = relay() ?: return@withContext 0
         val me = identity.onionAddress ?: return@withContext 0
         val priv = identity.secretKey()
@@ -587,11 +644,20 @@ class NyxRepository(
             // 4. Stockage local — v0.2.15 : rcptPending=1 = accusé « delivered »
             //    à déposer chez le pair (tentative immédiate en fin de poll,
             //    repartie par la boucle sinon).
+            // v0.2.26 — ÉPHÉMÈRE EXPIRÉ À L'ARRIVÉE : un événement dont le TTL
+            // est déjà dépassé (poll très en retard) n'est ni stocké ni notifié.
+            if (ev.ttl > 0 && System.currentTimeMillis() / 1000 >= ev.ts + ev.ttl) {
+                android.util.Log.i("nyx-recv", "   · éphémère déjà expiré de ${author.take(16)}… — ignoré")
+                continue
+            }
             val id = eventIdOf(canonical)
+            val isNew = messageDao.byId(id) == null
             messageDao.insert(
                 MessageEntity(
                     id, author, outgoing = false, plain, ev.ts, System.currentTimeMillis(),
-                    STATE_RECEIVED, rcptPending = 1
+                    STATE_RECEIVED, rcptPending = 1,
+                    // v0.2.26 : péremption locale = réception + ttl.
+                    expireAt = if (ev.ttl > 0) System.currentTimeMillis() + ev.ttl * 1000 else 0L
                 )
             )
             if (contactDao.get(author) == null) {
@@ -601,6 +667,15 @@ class NyxRepository(
                 )
             }
             android.util.Log.i("nyx-recv", "   ✓ ${ev.type} de ${author.take(16)}… stocké")
+            // v0.2.26 — NOTIFICATION DE MESSAGE REÇU (demande opérateur : « pas
+            // de notification à la réception d'un message » — la fonctionnalité
+            // n'existait pas : seuls contacts et appels étaient notifiés).
+            // Uniquement si la ligne est réellement NOUVELLE (les polls
+            // concurrents insèrent la même ligne — MessageDao.insert IGNORE).
+            if (isNew) {
+                val alias = contactDao.get(author)?.alias ?: (author.take(10) + "…")
+                net.nyx.messenger.notify.MessageNotifier.messageReceived(author, alias, plain)
+            }
             inserted++
         }
         pollStateDao.upsert(PollStateEntity(replicas.first(), resp.cursor))
@@ -626,6 +701,126 @@ class NyxRepository(
 
     fun contacts(): Flow<List<ContactEntity>> = contactDao.all()
     fun conversation(peer: String): Flow<List<MessageEntity>> = messageDao.conversation(peer)
+
+    /**
+     * v0.2.26 — PURGE LOCALE DES MESSAGES ÉPHÉMÈRES : supprime les messages
+     * (expéditeur ET destinataire) dont la péremption est passée, avec leurs
+     * pièces jointes dans le coffre média. Le serveur conserve l'événement
+     * chiffré (limitation documentée docs/01-modele-securite.md — l'effacement
+     * est garanti CÔTÉ CLIENT). Appelée périodiquement par la boucle de poll
+     * (ServiceLocator). Retourne le nombre de messages supprimés.
+     */
+    suspend fun sweepEphemeral(): Int = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val expired = messageDao.expired(now)
+        if (expired.isEmpty()) return@withContext 0
+        for (m in expired) {
+            if (m.kind == 1 && m.fid.isNotBlank()) {
+                runCatching { deleteAttachmentFile(m.fid) }
+            }
+        }
+        messageDao.deleteByIds(expired.map { it.eventId })
+        android.util.Log.i("nyx-repo", "éphémères purgés : ${expired.size} message(s)")
+        expired.size
+    }
+
+    /* ---------------- export/import de conversations (v0.2.26) ---------------- */
+
+    /**
+     * Sérialise les conversations choisies en JSON (demande opérateur :
+     * « permettre l'exportation des conversations (avec choix des
+     * conversations possibles) dans un fichier importable protégé par mot de
+     * passe »). Le CHIFFREMENT par mot de passe est appliqué par l'UI
+     * ([net.nyx.messenger.crypto.PasswordCrypto]) — ce point ne fait que la
+     * collecte. Les pièces jointes ne partent pas en binaire : leur libellé
+     * (texte du message kind=1) est inclus, le fid est conservé à titre de
+     * référence locale.
+     */
+    suspend fun exportConversationsJson(peers: List<String>): String = withContext(Dispatchers.IO) {
+        val root = org.json.JSONObject()
+            .put("format", "nyx-conversations")
+            .put("version", 1)
+            .put("exported_at", System.currentTimeMillis() / 1000)
+        val convs = org.json.JSONArray()
+        for (peerRaw in peers) {
+            val peer = peerRaw.trim().lowercase()
+            val contact = contactDao.get(peer)
+            val msgs = messageDao.conversationOnce(peer)
+            if (msgs.isEmpty()) continue
+            val c = org.json.JSONObject()
+                .put("peer", peer)
+                .put("alias", contact?.alias ?: peer.take(10) + "…")
+                .put("status", contact?.status ?: "")
+            val arr = org.json.JSONArray()
+            for (m in msgs) {
+                arr.put(
+                    org.json.JSONObject()
+                        .put("id", m.eventId)
+                        .put("out", m.outgoing)
+                        .put("text", m.text)
+                        .put("sent_at", m.sentAt)
+                        .put("received_at", m.receivedAt)
+                        .put("state", m.state)
+                        .put("kind", m.kind)
+                        .put("fid", m.fid)
+                        .put("expire_at", m.expireAt)
+                )
+            }
+            c.put("messages", arr)
+            convs.put(c)
+        }
+        root.put("conversations", convs)
+        root.toString(2)
+    }
+
+    /**
+     * Importe des conversations d'un fichier [exportConversationsJson] —
+     * l'UI a déjà déchiffré l'enveloppe mot de passe. Le contact est créé
+     * (statut du fichier) s'il manque ; les messages sont insérés par
+     * eventId (INSERT IGNORE — un import répété ne duplique rien). Retourne
+     * le nombre de messages réellement ajoutés.
+     */
+    suspend fun importConversationsJson(text: String): Int = withContext(Dispatchers.IO) {
+        val root = org.json.JSONObject(text)
+        require(root.optString("format") == "nyx-conversations") { "fichier non reconnu" }
+        val convs = root.optJSONArray("conversations") ?: error("aucune conversation")
+        var imported = 0
+        for (i in 0 until convs.length()) {
+            val c = convs.optJSONObject(i) ?: continue
+            val peer = c.optString("peer").trim().lowercase()
+            if (!peer.endsWith(".onion")) continue
+            if (contactDao.get(peer) == null) {
+                contactDao.upsert(
+                    ContactEntity(
+                        peer, c.optString("alias").ifBlank { peer.take(10) + "…" },
+                        System.currentTimeMillis(), notifiedAt = System.currentTimeMillis(),
+                        status = c.optString("status").ifBlank { "accepted" }
+                    )
+                )
+            }
+            val msgs = c.optJSONArray("messages") ?: continue
+            for (j in 0 until msgs.length()) {
+                val m = msgs.optJSONObject(j) ?: continue
+                val id = m.optString("id")
+                if (id.isBlank() || messageDao.byId(id) != null) continue
+                messageDao.insert(
+                    MessageEntity(
+                        id, peer, outgoing = m.optBoolean("out"),
+                        text = m.optString("text"),
+                        sentAt = m.optLong("sent_at"),
+                        receivedAt = m.optLong("received_at"),
+                        state = m.optInt("state", 3),
+                        kind = m.optInt("kind", 0),
+                        fid = m.optString("fid"),
+                        expireAt = m.optLong("expire_at", 0L)
+                    )
+                )
+                imported++
+            }
+        }
+        android.util.Log.i("nyx-repo", "conversations importées : $imported message(s)")
+        imported
+    }
 
     /* ---------------- alias (v0.1.2 — wire-format.md §6) ---------------- */
 
@@ -1228,6 +1423,10 @@ class NyxRepository(
         attachmentDao.insertChunk(AttachmentChunkEntity(chunk.fid, chunk.index, chunk.data))
 
         if (chunk.index == 0) {
+            // v0.2.26 : notification pièce jointe (premier fragment seulement,
+            // ligne réellement nouvelle — même anti-doublon que le texte).
+            val mid = eventIdOf(canonical)
+            val isNew = messageDao.byId(mid) == null
             messageDao.insert(
                 MessageEntity(
                     eventIdOf(canonical), author, outgoing = false,
@@ -1236,6 +1435,13 @@ class NyxRepository(
                     rcptPending = 1, kind = 1, fid = chunk.fid
                 )
             )
+            if (isNew) {
+                val alias = runCatching { contactDao.get(author)?.alias }.getOrNull()
+                    ?: (author.take(10) + "…")
+                net.nyx.messenger.notify.MessageNotifier.messageReceived(
+                    author, alias, mediaPlaceholder(chunk.mime, chunk.name)
+                )
+            }
         }
 
         val count = attachmentDao.countChunks(chunk.fid)

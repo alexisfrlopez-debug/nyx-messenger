@@ -1,16 +1,13 @@
 package net.nyx.messenger.notify
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import net.nyx.messenger.MainActivity
 import net.nyx.messenger.R
 
 /**
@@ -31,6 +28,10 @@ import net.nyx.messenger.R
  * Les notifications s'affichent aussi quand l'app est en arrière-plan : le
  * service Tor au premier plan + la boucle de poll au niveau application
  * maintiennent le processus vivant (v0.2.10).
+ *
+ * v0.2.26 : les mécanismes partagés (contexte, garde de permission,
+ * PendingIntent, publication) vivent dans [NotifyCore] — mutualisés avec
+ * [MessageNotifier] (audit RED-DUP).
  */
 object ContactNotifier {
 
@@ -44,10 +45,8 @@ object ContactNotifier {
     const val EXTRA_ONION = "onion"
     const val EXTRA_ALIAS = "alias"
 
-    private var appContext: Context? = null
-
     fun init(context: Context) {
-        appContext = context.applicationContext
+        NotifyCore.init(context)
         val mgr = NotificationManagerCompat.from(context)
         mgr.createNotificationChannel(
             NotificationChannel(
@@ -77,24 +76,10 @@ object ContactNotifier {
     }
 
     /** Android 13+ : sans autorisation runtime, tout post est silencieux. */
-    private fun canPost(): Boolean {
-        val ctx = appContext ?: return false
-        return NotificationManagerCompat.from(ctx)
-            .areNotificationsEnabled() &&
-            ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-    }
+    fun canPost(): Boolean = NotifyCore.canPost()
 
     private fun contentIntent(ctx: Context, onion: String): PendingIntent =
-        PendingIntent.getActivity(
-            ctx,
-            onion.hashCode(),
-            Intent(ctx, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra(EXTRA_ONION, onion)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        NotifyCore.contentIntent(ctx, onion, "")
 
     private fun actionIntent(ctx: Context, action: String, onion: String, alias: String): PendingIntent =
         PendingIntent.getBroadcast(
@@ -126,7 +111,7 @@ object ContactNotifier {
 
     /** 1. Invitation reçue — AVEC les deux actions (Accepter / Refuser). */
     fun invitation(onion: String, alias: String) {
-        val ctx = appContext ?: return
+        val ctx = NotifyCore.appContext ?: return
         if (!canPost()) return
         val n = NotificationCompat.Builder(ctx, CHANNEL_CONTACTS)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -147,15 +132,15 @@ object ContactNotifier {
                 actionIntent(ctx, ACTION_DECLINE, onion, alias)
             )
             .build()
-        runCatching { NotificationManagerCompat.from(ctx).notify(onion.hashCode(), n) }
+        NotifyCore.notify(onion.hashCode(), n)
     }
 
     /** 2. Notre invitation a été refusée par le pair. */
     fun declined(onion: String, alias: String) {
-        val ctx = appContext ?: return
+        val ctx = NotifyCore.appContext ?: return
         if (!canPost()) return
         val n = simple(ctx, R.string.notif_declined_title, R.string.notif_declined_text, alias, onion)
-        runCatching { NotificationManagerCompat.from(ctx).notify((onion + "d").hashCode(), n) }
+        NotifyCore.notify((onion + "d").hashCode(), n)
     }
 
     /**
@@ -163,7 +148,7 @@ object ContactNotifier {
      * sonnerie — un appui ouvre l'app (l'écran d'appel est composé globalement).
      */
     fun incomingCall(onion: String, alias: String) {
-        val ctx = appContext ?: return
+        val ctx = NotifyCore.appContext ?: return
         if (!canPost()) return
         val n = NotificationCompat.Builder(ctx, CHANNEL_CALLS)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -174,27 +159,27 @@ object ContactNotifier {
             .setContentIntent(contentIntent(ctx, onion))
             .setAutoCancel(true)
             .build()
-        runCatching { NotificationManagerCompat.from(ctx).notify((onion + "call").hashCode(), n) }
+        NotifyCore.notify((onion + "call").hashCode(), n)
     }
 
     /** v0.2.20 — retire la sonnerie d'appel entrant (accepté/refusé/manqué). */
     fun cancelCall(onion: String) {
         if (onion.isBlank()) return
-        val ctx = appContext ?: return
+        val ctx = NotifyCore.appContext ?: return
         runCatching { NotificationManagerCompat.from(ctx).cancel((onion + "call").hashCode()) }
     }
 
     /** 3. Nous avons été supprimé des contacts du pair. */
     fun removed(onion: String, alias: String) {
-        val ctx = appContext ?: return
+        val ctx = NotifyCore.appContext ?: return
         if (!canPost()) return
         val n = simple(ctx, R.string.notif_removed_title, R.string.notif_removed_text, alias, onion)
-        runCatching { NotificationManagerCompat.from(ctx).notify((onion + "r").hashCode(), n) }
+        NotifyCore.notify((onion + "r").hashCode(), n)
     }
 
     /** Annule la notification d'une invitation (traitée depuis l'app ou les actions). */
     fun cancelInvitation(onion: String) {
-        val ctx = appContext ?: return
+        val ctx = NotifyCore.appContext ?: return
         NotificationManagerCompat.from(ctx).cancel(onion.hashCode())
     }
 }

@@ -54,11 +54,17 @@ fun TestPlanCard() {
             Spacer(Modifier.height(4.dp))
             for (item in items) {
                 val done = remember(tick) { TestPlan.doneAt(context, item.id) > 0L }
+                // v0.2.26 : les items destructeurs (couper le réplica, cycle
+                // sans serveur) sont BLOQUÉS sans redondance (≥ 2 réplicas ou
+                // réplica temporaire servi) — demande opérateur : « je préfère
+                // éviter ce genre de prise de risque tant que je n'ai pas de
+                // redondance autre que les réplicas temporaires ».
+                val blocked = item.requiresRedundancy && !TestPlan.redundancyAvailable()
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
+                        .clickable(enabled = !blocked) {
                             TestPlan.setDone(context, item.id, !done)
                             tick++
                             if (TestPlan.doneCount(context) == items.size) {
@@ -71,14 +77,17 @@ fun TestPlanCard() {
                             }
                         }
                 ) {
-                    Checkbox(checked = done, onCheckedChange = null)
+                    Checkbox(checked = done, onCheckedChange = null, enabled = !blocked)
                     Column(Modifier.weight(1f)) {
                         Text(
                             item.label,
                             style = MaterialTheme.typography.bodySmall,
                             textDecoration = if (done) TextDecoration.LineThrough else null,
-                            color = if (done) MaterialTheme.colorScheme.onSurfaceVariant
-                            else MaterialTheme.colorScheme.onSurface
+                            color = when {
+                                done -> MaterialTheme.colorScheme.onSurfaceVariant
+                                blocked -> MaterialTheme.colorScheme.onSurfaceVariant
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
                         )
                         if (done) {
                             Text(
@@ -87,6 +96,13 @@ fun TestPlanCard() {
                                 ).format(java.util.Date(TestPlan.doneAt(context, item.id))),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (blocked) {
+                            Text(
+                                stringResource(R.string.testplan_redundancy_required),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary
                             )
                         }
                     }

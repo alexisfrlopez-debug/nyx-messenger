@@ -98,7 +98,12 @@ data class MessageEntity(
     // et notifications fonctionnent sans jointure ; la bulle, elle, rend la
     // carte média depuis [AttachmentEntity] (aperçu/progression/taille).
     @ColumnInfo(defaultValue = "0") val kind: Int = 0,
-    @ColumnInfo(defaultValue = "") val fid: String = ""
+    @ColumnInfo(defaultValue = "") val fid: String = "",
+    // v0.2.26 — ÉPHÉMÈRE : époque (ms) de péremption LOCALE du message
+    // (destinataire ET expéditeur) ; 0 = permanent. Le TTL voyage signé dans
+    // l'événement (wire-format.md — ttl) ; le serveur garde l'événement
+    // chiffré (limitation documentée), l'effacement est garanti côté client.
+    @ColumnInfo(defaultValue = "0") val expireAt: Long = 0L
 )
 
 /**
@@ -310,8 +315,21 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE peerOnion = :peer ORDER BY sentAt ASC")
     fun conversation(peer: String): Flow<List<MessageEntity>>
 
+    /** v0.2.26 : export de conversations — lecture one-shot (hors Flow). */
+    @Query("SELECT * FROM messages WHERE peerOnion = :peer ORDER BY sentAt ASC")
+    suspend fun conversationOnce(peer: String): List<MessageEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(message: MessageEntity)
+
+    /** v0.2.26 : lecture unitaire — anti-doublon de notification (polls
+     *  concurrents) et vérification avant effacement éphémère. */
+    @Query("SELECT * FROM messages WHERE eventId = :id LIMIT 1")
+    suspend fun byId(id: String): MessageEntity?
+
+    /** v0.2.26 : messages éphémères dont la péremption locale est passée. */
+    @Query("SELECT * FROM messages WHERE expireAt > 0 AND expireAt <= :now LIMIT 200")
+    suspend fun expired(now: Long): List<MessageEntity>
 
     @Query("UPDATE messages SET state = :state WHERE eventId = :eventId")
     suspend fun updateState(eventId: String, state: Int)
@@ -570,7 +588,8 @@ interface SeqStateDao {
         PollStateEntity::class, SeqStateEntity::class,
         DelPendingEntity::class, ReplicaEventEntity::class, ReplicaStateEntity::class],
     // v0.2.22 — version 8 : réparation du schéma replica_events (MIGRATION_7_8).
-    version = 8,
+    // v0.2.26 — version 9 : colonne messages.expireAt (messages éphémères).
+    version = 9,
     exportSchema = false
 )
 abstract class NyxDatabase : RoomDatabase() {
@@ -760,6 +779,13 @@ abstract class NyxDatabase : RoomDatabase() {
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(SQL_INDEX_REPLICA_EVENTS_TO_GID)
+            }
+        }
+
+        /** v0.2.26 — MIGRATION_8_9 : colonne éphémère messages.expireAt. */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN expireAt INTEGER NOT NULL DEFAULT 0")
             }
         }
 

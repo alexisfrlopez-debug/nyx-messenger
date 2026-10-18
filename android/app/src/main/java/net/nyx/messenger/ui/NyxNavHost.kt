@@ -128,6 +128,22 @@ fun NyxNavHost(
         // Calque de verrou : dessiné en dernier = au-dessus de tout le contenu,
         // opaque (fond système) — la navigation reste composée SOUS le verrou.
         if (locked) LockScreen()
+
+        // v0.2.26 — CRÉATION FORCÉE DES MOTS DE PASSE : dès qu'une identité
+        // existe sans mot de passe NORMAL (retour terrain : « le mot de passe
+        // protège l'application mais pas le compte — une clé de récupération
+        // importée fonctionne sans mot de passe »), ce calque opaque exige la
+        // création du mot de passe NORMAL puis du mot de passe DESTRUCTION
+        // (effacement du fichier de clé importé si saisi à l'importation).
+        // Pas de session PANIQUE (base leurre) ni avant création d'identité.
+        val gateContext = androidx.compose.ui.platform.LocalContext.current
+        val showPasswordGate = ServiceLocator.initialized &&
+            ServiceLocator.mode != net.nyx.messenger.di.ServiceLocator.SessionMode.PANIC &&
+            ServiceLocator.identity.exists &&
+            !net.nyx.messenger.security.PasswordVault.isSet(
+                gateContext, net.nyx.messenger.security.PasswordVault.Mode.NORMAL
+            )
+        if (!locked && showPasswordGate) net.nyx.messenger.ui.components.PasswordGate()
     }
 
     // Dialogue de fermeture (réduire vs quitter) — fenêtre système au-dessus de tout.
