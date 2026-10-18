@@ -96,6 +96,11 @@ object PasswordVault {
     }
 
     private fun verifyAgainst(context: Context, mode: Mode, password: String): Boolean {
+        // v0.2.27 — CRASH TERRAIN v0.2.26 (09:00:45, Blackview) : un champ de
+        // mot de passe confirmé vide arrivait ici → PBEKeySpec(vide) levait
+        // « IllegalArgumentException: password empty » (FATAL, app kill).
+        // Garde unique : un mot de passe vide ne peut JAMAIS vérifier.
+        if (password.isEmpty()) return false
         val stored = prefs(context).getString(keyOf(mode), null) ?: return false
         val (salt, hash) = decode(stored) ?: return false
         return constantTimeEquals(hashPassword(password.toCharArray(), salt), hash)
@@ -106,6 +111,7 @@ object PasswordVault {
      * correspondant, ou null (échec). La vérification couvre les trois rôles.
      */
     fun verify(context: Context, password: String): Mode? {
+        if (password.isEmpty()) return null // v0.2.27 — cf. verifyAgainst (crash terrain)
         for (mode in Mode.entries) {
             if (verifyAgainst(context, mode, password)) return mode
         }

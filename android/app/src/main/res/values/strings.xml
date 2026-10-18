@@ -396,4 +396,14 @@
     <string name="conv_import_bad_file">Fichier non reconnu</string>
     <string name="conv_import_read_fail">Fichier illisible</string>
     <string name="conv_import_done">%1$d message(s) importé(s)</string>
+
+    <!-- v0.2.27 — déconnexion du compte (demande opérateur : changer de compte / en créer un nouveau) -->
+    <string name="account_card_title">Compte</string>
+    <string name="account_card_desc">Compte actuellement connecté sur cet appareil. La déconnexion efface tout et ramène à la création de compte.</string>
+    <string name="account_disconnect">Déconnecter le compte</string>
+    <string name="account_disconnect_title">Déconnecter le compte ?</string>
+    <string name="account_disconnect_text">Identité, contacts, messages, fichiers, réglages (réplicas personnalisés compris) et mots de passe seront EFFACÉS de cet appareil — l\'adresse onion disparaît avec sa clé privée. Pensez à exporter avant la clé de récupération (Paramètres → Sauvegarde) et les conversations (Paramètres → Export). L\'application redémarrera sur l\'écran de création de compte. Saisissez le mot de passe du compte pour confirmer.</string>
+    <string name="account_disconnect_pwd">Mot de passe du compte</string>
+    <string name="account_disconnect_wrong">Mot de passe incorrect</string>
+    <string name="account_disconnect_btn">Tout effacer et déconnecter</string>
 </resources>

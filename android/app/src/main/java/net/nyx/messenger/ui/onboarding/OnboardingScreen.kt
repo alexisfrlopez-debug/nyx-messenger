@@ -357,6 +357,13 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
                     val text = importPendingText
                     if (text == null) { showImportPwd = false; return@Button }
                     val vaultSet = net.nyx.messenger.security.PasswordVault.anySet(context)
+                    // v0.2.27 — crash terrain (« password empty », PBKDF2) : un
+                    // champ vide confirmé sur un fichier chiffré arrivait dans
+                    // decrypt() sans garde → refus immédiat, jamais de crash.
+                    if (vaultSet && p.isBlank()) {
+                        err = context.getString(R.string.import_pwd_wrong)
+                        return@Button
+                    }
                     val mode = if (vaultSet && p.isNotBlank()) {
                         net.nyx.messenger.security.PasswordVault.verify(context, p)
                     } else null
@@ -530,6 +537,12 @@ private fun RestoreDialog(
                 try {
                     RecoveryKey.decode(input) // validation immédiate (checksum)
                     if (net.nyx.messenger.security.PasswordVault.anySet(context)) {
+                        // v0.2.27 — champ vide = refus (crash terrain « password
+                        // empty » : verify(hashPassword) levait sur PBEKeySpec vide).
+                        if (pwd.isBlank()) {
+                            err = context.getString(R.string.import_pwd_wrong)
+                            return@Button
+                        }
                         when (net.nyx.messenger.security.PasswordVault.verify(context, pwd)) {
                             net.nyx.messenger.security.PasswordVault.Mode.NORMAL -> onRestore(input)
                             net.nyx.messenger.security.PasswordVault.Mode.DESTRUCTION -> {

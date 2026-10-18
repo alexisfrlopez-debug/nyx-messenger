@@ -32,11 +32,17 @@ import net.nyx.messenger.repo.NyxRepository
  * Verrou contact mutuel identique aux messages ; un seul appel à la fois.
  *
  * v0.2.26 — ANTI-ÉTAT COLLANT (terrain : « offre ignorée (déjà en appel) » en
- * boucle, appels qui sonnent sans jamais décrocher) : watchdog WAIT (60 s sans
- * média → fin + BYE), garde-fou global (aucune phase > 4 min), try/catch sur
+ * boucle, appels qui sonnent sans jamais décrocher) : watchdog WAIT, garde-fou
+ * global (aucune phase > 4 min), try/catch sur
  * tout le cycle (une exception tuait la coroutine SANS end() → phase figée),
  * OP_REJECT renvoyé à l'appelant quand une offre est ignorée (il cesse de
  * sonner), journalisation des transitions.
+ *
+ * v0.2.27 — FENÊTRES ALIGNÉES SUR LE TERRAIN (log v0.2.26 09:04 : essais média
+ * « Connect timed out » en boucle + tor « No more HSDir available to query »
+ * après un reboot — récupération d'annuaire 1-3 min) : fenêtre appelant 75 s →
+ * 150 s, watchdog WAIT 60 s → 180 s (l'appelé ne raccroche PLUS avant la fin
+ * de la fenêtre appelant — avant, il tuait l'appel en cours d'établissement).
  */
 object CallManager {
 
@@ -585,11 +591,20 @@ object CallManager {
     private fun nowMs(): Long = System.currentTimeMillis()
 
     /** v0.2.20 — fenêtres d'appel (terrain v0.2.18 : un seul essai 40 s tuait
-     *  l'appel avant même le poll de l'appelé — « Connect timed out »). */
-    private const val CONNECT_WINDOW_MS = 75_000L  // essais jusqu'à 75 s de sonnerie
+     *  l'appel avant même le poll de l'appelé — « Connect timed out »).
+     *  v0.2.27 — TERRAIN v0.2.26 (log 09:04, Blackview appelant) : les essais
+     *  média timeout en boucle (« Connect timed out » ×3) pendant que tor
+     *  n'arrive pas à résoudre l'onion de l'appelé (« No more HSDir available
+     *  to query », 09:03:41 — juste après un reboot de l'app à 09:00:54 : les
+     *  fetches HSDir peuvent prendre 1-3 min). Fenêtre 75 s → 150 s pour
+     *  survivre à la récupération d'annuaire de tor. */
+    private const val CONNECT_WINDOW_MS = 150_000L // essais jusqu'à 150 s (HSDir)
     private const val CONNECT_ATTEMPT_MS = 12_000  // essai individuel (tor : 10-30 s)
     private const val WAITED_TTL_MS = 90_000L      // connexion gardée avant l'offre
-    // v0.2.26 — anti-état collant.
-    private const val WAIT_WATCHDOG_MS = 60_000L   // WAIT sans média → fin (BYE au pair)
+    // v0.2.26 — anti-état collant. v0.2.27 : WAIT 60 s → 180 s — l'appelé ne
+    // doit PLUS raccrocher avant la fenêtre appelant (150 s) + HELLO/answer,
+    // sinon il tue l'appel que l'appelant est en train d'établir (terrain :
+    // « décrocher » puis rien — l'appelé finissait AVANT l'appelant).
+    private const val WAIT_WATCHDOG_MS = 180_000L  // WAIT sans média → fin (BYE au pair)
     private const val GLOBAL_CALL_CAP_MS = 240_000L // aucune phase > 4 min (filet global)
 }

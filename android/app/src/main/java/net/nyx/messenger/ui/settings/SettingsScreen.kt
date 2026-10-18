@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -184,6 +186,16 @@ fun SettingsScreen(onBack: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
+            // ---- v0.2.27 : déconnexion du compte (changement / nouveau compte —
+            //      demande opérateur). Cachée en session panique : l'utilisateur
+            //      de la base leurre ne doit pas pouvoir effacer le vrai compte.
+            if (ServiceLocator.mode == ServiceLocator.SessionMode.NORMAL) {
+                AccountCard()
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+            }
+
             // ---- à propos ----
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -196,6 +208,120 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * v0.2.27 — CARTE COMPTE : DÉCONNEXION VOLONTAIRE (demande opérateur : « je
+ * veux une option pour déconnecter le compte de l'application, afin de pouvoir
+ * changer si besoin (ou créer un nouveau compte) »).
+ *
+ *  - affiche le compte courant (alias + adresse onion) ;
+ *  - « Déconnecter le compte » → confirmation EXPLICITE protégée par le mot de
+ *    passe NORMAL (c'est lui qui protège le compte — v0.2.26) : effacement
+ *    complet (identité, contacts, messages, médias, réglages, réplicas
+ *    personnalisés, mots de passe) via [net.nyx.messenger.security.Wipe]
+ *    (le même chemin audité que le mot de passe destruction), puis mort du
+ *    process → relance vierge → onboarding (créer un nouveau compte ou
+ *    importer une clé de récupération).
+ *
+ *  - HORS session panique (calque au point d'insertion) : l'utilisateur de la
+ *    base leurre ne peut pas effacer le vrai compte.
+ *  - Le dialogue rappelle d'exporter AVANT (clé de récupération, conversations
+ *    chiffrées) — l'adresse onion disparaît avec sa clé privée.
+ */
+@Composable
+private fun AccountCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val identity = ServiceLocator.identity
+    val alias = remember { identity.alias }
+    val onion = remember { identity.onionAddress }
+    var confirm by remember { mutableStateOf(false) }
+    var pwd by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.account_card_title), style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.account_card_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(alias ?: "—", style = MaterialTheme.typography.bodyMedium)
+            if (!onion.isNullOrBlank()) {
+                Text(
+                    onion,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { pwd = ""; err = null; confirm = true }) {
+                Text(
+                    stringResource(R.string.account_disconnect),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) confirm = false },
+            title = { Text(stringResource(R.string.account_disconnect_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(R.string.account_disconnect_text),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    net.nyx.messenger.ui.components.PasswordField(
+                        pwd, { pwd = it; err = null },
+                        stringResource(R.string.account_disconnect_pwd), isError = err != null
+                    )
+                    net.nyx.messenger.ui.components.ErrorLine(err)
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy && pwd.isNotEmpty(),
+                    onClick = {
+                        busy = true
+                        scope.launch(Dispatchers.Default) {
+                            val ok = net.nyx.messenger.security.PasswordVault
+                                .verify(context, pwd) == net.nyx.messenger.security.PasswordVault.Mode.NORMAL
+                            if (!ok) {
+                                withContext(Dispatchers.Main) {
+                                    err = context.getString(R.string.account_disconnect_wrong)
+                                    busy = false
+                                }
+                            } else {
+                                android.util.Log.w(
+                                    "nyx-account",
+                                    "déconnexion du compte demandée (mot de passe normal vérifié) — reset complet"
+                                )
+                                // Réutilise le chemin audité du reset (tor stoppé,
+                                // base Room + médias + préférences effacés, mort du
+                                // process → relance sur l'onboarding).
+                                net.nyx.messenger.security.Wipe.execute(context)
+                            }
+                        }
+                    }
+                ) { Text(stringResource(R.string.account_disconnect_btn)) }
+            },
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { confirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 }
 

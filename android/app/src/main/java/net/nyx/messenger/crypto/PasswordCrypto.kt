@@ -32,6 +32,9 @@ object PasswordCrypto {
 
     /** Enveloppe chiffrée, ou null si mot de passe incorrect / format invalide. */
     fun decrypt(envelope: String, password: CharArray): ByteArray? {
+        // v0.2.27 — crash terrain : une enveloppe déchiffrée avec un mot de
+        // passe VIDE levait « password empty » (PBKDF2) → null, jamais de crash.
+        if (password.isEmpty()) return null
         val t = envelope.trim()
         if (!t.startsWith("$MAGIC.")) return null
         val parts = t.split(".")
