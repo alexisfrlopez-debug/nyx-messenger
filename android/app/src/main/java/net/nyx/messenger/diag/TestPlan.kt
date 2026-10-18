@@ -95,8 +95,31 @@ object TestPlan {
         Item("regressions-replica4", "Régressions : réplica temporaire actif (cycle sans serveur : voir redondance — BLOQUÉ sans flotte ≥ 2)", requiresRedundancy = true),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.26.md). */
-    fun items(): List<Item> = ITEMS_V0_2_26
+    /** v0.2.30 — items de validation (miroir de docs/releases/v0.2.30.md) :
+     *  VALIDATION TERRAIN des correctifs v0.2.29 (aucun nouveau correctif —
+     *  les mêmes APK que la v0.2.29-test2 143027 côté logique) : réplicas
+     *  temporaires réparés (annonce conditionnée à la publication RÉELLE de
+     *  l'onion, watchdog de republication, sondes périodiques nominatives),
+     *  profil public re-publié (console /admin/replicas alimentée), blocage
+     *  local + onglets Conversations/Contacts/Blocages. Cible opérateur : les
+     *  appels/visio qui décrochent ENFIN via les réplicas temporaires. */
+    val ITEMS_V0_2_30 = listOf(
+        Item("replica-joignable", "Réplicas temporaires (test 2) : le réplica découvert d'un contact EST joignable — plus de « Host unreachable » (l'annonce ne part que si l'onion est réellement publiée)"),
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT l'appel (média + audio/vidéo) — cause « host unreachable »/« Connect timed out » corrigée en v0.2.29"),
+        Item("sonde-auto", "Logs : « auto-sonde média OK » (ou la cause nominative) après le démarrage — exportez les logs juste après un essai d'appel"),
+        Item("auto-republication", "Logs : le watchdog est vivant — « republication » visible si l'onion n'était pas publiée (sinon aucune ligne, normal)"),
+        Item("profil-republie", "Console admin (v0.8.1) : l'onglet réplicas temporaires se remplit SEUL — profil public re-publié dès que le réplica sert, puis toutes les 6 h"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; l'onglet Blocages le liste ; débloquer restaure l'état exact d'avant"),
+        Item("onglets", "Onglets : Conversations (chronologique) / Contacts (alphabétique + raccourcis Message/Appel/Visio) / Blocages — « Ajouter un contact » vit dans Contacts"),
+        Item("nouvelle-conversation", "Onglet Conversations : « Nouvelle conversation » ouvre le sélecteur de contacts acceptés"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée (v0.2.26) — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message (canal « Messages »), rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
+        Item("regressions-replica5", "Régressions (test 2) : réplica temporaire actif et annonce de nouveau au redémarrage", requiresRedundancy = false),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.30.md). */
+    fun items(): List<Item> = ITEMS_V0_2_30
 
     /**
      * v0.2.26 — la redondance est-elle disponible ? (≥ 2 réplicas effectifs,
