@@ -44,6 +44,34 @@ class TorManager private constructor(context: Context) {
     private var onionServiceId: String? = null
     private var keyProvider: (() -> ByteArray?)? = null
 
+    /**
+     * v0.2.29 — Adresse onion RÉELLEMENT PUBLIÉE (ADD_ONION réussi) ou null.
+     *
+     * CAUSE RACINE « host unreachable » (terrain v0.2.28) : l'annonce du
+     * réplica temporaire partait toutes les 30 min ([ServiceLocator]) même
+     * quand la publication onion avait ÉCHOUÉ (« publication onion différée »
+     * — sans AUCUNE relance, la publication ne repartait qu'au prochain
+     * démarrage complet de l'app) → les contacts découvraient un réplica
+     * FANTÔME (aucun descripteur dans les HSDir → « Host unreachable » côté
+     * pair), et les appels entrants mouraient pareil (port 47471 du même
+     * descripteur). Les consommateurs DOIVENT vérifier ce champ :
+     *  - l'annonce du réplica temporaire (ServiceLocator) est sautée si null ;
+     *  - le watchdog [publicationWatchdog] REPUBLIE tant que ce champ est
+     *    null alors que tor est Ready (fin de l'échec à vie) ;
+     *  - le watchdog de sondes [probeWatchdog] force une RÉPUBLICATION
+     *    (DEL_ONION + ADD_ONION — points d'introduction frais + descripteur
+     *    rechargé) quand notre propre onion devient injoignable.
+     */
+    @Volatile var onionPublishedAddress: String? = null
+        private set
+
+    /** Boucle « republier tant que non publié » (un seul à la fois). */
+    private var publicationWatchdog: Job? = null
+    /** Boucle de sondes périodiques de NOTRE onion publiée (un seul à la fois). */
+    private var probeWatchdog: Job? = null
+    /** Échecs consécutifs des sondes (2 → républication forcée). */
+    @Volatile private var probeFails = 0
+
     sealed interface TorState {
         /** Avant toute tentative. */
         data object Checking : TorState
@@ -147,6 +175,7 @@ class TorManager private constructor(context: Context) {
      *  inutilisé — un contact ajoute donc « <notre onion>:80 » dans ses réplicas. */
     suspend fun publishOwnOnion(localPort: Int? = null): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
+            onionPublishedAddress = null // (re)publication — l'ancienne n'est plus garantie
             val cfg = config ?: error("Tor non démarré")
             var target = localPort ?: cfg.onionLocalPort
             if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
@@ -204,6 +233,11 @@ class TorManager private constructor(context: Context) {
                             "appels directs indisponibles jusqu'à republication"
                     )
                 }
+                // v0.2.29 — l'adresse est PUBLIÉE : les annonces de réplica et
+                // le watchdog s'appuient désormais sur un état RÉEL (plus rien
+                // de « supposé ») — cf. [onionPublishedAddress].
+                onionPublishedAddress = published
+                startProbeWatchdog(published)
                 published
             }
         }.onFailure { setState(TorState.Failed("publication onion : ${it.message}")) }
@@ -236,6 +270,142 @@ class TorManager private constructor(context: Context) {
         )
     }
 
+    /**
+     * v0.2.29 — Boucle « REPUBLIER tant que non publié » : tor Ready + clé
+     * d'identité présente + [onionPublishedAddress] null = le téléphone est
+     * INJOIGNABLE en direct (pas de réplica temporaire, pas d'appels entrants)
+     * alors qu'il croit être en ligne. Toutes les [PUBLICATION_RETRY_MS], un
+     * essai de publication. Terrain v0.2.28 : un seul échec « publication
+     * onion différée » au démarrage laissait l'appareil fantôme JUSQU'AU
+     * prochain redémarrage complet — pendant ce temps il ANNONCAIT quand
+     * même son réplica (cause « host unreachable » chez les contacts).
+     */
+    private fun startPublicationWatchdog() {
+        if (publicationWatchdog?.isActive == true) return
+        publicationWatchdog = scope.launch {
+            while (isActive) {
+                delay(PUBLICATION_RETRY_MS)
+                val st = _state.value
+                if (st is TorState.Ready && keyProvider != null && onionPublishedAddress == null) {
+                    android.util.Log.w(
+                        "nyx-tor",
+                        "watchdog : tor Ready mais onion NON publiée — republication"
+                    )
+                    runCatching { publishOwnOnion() }
+                        .onSuccess { android.util.Log.i("nyx-tor", "onion service publié : $it") }
+                        .onFailure { android.util.Log.w("nyx-tor", "publication onion différée : ${it.message}") }
+                }
+            }
+        }
+    }
+
+    /**
+     * v0.2.29 — Sondes périodiques de NOTRE onion publiée (chemin onion
+     * COMPLET via notre propre SOCKS, comme un pair) :
+     *  - port média 47471 (appels/fichiers P2P) si l'écouteur P2P est lié ;
+     *  - port 80 (réplica temporaire embarqué — GET /health) si servi.
+     * TOUS les ports applicables injoignables [PROBE_FAILS_BEFORE_REPUBLISH]
+     * fois de suite = descripteur non propagé ou points d'introduction morts
+     * (terrain : « Host unreachable » côté pair pendant que notre côté croit
+     * tout va bien) → RÉPUBLICATION FORCÉE (DEL_ONION + ADD_ONION) — points
+     * d'introduction frais + descripteur re-téléversé. Chaque résultat est
+     * journalisé (évidence terrain nominative : l'adresse est dans le log).
+     */
+    private fun startProbeWatchdog(published: String) {
+        probeWatchdog?.cancel() // une seule boucle — la republication relance la nouvelle
+        probeFails = 0
+        probeWatchdog = scope.launch {
+            delay(PROBE_FIRST_DELAY_MS) // laisse la 1re propagation HSDir (+ sonde 15 s v0.2.28)
+            while (isActive) {
+                if (_state.value !is TorState.Ready) {
+                    probeFails = 0 // démon absent/redémarré — pas une panne du service
+                    delay(PROBE_INTERVAL_MS)
+                    continue
+                }
+                val probe = probeSelf(published)
+                if (probe.total == 0) {
+                    // Rien à sonder (build standard, ni média ni réplica servi).
+                    delay(PROBE_INTERVAL_MS)
+                    continue
+                }
+                if (probe.failed == 0) {
+                    if (probeFails > 0) {
+                        android.util.Log.i("nyx-tor", "auto-sonde : $published de nouveau joignable")
+                    }
+                    probeFails = 0
+                } else {
+                    probeFails++
+                    android.util.Log.w(
+                        "nyx-tor",
+                        "auto-sonde ÉCHOUÉE (${probe.failed}/${probe.total}) : $published — " +
+                            "tentative $probeFails/$PROBE_FAILS_BEFORE_REPUBLISH (${probe.detail})"
+                    )
+                    if (probeFails >= PROBE_FAILS_BEFORE_REPUBLISH) {
+                        android.util.Log.w(
+                            "nyx-tor",
+                            "RÉPUBLICATION FORCÉE de $published (descripteur non propagé / " +
+                                "points d'introduction morts — « host unreachable » côté pair)"
+                        )
+                        probeFails = 0
+                        runCatching { unpublishOwnOnion() }
+                        runCatching { publishOwnOnion() }
+                            .onSuccess { android.util.Log.i("nyx-tor", "onion re-publiée : $it") }
+                            .onFailure {
+                                android.util.Log.w("nyx-tor", "re-publication échouée : ${it.message}")
+                                startProbeWatchdog(published) // repart sur l'ancienne adresse (même clé)
+                            }
+                        return@launch // cette boucle meurt — publishOwnOnion a relancé la sienne
+                    }
+                }
+                delay(PROBE_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** Résultat d'une salve de sondes. */
+    private data class ProbeResult(val total: Int, val failed: Int, val detail: String)
+
+    /** Sonde notre propre onion : port média (P2P) + port 80 (réplica embarqué). */
+    private suspend fun probeSelf(published: String): ProbeResult {
+        var total = 0
+        var failed = 0
+        val details = ArrayList<String>(2)
+        // 1. Port média (appels/fichiers P2P) — connexion TCP pure comme un pair.
+        if (net.nyx.messenger.p2p.P2pServer.localPort > 0) {
+            total++
+            val r = runCatching {
+                val s = net.nyx.messenger.p2p.P2pClient.connect(published, 20_000)
+                runCatching { s.close() }
+            }
+            if (r.isFailure) {
+                failed++
+                details.add("média: ${r.exceptionOrNull()?.message?.take(80)}")
+            }
+        }
+        // 2. Port 80 — réplica temporaire embarqué (GET /health, la même route
+        //    que le relais : RelayClient parle à l'un comme à l'autre).
+        if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
+            net.nyx.messenger.replica.EmbeddedReplica.serving &&
+            net.nyx.messenger.replica.EmbeddedReplica.localPort > 0
+        ) {
+            total++
+            val r = runCatching {
+                net.nyx.messenger.net.RelayClient
+                    .forReplica("$published:80", socksPort = activeSocksPort)
+                    .healthDetailed()
+            }
+            val ok = r.getOrNull()?.ok == true
+            if (!ok) {
+                failed++
+                details.add(
+                    "réplica: " + (r.exceptionOrNull()?.message
+                        ?: r.getOrNull()?.detail ?: "échec")?.take(80)
+                )
+            }
+        }
+        return ProbeResult(total, failed, details.joinToString("; "))
+    }
+
     suspend fun unpublishOwnOnion() {
         val cfg = config ?: return
         val sid = onionServiceId ?: return
@@ -243,6 +413,7 @@ class TorManager private constructor(context: Context) {
             TorControlClient(cfg.controlPort).use { it.unpublish(sid) }
         }
         onionServiceId = null
+        onionPublishedAddress = null
     }
 
     /* ---------- callbacks du service (invoqués depuis NyxTorService) ---------- */
@@ -250,12 +421,20 @@ class TorManager private constructor(context: Context) {
     fun attachConfig(cfg: NyxTorConfig) {
         config = cfg
         activeSocksPort = cfg.socksPort
+        // v0.2.29 : NOUVEAU démon — le service onion éphémère (ADD_ONION) est
+        // mort avec l'ancien processus ; l'adresse publiée n'est plus valable
+        // jusqu'à la re-publication (watchBootstrap va la refaire).
+        onionPublishedAddress = null
         setState(TorState.Starting(0))
     }
 
     fun reportStarted(cfg: NyxTorConfig) {
         config = cfg
         watchBootstrap()
+        // v0.2.29 : boucle « republier tant que non publié » — un échec de
+        // publication au bootstrap (« publication onion différée ») n'est plus
+        // définitif : réessai toutes les 30 s tant que tor est Ready.
+        startPublicationWatchdog()
     }
 
     fun reportFailure(reason: String) {
@@ -385,6 +564,15 @@ class TorManager private constructor(context: Context) {
         const val DEFAULT_SOCKS_PORT = 9050
         private const val BOOTSTRAP_TIMEOUT_S = 180
         private const val POLL_INTERVAL_MS = 1_000L
+
+        // v0.2.29 — watchdogs de publication : réessai de publication toutes les
+        // 30 s tant que l'onion n'est pas publiée ; sondes de notre propre
+        // onion 2 min après publication puis toutes les 10 min — 2 salves
+        // échouées (≈ 20 min) déclenchent la RÉPUBLICATION FORCÉE.
+        private const val PUBLICATION_RETRY_MS = 30_000L
+        private const val PROBE_FIRST_DELAY_MS = 2 * 60_000L
+        private const val PROBE_INTERVAL_MS = 10 * 60_000L
+        private const val PROBE_FAILS_BEFORE_REPUBLISH = 2
 
         /**
          * Port SOCKS exposé par le Tor embarqué — lu par RelayClient/Repository

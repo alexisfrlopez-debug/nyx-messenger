@@ -70,7 +70,16 @@ data class ContactEntity(
     // v0.2.12 : 1 = mon acceptation/refus doit repartir au pair (ack « contact »
     // chiffré) ; reparti par [NyxRepository.ensureContactNotified] comme les
     // annonces (réplica injoignable au moment du choix).
-    @ColumnInfo(defaultValue = "0") val ackPending: Int = 0
+    @ColumnInfo(defaultValue = "0") val ackPending: Int = 0,
+    // v0.2.29 — BLOCAGE LOCAL (demande opérateur : « la possibilité de bloquer/
+    // débloquer un contact, et un onglet pour gérer la liste de blocages ») :
+    // 0 = contact normal ; > 0 = horodatage du blocage — ses messages/fragments/
+    // signalisations d'appel sont DÉTRUITS à l'arrivée (jamais stockés, jamais
+    // sonnés), il n'apparaît plus dans Conversations ni Contacts (onglet
+    // « Blocages »), l'envoi vers lui est refusé. Le lien contact (statut,
+    // historique) est PRÉSERVÉ : débloquer restaure l'état exact d'avant.
+    // PUREMENT LOCAL : le pair n'est jamais informé (pas d'événement émis).
+    @ColumnInfo(defaultValue = "0") val blockedAt: Long = 0
 )
 
 @Entity(tableName = "messages")
@@ -310,13 +319,26 @@ interface ContactDao {
     @Query("UPDATE contacts SET status = '', notifyPending = 1, notifiedAt = 0 WHERE onion = :onion")
     suspend fun resetForReinvite(onion: String)
 
-    /** v0.2.14 : contacts ACTIFS (non archivés) — liste principale. */
-    @Query("SELECT * FROM contacts WHERE status NOT IN ('declined', 'removed', 'removed_by_me') ORDER BY alias")
+    /** v0.2.14 : contacts ACTIFS (non archivés) — liste principale.
+     *  v0.2.29 : les contacts BLOQUÉS sortent de la liste principale (onglet
+     *  « Blocages » — [allBlocked]) ; le lien/statut reste inchangé. */
+    @Query("SELECT * FROM contacts WHERE status NOT IN ('declined', 'removed', 'removed_by_me') " +
+        "AND blockedAt = 0 ORDER BY alias")
     fun allActive(): Flow<List<ContactEntity>>
 
-    /** v0.2.25 : contacts acceptés (émission des annonces de réplica temporaire). */
-    @Query("SELECT * FROM contacts WHERE status = 'accepted' ORDER BY alias")
+    /** v0.2.25 : contacts acceptés (émission des annonces de réplica temporaire).
+     *  v0.2.29 : un contact bloqué ne reçoit plus nos annonces (ni E2E, ni
+     *  auto-déclaration de réplica — il ne découvre plus rien de nous). */
+    @Query("SELECT * FROM contacts WHERE status = 'accepted' AND blockedAt = 0 ORDER BY alias")
     suspend fun accepted(): List<ContactEntity>
+
+    /** v0.2.29 — contacts BLOQUÉS (onglet « Blocages » de la liste principale). */
+    @Query("SELECT * FROM contacts WHERE blockedAt > 0 ORDER BY alias")
+    fun allBlocked(): Flow<List<ContactEntity>>
+
+    /** v0.2.29 — pose/lève le blocage local (ts = 0 pour débloquer). */
+    @Query("UPDATE contacts SET blockedAt = :ts WHERE onion = :onion")
+    suspend fun setBlocked(onion: String, ts: Long)
 
     /** v0.2.14 : contacts archivés (refusés/supprimés) — anciennes conversations. */
     @Query("SELECT * FROM contacts WHERE status IN ('declined', 'removed', 'removed_by_me') ORDER BY alias")
@@ -612,7 +634,9 @@ interface SeqStateDao {
     // v0.2.26 — version 9 : colonne messages.expireAt (messages éphémères).
     // v0.2.28 — version 10 : politique d'affichage média (vue unique / 1
     //            relecture / permanent) — attachments.viewPolicy + viewsLeft.
-    version = 10,
+    // v0.2.29 — version 11 : BLOCAGE LOCAL des contacts — contacts.blockedAt
+    //            (horodatage ; 0 = non bloqué). Purement additif.
+    version = 11,
     exportSchema = false
 )
 abstract class NyxDatabase : RoomDatabase() {
@@ -823,6 +847,19 @@ abstract class NyxDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE attachments ADD COLUMN viewPolicy TEXT NOT NULL DEFAULT 'forever'")
                 db.execSQL("ALTER TABLE attachments ADD COLUMN viewsLeft INTEGER NOT NULL DEFAULT -1")
+            }
+        }
+
+        /**
+         * v0.2.29 — MIGRATION_10_11 : BLOCAGE LOCAL des contacts (demande
+         * opérateur : « la possibilité de bloquer/débloquer un contact, et un
+         * onglet pour gérer la liste de blocages »). Colonne contacts.blockedAt
+         * (horodatage du blocage, 0 = non bloqué) — MIGRATION ADDITIVE, aucune
+         * donnée détruite : les contacts existants ressortent non bloqués.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE contacts ADD COLUMN blockedAt INTEGER NOT NULL DEFAULT 0")
             }
         }
 

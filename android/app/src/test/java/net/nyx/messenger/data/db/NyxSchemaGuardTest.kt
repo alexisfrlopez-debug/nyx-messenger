@@ -186,13 +186,30 @@ class NyxSchemaGuardTest {
     /* ---------- Version de la base ---------- */
 
     @Test
-    fun `la base est en version 10`() {
+    fun `la base est en version 11`() {
         assertEquals(
             "version de la base (Delegate Room généré) — une montée de version " +
                 "SANS migration correspondante casse TOUS les appareils installés " +
-                "(v10 v0.2.28 : attachments.viewPolicy + viewsLeft, cf. MIGRATION_9_10)",
-            10, runDelegateCapture(true).first
+                "(v11 v0.2.29 : contacts.blockedAt — blocage local, cf. MIGRATION_10_11)",
+            11, runDelegateCapture(true).first
         )
+    }
+
+    /* ---------- v0.2.29 : colonne de blocage ---------- */
+
+    /** Le DDL fraîche porte la colonne blockedAt (contacts) — sinon la
+     *  validation Room rejetterait toute base fraîche dès la 1ʳᵉ ouverture. */
+    @Test
+    fun `le DDL Room fraîche contient contacts blockedAt`() {
+        val ddl = freshDatabaseDdl()
+        val contacts = ddl.single { it.contains("CREATE TABLE") && it.contains("`contacts`") }
+        assertTrue("contacts : colonne blockedAt absente du DDL fraîche", contacts.contains("blockedAt"))
+    }
+
+    @Test
+    fun `MIGRATION_10_11 couvre bien 10 vers 11`() {
+        assertEquals(10, NyxDatabase.MIGRATION_10_11.startVersion)
+        assertEquals(11, NyxDatabase.MIGRATION_10_11.endVersion)
     }
 
     /* ---------- L'entité déclare l'index (le DDL Room le prouve) ---------- */

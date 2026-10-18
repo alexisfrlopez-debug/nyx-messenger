@@ -90,7 +90,9 @@ object ServiceLocator {
                     // v0.2.26 : messages éphémères (colonne expireAt).
                     NyxDatabase.MIGRATION_8_9,
                     // v0.2.28 : politique d'affichage média (vue unique / 2 vues).
-                    NyxDatabase.MIGRATION_9_10
+                    NyxDatabase.MIGRATION_9_10,
+                    // v0.2.29 : blocage local des contacts (contacts.blockedAt).
+                    NyxDatabase.MIGRATION_10_11
                 )
                 .build()
 
@@ -256,6 +258,9 @@ object ServiceLocator {
             var lastFailLog = 0L
             // v0.2.25 : annonce du réplica embarqué — 0 = dès le premier tick Tor Ready.
             var nextAnnounceAt = 0L
+            // v0.2.29 — cadence de ré-publication du profil (carte « replica ») :
+            // 0 = dès le premier tick où les conditions sont réunies.
+            var nextReplicaProfileAt = 0L
             // v0.2.26 : purge périodique des messages éphémères.
             var nextEphemeralSweepAt = 0L
             // v0.2.17 : compteur d'échecs de transport consécutifs (auto-guérison).
@@ -340,11 +345,62 @@ object ServiceLocator {
                         val serving = net.nyx.messenger.replica.EmbeddedReplica.serving &&
                             net.nyx.messenger.replica.EmbeddedReplica.localPort > 0
                         val me = identity.onionAddress
-                        if (serving && me != null) {
+                        // v0.2.29 — ANNONCE CONDITIONNÉE À LA PUBLICATION RÉELLE :
+                        // annoncer « <onion>:80 » alors que l'ADD_ONION a échoué
+                        // (ou n'a pas encore eu lieu) fabrique un réplica FANTÔME
+                        // — le contact découvre une adresse SANS descripteur et
+                        // obtient « Host unreachable » (cause racine terrain v0.2.28
+                        // des réplicas injoignables ET des appels morts). On ne
+                        // part que si TorManager a bien publié NOTRE adresse.
+                        val published = tor.onionPublishedAddress
+                        if (serving && me != null && published != null &&
+                            published.equals(me, ignoreCase = true)
+                        ) {
                             runCatching {
                                 repository.announceReplica("$me:80")
                             }.onFailure { e ->
                                 android.util.Log.w("nyx-replica", "annonce réplica échouée : ${e.message}")
+                            }
+                        } else if (serving && me != null) {
+                            android.util.Log.i(
+                                "nyx-replica",
+                                "annonce réplica SAUTÉE : onion non publiée " +
+                                    "(publiée=${published?.take(16) ?: "null"} ≠ nous=${me.take(16)}…) " +
+                                    "— le watchdog TorManager republie"
+                            )
+                        }
+                    }
+                    // v0.2.29 — RÉPUBLICATION PÉRIODIQUE DU PROFIL PUBLIC (carte
+                    // « replica ») : le champ réplica n'était inséré qu'À LA
+                    // SAUVEGARDE du profil — un profil publié avant l'activation
+                    // du réplica embarqué restait sans carte « replica » POUR
+                    // TOUJOURS, et la console (/admin/replicas = agrégation des
+                    // cartes de profil de moins de 7 jours) ne voyait JAMAIS les
+                    // réplicas temporaires (« aucun ne s'affiche alors qu'ils
+                    // sont découvrables »). Désormais : publication dès que le
+                    // réplica sert ET que notre onion est publiée, puis toutes
+                    // les 6 h (fraîcheur garantie face au TTL 7 jours côté
+                    // relais) ; 10 min de délai de reprise après un échec.
+                    if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
+                        now >= nextReplicaProfileAt
+                    ) {
+                        val serving = net.nyx.messenger.replica.EmbeddedReplica.serving &&
+                            net.nyx.messenger.replica.EmbeddedReplica.localPort > 0
+                        val published = tor.onionPublishedAddress
+                        if (serving && published != null) {
+                            nextReplicaProfileAt = now + REPLICA_PROFILE_RETRY_MS
+                            runCatching {
+                                repository.publishProfile(
+                                    net.nyx.messenger.profile.ProfileStore.get(appContext())
+                                )
+                            }.onSuccess {
+                                nextReplicaProfileAt = now + REPLICA_PROFILE_PERIOD_MS
+                                android.util.Log.i(
+                                    "nyx-send",
+                                    "✓ profil public (re)publié — carte réplica fraîche pour la console"
+                                )
+                            }.onFailure { e ->
+                                android.util.Log.w("nyx-send", "✗ republication profil : ${e.message}")
                             }
                         }
                     }
@@ -363,6 +419,10 @@ object ServiceLocator {
     private const val FAIL_THROTTLE_MS = 60_000L
     // v0.2.25 — annonce périodique du réplica embarqué aux contacts.
     private const val ANNOUNCE_PERIOD_MS = 30 * 60_000L
+    // v0.2.29 — ré-publication du profil public (carte « replica » console) :
+    // toutes les 6 h, reprise à 10 min après un échec.
+    private const val REPLICA_PROFILE_PERIOD_MS = 6 * 3600_000L
+    private const val REPLICA_PROFILE_RETRY_MS = 10 * 60_000L
     // v0.2.26 — purge locale des messages éphémères.
     private const val EPHEMERAL_SWEEP_MS = 30_000L
     // v0.2.17 — auto-guérison tor : seuil + cooldown.

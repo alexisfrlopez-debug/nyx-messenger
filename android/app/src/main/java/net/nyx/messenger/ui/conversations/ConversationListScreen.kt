@@ -29,21 +29,31 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,9 +66,11 @@ import kotlinx.coroutines.launch
 import net.nyx.messenger.BuildConfig
 import net.nyx.messenger.R
 import net.nyx.messenger.crypto.AliasValidator
+import net.nyx.messenger.data.db.ContactEntity
 import net.nyx.messenger.data.db.ContactStatus
 import net.nyx.messenger.data.db.MessageEntity
 import net.nyx.messenger.di.ServiceLocator
+import net.nyx.messenger.p2p.CallManager
 import net.nyx.messenger.tor.TorManager
 import net.nyx.messenger.ui.components.AvatarView
 import net.nyx.messenger.ui.components.ReplicaProbeEffect
@@ -66,32 +78,32 @@ import net.nyx.messenger.ui.diag.TestLogExportCard
 import net.nyx.messenger.ui.diag.TestPlanCard
 
 /**
- * Liste des conversations + ajout de contact (v0.2.0) :
- *  - par ALIAS UNIQUE (invitations « @pseudo » — résolution GET /client/alias) ;
- *  - par adresse onion collée (56 caractères) ou lien nyx://add.
- * Une bannière reflète l'état du Tor embarqué (ADR-007) — jamais de trafic hors Tor.
- * Le menu (⋮) ouvre : Mon adresse Nyx · Mon profil · Paramètres.
+ * Liste principale — v0.2.29 : TROIS ONGLETS (demande opérateur).
  *
- * v0.2.14 (demande opérateur) :
- *  - la liste n'affiche QUE l'ALIAS — l'adresse onion n'est visible QUE dans la
- *    fiche du contact (bouton ⓘ par carte) ;
- *  - deux sections : contacts actifs, puis « Anciennes conversations »
- *    (contacts refusés/supprimés — l'historique reste accessible, re-invitation
- *    possible en ré-ajoutant l'alias/l'adresse) ;
- *  - pression longue = choix : Supprimer le contact (propage l'avis au pair)
- *    ou Supprimer la conversation (strictement local) ;
- *  - demande runtime POST_NOTIFICATIONS (Android 13+ : sans elle, les
- *    notifications d'invitation — avec actions Accepter/Refuser — sont muettes).
+ * Onglet « Conversations » (défaut) : les conversations triées par ordre
+ * CHRONOLOGIQUE du dernier échange (le plus récent d'abord), chaque carte
+ * montrant l'aperçu du dernier message + indicateurs (non lus / ✓✓) ;
+ * boutons « Nouvelle conversation » (sélecteur de contacts acceptés) et
+ * « Nouveau groupe » (les groupes ne sont pas encore disponibles — l'info
+ * est affichée honnêtement, l'architecture E2E est pairwise).
  *
- * v0.2.15 (demande opérateur) :
- *  - EN-TÊTE : l'alias du compte + SA photo de profil (clic → mon profil) ;
- *  - chaque contact montre SA photo si publique (cache peer_profiles — TTL 1 h),
- *    sinon l'icône générique, AVEC le dernier message de la conversation
- *    (envoyé ou reçu) ;
- *  - indicateurs à côté des alias : côté expéditeur ✓ Envoyé / ✓✓ Reçu / ✓✓ Lu
- *    sur le dernier message sortant ; côté destinataire point + compteur de
- *    messages reçus non lus (effacé à l'ouverture du chat) ;
- *  - imePadding : la saisie d'ajout de contact n'est plus cachée par le clavier.
+ * Onglet « Contacts » : liste ALPHABÉTIQUE des contacts acceptés avec, devant
+ * chacun, des raccourcis cliquables Message / Appel / Visio (demande
+ * opérateur). Le bouton « Ajouter un contact » et son formulaire (alias
+ * @pseudo ou adresse onion) ont MIGRÉ ici depuis la liste unique v0.2.0-28.
+ * Un lien d'invitation (pendingAdd) atterrit directement sur cet onglet.
+ *
+ * Onglet « Blocages » (v0.2.29) : gestion de la liste de blocage locale —
+ * un contact bloqué ne peut ni écrire, ni appeler, ni découvrir notre
+ * réplica temporaire ; débloquer restaure l'état exact d'avant.
+ *
+ * Historique conservé :
+ *  - bannière Tor (ADR-007) + ligne d'état du réplica au-dessus des onglets ;
+ *  - en-tête compte (alias + photo → mon profil), menu (⋮) inchangé ;
+ *  - pression longue sur une carte = menu : Fiche / Bloquer / Supprimer le
+ *    contact (propage l'avis au pair) / Supprimer la conversation (local) ;
+ *  - « Anciennes conversations » (refusés/supprimés) en bas de Conversations ;
+ *  - demande runtime POST_NOTIFICATIONS (Android 13+) à l'entrée.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -105,8 +117,13 @@ fun ConversationListScreen(
 ) {
     val db = ServiceLocator.database
     val scope = rememberCoroutineScope()
+    val repo = remember { ServiceLocator.repository }
+    val context = LocalContext.current
+
     val contacts by db.contactDao().allActive().collectAsState(initial = emptyList())
     val archived by db.contactDao().allArchived().collectAsState(initial = emptyList())
+    // v0.2.29 — liste de blocage (onglet dédié).
+    val blocked by db.contactDao().allBlocked().collectAsState(initial = emptyList())
 
     // v0.2.15 — aperçu du dernier message PAR PAIR + compteurs de non-lus
     // (flows Room : re-émission automatique à chaque écriture).
@@ -120,23 +137,21 @@ fun ConversationListScreen(
     // retour de l'édition de profil (la destination quitte la composition).
     var ownProfile by remember { mutableStateOf<net.nyx.messenger.profile.OwnProfile?>(null) }
 
+    // v0.2.29 — onglet courant (persisté à la rotation) ; un lien
+    // d'invitation (pendingAdd) ouvre l'onglet Contacts, formulaire ouvert.
+    var tab by rememberSaveable {
+        mutableIntStateOf(if (pendingAdd != null) TAB_CONTACTS else TAB_CONVERSATIONS)
+    }
     var showAdd by remember { mutableStateOf(pendingAdd != null) }
     var input by remember { mutableStateOf(pendingAdd ?: "") }
     var aliasInput by remember { mutableStateOf("") }
     var addError by remember { mutableStateOf<String?>(null) }
     var addInfo by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-
-    val repo = remember { ServiceLocator.repository }
-    val context = LocalContext.current
-
-    // v0.2.15 : charge le profil PROPRE (avatar de l'en-tête) — après la
-    // déclaration de context (l'écran recharge au retour de l'édition).
-    LaunchedEffect(Unit) {
-        ownProfile = net.nyx.messenger.profile.ProfileStore.get(context).load()
-    }
-
-    val torState by TorManager.get(LocalContext.current).state.collectAsState()
+    // v0.2.29 — dialogues des onglets.
+    var showGroupInfo by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(false) }
+    var blockTarget by remember { mutableStateOf<ContactEntity?>(null) }
 
     // v0.2.14 : permission des notifications (Android 13+) — demandée une fois
     // à l'entrée sur la liste ; refusée = notifications muettes (jamais bloquant).
@@ -170,6 +185,31 @@ fun ConversationListScreen(
     // en interne — échec silencieux, l'icône générique reste affichée).
     LaunchedEffect(contacts.map { it.onion }) {
         if (contacts.isNotEmpty()) repo.refreshPeerProfiles(contacts.map { it.onion })
+    }
+    // v0.2.15 : charge le profil PROPRE (avatar de l'en-tête) — après la
+    // déclaration de context (l'écran recharge au retour de l'édition).
+    LaunchedEffect(Unit) {
+        ownProfile = net.nyx.messenger.profile.ProfileStore.get(context).load()
+    }
+
+    val torState by TorManager.get(LocalContext.current).state.collectAsState()
+
+    // Onglet Contacts : contacts ACCEPTÉS triés alphabétiquement (allActive est
+    // déjà trié par alias ; on filtre le statut pour n'offrir raccourcis
+    // message/appel/visio qu'aux liens mutuels — un « pending » ne peut rien
+    // recevoir tant que l'invitation n'est pas acceptée des deux côtés).
+    val accepted = remember(contacts) {
+        contacts.filter { it.status == ContactStatus.ACCEPTED }
+            .sortedBy { it.alias.lowercase() }
+    }
+    // Onglet Conversations : tri CHRONOLOGIQUE du dernier échange (demande
+    // opérateur : « l'onglet conversations liste les conversations par ordre
+    // chronologique du dernier échange ») — sans message, après (par alias).
+    val conversations = remember(contacts, lastMap) {
+        contacts.sortedWith(
+            compareByDescending<ContactEntity> { lastMap[it.onion]?.sentAt ?: 0L }
+                .thenBy { it.alias.lowercase() }
+        )
     }
 
     Scaffold(
@@ -220,15 +260,9 @@ fun ConversationListScreen(
             )
         }
     ) { padding ->
-        // v0.2.24 — SCROLL GLOBAL (retour terrain : « l'écran où s'affiche la
-        // liste des tests ne défile pas » — en build test, carte bouton rouge
-        // + plan de tests dépassaient la hauteur d'écran et le LazyColumn,
-        // sans weight, était mesuré à hauteur nulle : RIEN ne défilait, la
-        // liste des tests et les contacts restaient inaccessibles). Tout
-        // l'écran défile désormais ; les cartes ContactCard sont légères et
-        // le terrain reste à quelques contacts — pas de virtualisation requise.
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)
-            .verticalScroll(rememberScrollState())) {
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(16.dp)
+        ) {
             TorBanner(torState)
             // v0.2.16 — état du RÉPLICA sous la bannière Tor (retour terrain :
             // « après fermeture/réouverture, le client ne se connecte plus au
@@ -247,28 +281,42 @@ fun ConversationListScreen(
                 Spacer(Modifier.height(8.dp))
                 TestPlanCard()
             }
-            if (showAdd) {
-                // Un seul champ : alias (@pseudo) OU adresse onion — détection auto.
-                OutlinedTextField(
-                    value = input, onValueChange = { input = it },
-                    label = { Text(stringResource(R.string.add_contact_hint)) },
-                    modifier = Modifier.fillMaxWidth()
+
+            // ── v0.2.29 — ONGLETS ──
+            TabRow(selectedTabIndex = tab) {
+                Tab(
+                    selected = tab == TAB_CONVERSATIONS,
+                    onClick = { tab = TAB_CONVERSATIONS },
+                    text = { Text(stringResource(R.string.conversations)) }
                 )
-                OutlinedTextField(
-                    value = aliasInput, onValueChange = { aliasInput = it },
-                    label = { Text(stringResource(R.string.add_contact_local_alias)) },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                Tab(
+                    selected = tab == TAB_CONTACTS,
+                    onClick = { tab = TAB_CONTACTS },
+                    text = { Text(stringResource(R.string.tab_contacts)) }
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 8.dp)
-                ) {
-                    Button(onClick = {
+                Tab(
+                    selected = tab == TAB_BLOCKED,
+                    onClick = { tab = TAB_BLOCKED },
+                    text = { Text(stringResource(R.string.tab_blocked)) }
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            when (tab) {
+                TAB_CONTACTS -> ContactsTab(
+                    accepted = accepted,
+                    showAdd = showAdd,
+                    input = input,
+                    aliasInput = aliasInput,
+                    addError = addError,
+                    addInfo = addInfo,
+                    onShowAdd = { showAdd = true },
+                    onInput = { input = it },
+                    onAliasInput = { aliasInput = it },
+                    onAdd = {
                         addError = null
                         addInfo = null
                         val value = input.trim()
-                        if (value.isEmpty()) return@Button
+                        if (value.isEmpty()) return@ContactsTab
                         scope.launch {
                             if (value.contains(".onion")) {
                                 // Adresse directe — Result<Boolean> : annonce
@@ -304,58 +352,411 @@ fun ConversationListScreen(
                                 )
                             }
                         }
-                    }) { Text(stringResource(R.string.add)) }
-                    addError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    addInfo?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-                }
-            } else {
-                Button(onClick = { showAdd = true }) { Text(stringResource(R.string.add_contact)) }
-                addInfo?.let {
-                    Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-                }
+                    },
+                    onOpenConversation = onOpenConversation,
+                    onOpenContactProfile = onOpenContactProfile,
+                    onBlock = { blockTarget = it }
+                )
+                TAB_BLOCKED -> BlockedTab(
+                    blocked = blocked,
+                    onUnblock = { c ->
+                        scope.launch { repo.setContactBlocked(c.onion, false) }
+                    }
+                )
+                else -> ConversationsTab(
+                    conversations = conversations,
+                    archived = archived,
+                    lastMap = lastMap,
+                    unreadMap = unreadMap,
+                    onOpenConversation = onOpenConversation,
+                    onOpenContactProfile = onOpenContactProfile,
+                    onNewConversation = { showPicker = true },
+                    onNewGroup = { showGroupInfo = true },
+                    onBlock = { blockTarget = it }
+                )
             }
+        }
+    }
 
-            Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                // ── Contacts actifs ──
-                for (c in contacts) {
-                    ContactCard(
-                        c = c,
-                        archived = false,
-                        last = lastMap[c.onion],
-                        unread = unreadMap[c.onion] ?: 0,
-                        onOpenConversation = onOpenConversation,
-                        onOpenContactProfile = onOpenContactProfile
-                    )
-                }
-                // ── Anciennes conversations (refusés/supprimés) ──
-                if (archived.isNotEmpty()) {
-                    Text(
-                        stringResource(R.string.list_archived_header),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-                    )
-                    for (c in archived) {
-                        ContactCard(
-                            c = c,
-                            archived = true,
-                            last = lastMap[c.onion],
-                            unread = 0, // un lien archivé ne reçoit plus — pas d'indicateur
-                            onOpenConversation = onOpenConversation,
-                            onOpenContactProfile = onOpenContactProfile
-                        )
+    // ── Dialogues (v0.2.29) ──
+
+    // « Nouvelle conversation » : sélecteur parmi les contacts acceptés.
+    if (showPicker) {
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            title = { Text(stringResource(R.string.new_conversation)) },
+            text = {
+                if (accepted.isEmpty()) {
+                    Text(stringResource(R.string.picker_empty))
+                } else {
+                    Column(
+                        Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        for (c in accepted) {
+                            TextButton(onClick = { showPicker = false; onOpenConversation(c.onion) }) {
+                                Text(c.alias, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
                 }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+    // « Nouveau groupe » : pas encore disponible (architecture E2E pairwise) —
+    // l'information est honnête, le bouton demandé par l'opérateur est présent.
+    if (showGroupInfo) {
+        AlertDialog(
+            onDismissRequest = { showGroupInfo = false },
+            title = { Text(stringResource(R.string.group_info_title)) },
+            text = { Text(stringResource(R.string.group_info_text)) },
+            confirmButton = {
+                TextButton(onClick = { showGroupInfo = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+    // Confirmation de blocage (demande opérateur : « bloquer/débloquer un
+    // contact ») — le blocage est PUREMENT LOCAL (le pair n'est jamais informé).
+    blockTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { blockTarget = null },
+            title = { Text(stringResource(R.string.block_confirm_title)) },
+            text = { Text(stringResource(R.string.block_confirm_text, target.alias)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val t = target
+                    blockTarget = null
+                    scope.launch { repo.setContactBlocked(t.onion, true) }
+                }) {
+                    Text(
+                        stringResource(R.string.block_action),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { blockTarget = null }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+}
+
+/**
+ * Onglet « Conversations » (v0.2.29) — tri CHRONOLOGIQUE du dernier échange,
+ * boutons « Nouvelle conversation » (sélecteur) et « Nouveau groupe », puis
+ * les cartes actives et la section « Anciennes conversations » (v0.2.14).
+ */
+@Composable
+private fun ConversationsTab(
+    conversations: List<ContactEntity>,
+    archived: List<ContactEntity>,
+    lastMap: Map<String, MessageEntity>,
+    unreadMap: Map<String, Int>,
+    onOpenConversation: (String) -> Unit,
+    onOpenContactProfile: (String) -> Unit,
+    onNewConversation: () -> Unit,
+    onNewGroup: () -> Unit,
+    onBlock: (ContactEntity) -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+        ) {
+            OutlinedButton(
+                onClick = onNewConversation,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    stringResource(R.string.new_conversation),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            OutlinedButton(
+                onClick = onNewGroup,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.GroupAdd, contentDescription = null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    stringResource(R.string.new_group),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (conversations.isEmpty()) {
+            Text(
+                stringResource(R.string.conversations_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+        for (c in conversations) {
+            ContactCard(
+                c = c,
+                archived = false,
+                last = lastMap[c.onion],
+                unread = unreadMap[c.onion] ?: 0,
+                onOpenConversation = onOpenConversation,
+                onOpenContactProfile = onOpenContactProfile,
+                onBlock = onBlock
+            )
+        }
+        // ── Anciennes conversations (refusés/supprimés) — v0.2.14 ──
+        if (archived.isNotEmpty()) {
+            Text(
+                stringResource(R.string.list_archived_header),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+            )
+            for (c in archived) {
+                ContactCard(
+                    c = c,
+                    archived = true,
+                    last = lastMap[c.onion],
+                    unread = 0, // un lien archivé ne reçoit plus — pas d'indicateur
+                    onOpenConversation = onOpenConversation,
+                    onOpenContactProfile = onOpenContactProfile,
+                    onBlock = null // un lien archivé n'a pas à être bloqué
+                )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/**
+ * Onglet « Contacts » (v0.2.29) — « Ajouter un contact » (MIGRÉ de la liste
+ * unique, demande opérateur) + liste ALPHABÉTIQUE des contacts acceptés avec
+ * raccourcis Message / Appel / Visio devant chacun.
+ */
+@Composable
+private fun ContactsTab(
+    accepted: List<ContactEntity>,
+    showAdd: Boolean,
+    input: String,
+    aliasInput: String,
+    addError: String?,
+    addInfo: String?,
+    onShowAdd: () -> Unit,
+    onInput: (String) -> Unit,
+    onAliasInput: (String) -> Unit,
+    onAdd: () -> Unit,
+    onOpenConversation: (String) -> Unit,
+    onOpenContactProfile: (String) -> Unit,
+    onBlock: (ContactEntity) -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+    ) {
+        if (showAdd) {
+            // Un seul champ : alias (@pseudo) OU adresse onion — détection auto.
+            OutlinedTextField(
+                value = input, onValueChange = onInput,
+                label = { Text(stringResource(R.string.add_contact_hint)) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = aliasInput, onValueChange = onAliasInput,
+                label = { Text(stringResource(R.string.add_contact_local_alias)) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            )
+            Button(
+                onClick = onAdd,
+                modifier = Modifier.padding(top = 8.dp)
+            ) { Text(stringResource(R.string.add)) }
+            addError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            addInfo?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+        } else {
+            Button(onClick = onShowAdd) { Text(stringResource(R.string.add_contact)) }
+        }
+        addInfo?.let {
+            if (!showAdd) Text(
+                it,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        if (accepted.isEmpty()) {
+            Text(
+                stringResource(R.string.contacts_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+        for (c in accepted) {
+            ContactShortcutRow(
+                c = c,
+                onOpenConversation = onOpenConversation,
+                onOpenContactProfile = onOpenContactProfile,
+                onBlock = onBlock
+            )
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/**
+ * Rangée « Contacts » (v0.2.29) : avatar + alias, puis les TROIS RACCOURCIS
+ * cliquables demandés par l'opérateur — Message (ouvre la conversation),
+ * Appel (audio), Visio (vidéo). Clic sur la rangée = conversation ;
+ * pression longue = menu Fiche / Bloquer.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ContactShortcutRow(
+    c: ContactEntity,
+    onOpenConversation: (String) -> Unit,
+    onOpenContactProfile: (String) -> Unit,
+    onBlock: (ContactEntity) -> Unit
+) {
+    val repo = remember { ServiceLocator.repository }
+    // v0.2.15 : profil public en cache du pair (avatar — apparaît dès que le
+    // fetch de rafraîchissement aboutit).
+    val peerProfile by repo.peerProfileFlow(c.onion).collectAsState(initial = null)
+    var menuOpen by remember { mutableStateOf(false) }
+    val label = c.alias.ifBlank { c.onion.take(10) + "…" }
+
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .combinedClickable(
+                    onClick = { onOpenConversation(c.onion) },
+                    onLongClick = { menuOpen = true }
+                )
+                .padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 2.dp)
+        ) {
+            AvatarView(peerProfile?.avatar?.ifBlank { null }, size = 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                c.alias,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = { onOpenConversation(c.onion) }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = stringResource(R.string.cd_message),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(onClick = { CallManager.call(c.onion, label, withVideo = false) }) {
+                Icon(
+                    Icons.Filled.Call,
+                    contentDescription = stringResource(R.string.call_start),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(onClick = { CallManager.call(c.onion, label, withVideo = true) }) {
+                Icon(
+                    Icons.Filled.Videocam,
+                    contentDescription = stringResource(R.string.call_start_video),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.contact_fiche)) },
+                    onClick = { menuOpen = false; onOpenContactProfile(c.onion) }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.block_action)) },
+                    onClick = { menuOpen = false; onBlock(c) }
+                )
             }
         }
     }
 }
 
 /**
+ * Onglet « Blocages » (v0.2.29) — la liste des contacts bloqués avec
+ * « Débloquer » ; rappel du sens du blocage (purement local).
+ */
+@Composable
+private fun BlockedTab(
+    blocked: List<ContactEntity>,
+    onUnblock: (ContactEntity) -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+    ) {
+        Text(
+            stringResource(R.string.blocked_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+        )
+        if (blocked.isEmpty()) {
+            Text(
+                stringResource(R.string.blocked_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+        for (c in blocked) {
+            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp)
+                ) {
+                    // Pas d'avatar : AUCUN fetch de profil vers un pair bloqué.
+                    AvatarView(null, size = 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            c.alias,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            stringResource(
+                                R.string.blocked_since,
+                                java.text.SimpleDateFormat(
+                                    "dd/MM/yyyy", java.util.Locale.getDefault()
+                                ).format(java.util.Date(c.blockedAt))
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    TextButton(onClick = { onUnblock(c) }) {
+                        Text(stringResource(R.string.unblock))
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/**
  * v0.2.14 — carte d'un contact (actif ou archivé) : ALIAS seul (l'adresse
  * onion n'est visible QUE dans la fiche — bouton ⓘ), statut d'invitation,
- * boutons Accepter/Refuser sur les invitations reçues, et pression longue
- * proposant Supprimer le contact / Supprimer la conversation.
+ * boutons Accepter/Refuser sur les invitations reçues.
+ *
+ * v0.2.29 — pression longue = MENU (Fiche / Bloquer / Supprimer le contact /
+ * Supprimer la conversation) au lieu du seul dialogue de suppression :
+ * le BLOCAGE (demande opérateur) vit à côté des suppressions.
  *
  * v0.2.15 (demande opérateur) :
  *  - AVATAR à gauche : la photo du contact SI publique (cache peer_profiles,
@@ -374,11 +775,14 @@ private fun ContactCard(
     last: MessageEntity?,
     unread: Int,
     onOpenConversation: (String) -> Unit,
-    onOpenContactProfile: (String) -> Unit
+    onOpenContactProfile: (String) -> Unit,
+    onBlock: ((net.nyx.messenger.data.db.ContactEntity) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val repo = remember { ServiceLocator.repository }
-    var askDelete by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var askDeleteContact by remember { mutableStateOf(false) }
+    var askDeleteConversation by remember { mutableStateOf(false) }
     val incoming = c.status == ContactStatus.INCOMING
     // v0.2.15 : profil public en cache du pair (observable — l'avatar apparaît
     // dès que le fetch de rafraîchissement aboutit).
@@ -391,7 +795,7 @@ private fun ContactCard(
             modifier = Modifier
                 .combinedClickable(
                     onClick = { onOpenConversation(c.onion) },
-                    onLongClick = { askDelete = true }
+                    onLongClick = { menuOpen = true }
                 )
                 .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp)
         ) {
@@ -461,6 +865,28 @@ private fun ContactCard(
                     contentDescription = stringResource(R.string.contact_profile_open)
                 )
             }
+            // v0.2.29 — menu contextuel (pression longue) : Fiche / Bloquer /
+            // Supprimer le contact / Supprimer la conversation.
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.contact_fiche)) },
+                    onClick = { menuOpen = false; onOpenContactProfile(c.onion) }
+                )
+                if (!archived && onBlock != null) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.block_action)) },
+                        onClick = { menuOpen = false; onBlock(c) }
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.delete_contact_title)) },
+                    onClick = { menuOpen = false; askDeleteContact = true }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.delete_conversation_confirm)) },
+                    onClick = { menuOpen = false; askDeleteConversation = true }
+                )
+            }
         }
         if (incoming) {
             Row(
@@ -483,26 +909,38 @@ private fun ContactCard(
             }
         }
     }
-    if (askDelete) {
+    if (askDeleteContact) {
         AlertDialog(
-            onDismissRequest = { askDelete = false },
+            onDismissRequest = { askDeleteContact = false },
             title = { Text(stringResource(R.string.delete_contact_title)) },
             text = { Text(stringResource(R.string.delete_contact_text, c.alias)) },
             confirmButton = {
                 TextButton(onClick = {
-                    askDelete = false
+                    askDeleteContact = false
                     scope.launch { repo.deleteContact(c.onion) }
                 }) { Text(stringResource(R.string.delete_contact_confirm)) }
             },
             dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        askDelete = false
-                        scope.launch { repo.deleteConversation(c.onion) }
-                    }) { Text(stringResource(R.string.delete_conversation_confirm)) }
-                    TextButton(onClick = { askDelete = false }) {
-                        Text(stringResource(R.string.cancel))
-                    }
+                TextButton(onClick = { askDeleteContact = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+    if (askDeleteConversation) {
+        AlertDialog(
+            onDismissRequest = { askDeleteConversation = false },
+            title = { Text(stringResource(R.string.delete_contact_title)) },
+            text = { Text(stringResource(R.string.delete_conversation_text, c.alias)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    askDeleteConversation = false
+                    scope.launch { repo.deleteConversation(c.onion) }
+                }) { Text(stringResource(R.string.delete_conversation_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { askDeleteConversation = false }) {
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -614,3 +1052,8 @@ private fun InvitationStatusLine(c: net.nyx.messenger.data.db.ContactEntity) {
         modifier = Modifier.padding(top = 4.dp)
     )
 }
+
+/** v0.2.29 — indices des onglets de la liste principale. */
+private const val TAB_CONVERSATIONS = 0
+private const val TAB_CONTACTS = 1
+private const val TAB_BLOCKED = 2

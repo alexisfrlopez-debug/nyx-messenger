@@ -224,6 +224,12 @@ class NyxRepository(
                     else "échange possible uniquement une fois l'invitation acceptée des deux côtés"
                 )
             }
+            // v0.2.29 — BLOCAGE LOCAL : l'envoi vers un contact bloqué est
+            // refusé (l'UI affiche l'erreur ; le contact reste joignable après
+            // déblocage — rien n'a été détruit).
+            if ((link?.blockedAt ?: 0L) > 0) {
+                error("contact bloqué — débloquez-le (onglet Blocages) pour lui écrire")
+            }
             val relay = relay() ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
@@ -597,13 +603,30 @@ class NyxRepository(
             // en vol (~30 s de poll) — détruire ce message reproduirait le
             // « rien reçu » du terrain v0.2.13 ; la poignée de main en cours
             // prouve la relation, on stocke.
-            val linkStatus = contactDao.get(author)?.status
+            val linked = contactDao.get(author)
+            val linkStatus = linked?.status
             if (ev.type == "msg" && linkStatus != ContactStatus.ACCEPTED &&
                 linkStatus != ContactStatus.PENDING
             ) {
                 android.util.Log.w(
                     "nyx-recv",
                     "   ✗ msg de ${author.take(16)}… ignoré (pas un contact mutuel — statut: ${linkStatus ?: "aucun"})"
+                )
+                continue
+            }
+
+            // 3quinquies. v0.2.29 — BLOCAGE LOCAL (demande opérateur : « la
+            // possibilité de bloquer/débloquer un contact ») : TOUT événement
+            // « msg » (texte, fragment de fichier, signalisation d'appel) d'un
+            // contact bloqué est DÉTRUIT à l'arrivée — jamais stocké, jamais
+            // sonné, jamais notifié. Silencieux PAR DESIGN : le pair n'est
+            // jamais informé (aucun rejet, aucun accusé — rien à sonder).
+            // Les événements « contact »/« profile » continuent (l'état du lien
+            // reste à jour pour un dé blocage sans surprise).
+            if (ev.type == "msg" && (linked?.blockedAt ?: 0L) > 0) {
+                android.util.Log.i(
+                    "nyx-recv",
+                    "   ✗ ${ev.type} de ${author.take(16)}… détruit (contact bloqué localement)"
                 )
                 continue
             }
@@ -1195,6 +1218,10 @@ class NyxRepository(
                     if (link == null) "ce destinataire n'est pas dans vos contacts"
                     else "échange possible uniquement une fois l'invitation acceptée des deux côtés"
                 )
+            }
+            // v0.2.29 — BLOCAGE LOCAL : aucun fichier vers un contact bloqué.
+            if ((link?.blockedAt ?: 0L) > 0) {
+                error("contact bloqué — débloquez-le (onglet Blocages) pour lui envoyer des fichiers")
             }
             val relay = relay() ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
@@ -2052,6 +2079,60 @@ class NyxRepository(
             }
         )
     }
+
+    /* ---------------- blocage local (v0.2.29) ---------------- */
+
+    /**
+     * v0.2.29 — Ce contact est-il BLOQUÉ localement ? (défense en profondeur
+     * pour CallManager : le poll détruit déjà les événements « msg » d'un
+     * contact bloqué, ce garde couvre les re-traitements imprévus.)
+     * Un onion inconnu n'est PAS bloqué (le filtre « contact mutuel » suffit).
+     */
+    suspend fun isContactBlocked(onion: String): Boolean = withContext(Dispatchers.IO) {
+        val peer = onion.trim().lowercase()
+        (contactDao.get(peer)?.blockedAt ?: 0L) > 0
+    }
+
+    /**
+     * v0.2.29 — Pose ou lève le BLOCAGE LOCAL d'un contact (demande opérateur :
+     * « la possibilité de bloquer/débloquer un contact, et un onglet pour gérer
+     * la liste de blocages »).
+     *
+     * Effets d'un blocage (purement LOCAL — le pair n'est jamais informé) :
+     *  - ses messages/fragments/signalisations d'appel sont détruits à
+     *    l'arrivée ([pollInbox], 3quinquies) — pas de sonnerie, pas de notif ;
+     *  - il disparaît de Conversations et Contacts (il reste dans « Blocages ») ;
+     *  - l'envoi vers lui est refusé ([send] / fichiers) ;
+     *  - il ne reçoit plus nos annonces de réplica temporaire ([ContactDao.accepted]).
+     * Débloquer restaure l'état exact d'avant (statut et historique préservés).
+     *
+     * @param onion   adresse du contact (normalisée en minuscules)
+     * @param blocked true = bloquer, false = débloquer
+     */
+    suspend fun setContactBlocked(onion: String, blocked: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val peer = onion.trim().lowercase()
+                val link = contactDao.get(peer) ?: error("contact inconnu")
+                val ts = if (blocked) System.currentTimeMillis() else 0L
+                contactDao.setBlocked(peer, ts)
+                if (blocked) {
+                    // Une sonnerie d'invitation EN COURS de ce pair est annulée
+                    // (le blocage doit être immédiat, y compris visuellement).
+                    net.nyx.messenger.notify.ContactNotifier.cancelInvitation(peer)
+                    android.util.Log.i(
+                        "nyx-contact",
+                        "contact ${peer.take(16)}… BLOQUÉ localement (${link.alias})"
+                    )
+                } else {
+                    android.util.Log.i(
+                        "nyx-contact",
+                        "contact ${peer.take(16)}… débloqué (${link.alias})"
+                    )
+                }
+                Unit // runCatching doit donner Result<Unit> (Log.i renvoie Int)
+            }
+        }
 
     /* ---------------- contacts par alias (v0.2.0) ---------------- */
 

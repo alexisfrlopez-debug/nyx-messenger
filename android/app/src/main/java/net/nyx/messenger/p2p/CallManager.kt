@@ -279,6 +279,18 @@ object CallManager {
     suspend fun onSignal(author: String, signal: CallSignal) {
         val r = repo ?: return
         val now = nowS()
+        // v0.2.29 — DÉFENSE EN PROFONDEUR (blocage local) : le poll détruit déjà
+        // les signalisations des contacts bloqués (NyxRepository 3quinquies) —
+        // ce second garde couvre toute ré-ingestion/rattrapage imprévue. Un
+        // appel d'un contact bloqué est ignoré SANS OP_REJECT (silence total :
+        // l'appelant ne doit rien apprendre, pas même notre présence).
+        if (runCatching { r.isContactBlocked(author) }.getOrDefault(false)) {
+            android.util.Log.i(
+                "nyx-call",
+                "signalisation de ${author.take(16)}… ignorée (contact bloqué localement, op=${signal.op})"
+            )
+            return
+        }
         when (signal.op) {
             CallSignal.OP_OFFER -> {
                 // Anti-rejeu souple : une offre trop vieille est un appel manqué.

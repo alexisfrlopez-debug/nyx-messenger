@@ -406,4 +406,26 @@
     <string name="account_disconnect_pwd">Mot de passe du compte</string>
     <string name="account_disconnect_wrong">Mot de passe incorrect</string>
     <string name="account_disconnect_btn">Tout effacer et déconnecter</string>
+
+    <!-- v0.2.29 — onglets de la liste principale (Conversations / Contacts /
+         Blocages) + raccourcis de contact + blocage local -->
+    <string name="tab_contacts">Contacts</string>
+    <string name="tab_blocked">Blocages</string>
+    <string name="new_conversation">Nouvelle conversation</string>
+    <string name="new_group">Nouveau groupe</string>
+    <string name="picker_empty">Aucun contact accepté — ajoutez d\'abord un contact (onglet Contacts).</string>
+    <string name="conversations_empty">Aucune conversation pour l\'instant — ajoutez un contact (onglet Contacts) pour démarrer.</string>
+    <string name="contacts_empty">Aucun contact accepté pour l\'instant — ajoutez-en un avec « Ajouter un contact ».</string>
+    <string name="group_info_title">Groupes</string>
+    <string name="group_info_text">Les groupes ne sont pas encore disponibles : Nyx chiffre les échanges de bout en bout, de contact à contact. Ils arriveront dans une prochaine version.</string>
+    <string name="contact_fiche">Fiche du contact</string>
+    <string name="cd_message">Message</string>
+    <string name="block_action">Bloquer</string>
+    <string name="unblock">Débloquer</string>
+    <string name="block_confirm_title">Bloquer ce contact ?</string>
+    <string name="block_confirm_text">« %1$s » ne pourra plus vous envoyer de messages ni vous appeler, et ne découvrira plus votre réplica temporaire. Le blocage reste strictement local : il n\'en sera jamais informé. Vous pourrez le débloquer à tout moment (onglet Blocages) — son historique et son statut de contact sont conservés.</string>
+    <string name="blocked_empty">Aucun contact bloqué.</string>
+    <string name="blocked_hint">Un contact bloqué ne peut ni vous écrire ni vous appeler (ses messages et appels sont détruits à l\'arrivée, sans qu\'il en soit informé). Débloquer rétablit l\'échange tel qu\'avant le blocage.</string>
+    <string name="blocked_since">bloqué le %1$s</string>
+    <string name="delete_conversation_text">Supprimer la conversation de « %1$s » de cet appareil ? Seuls les messages et fichiers locaux disparaissent — le contact lui-même est conservé.</string>
 </resources>
