@@ -137,8 +137,29 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.31.md). */
-    fun items(): List<Item> = ITEMS_V0_2_31
+    /** v0.2.32 — items de validation (miroir de docs/releases/v0.2.32.md) :
+     *  COMPLÉMENT au plan v0.2.31 (10 items — le retour terrain montre que la
+     *  liste déployée du plan de tests restait non défilante) : l'item
+     *  scroll-plan-tests couvre le nouveau correctif (liste CONFINÉE +
+     *  verticalScroll INTERNE quand la carte est déployée) ; les 10 items
+     *  v0.2.31 sont repris À L'IDENTIQUE (validation continue — aucun n'est
+     *  encore coché en terrain). */
+    val ITEMS_V0_2_32 = listOf(
+        Item("scroll-plan-tests", "Plan de tests : la liste DÉPLOYÉE défile À L'INTÉRIEUR de la carte — toutes les cases et « Tout réinitialiser » sont atteignables (l'entête reste visible)"),
+        Item("scroll-principal", "Écran principal (build test) : les onglets défilent dans l'espace restant — le bas de la liste est atteignable ; le plan de tests est replié (▶) et s'ouvre au clic"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible — correctif racine imePadding v0.2.31"),
+        Item("verrou-defile", "Écran verrou : le contenu défile (petit écran / clavier ouvert) — déverrouillage toujours utilisable"),
+        Item("console-toolbox", "Console v0.8.2 : boîte à outils 1-clic — le journal s'affiche EN TÊTE, auto-défilé à chaque ligne, « Copier la sortie » + « ← retour à la liste » (enchaînement des blocs sans ressaisie du mot de passe)"),
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT l'appel via les réplicas temporaires (validation continue des fixs v0.2.29)"),
+        Item("replica-joignable", "Réplicas temporaires : le réplica découvert d'un contact EST joignable — pas de « Host unreachable »"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; l'onglet Blocages le liste ; débloquer restaure l'état d'avant"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message (canal « Messages »), rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.32.md). */
+    fun items(): List<Item> = ITEMS_V0_2_32
 
     /**
      * v0.2.26 — la redondance est-elle disponible ? (≥ 2 réplicas effectifs,

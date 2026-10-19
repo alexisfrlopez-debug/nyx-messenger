@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -68,6 +70,21 @@ fun TestPlanCard() {
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.height(4.dp))
+            // v0.2.32 — LISTE DÉFILANTE QUAND DÉPLOYÉE (demande opérateur :
+            // « la liste plan de test ne se déroule pas alors je n'arrive pas
+            // à atteindre les cases d'en bas » — retour terrain v0.2.31-test) :
+            // le repli (v0.2.31) compacte l'écran MAIS la liste déployée
+            // reprenait sa PLEINE hauteur sans aucun scroll → mêmes cases du
+            // bas inatteignables dès qu'on ouvre la carte. Liste CONFINÉE
+            // (heightIn max 260 dp) + verticalScroll INTERNE : toutes les
+            // cases + « Tout réinitialiser » restent atteignables, l'entête
+            // (titre, consigne, progression) reste visible au-dessus.
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
             if (expanded) for (item in items) {
                 val done = remember(tick) { TestPlan.doneAt(context, item.id) > 0L }
                 // v0.2.26 : les items destructeurs (couper le réplica, cycle
@@ -124,6 +141,7 @@ fun TestPlanCard() {
                     }
                 }
             }
+            } // fin liste défilante v0.2.32
             Spacer(Modifier.height(4.dp))
             TextButton(onClick = {
                 TestPlan.reset(context)
