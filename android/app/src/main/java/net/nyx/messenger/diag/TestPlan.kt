@@ -118,8 +118,27 @@ object TestPlan {
         Item("regressions-replica5", "Régressions (test 2) : réplica temporaire actif et annonce de nouveau au redémarrage", requiresRedundancy = false),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.30.md). */
-    fun items(): List<Item> = ITEMS_V0_2_30
+    /** v0.2.31 — items de validation (miroir de docs/releases/v0.2.31.md) :
+     *  UI : défilement systématique (écran principal réparé — onglets confinés
+     *  au poids restant, plan de tests replié, verrou défilant) + clavier
+     *  (imePadding à la RACINE — le bas de page reste visible sur tous les
+     *  écrans) + console v0.8.2 (journal de la boîte à outils en tête,
+     *  auto-défilé). Les validations terrain v0.2.29 se poursuivent. */
+    val ITEMS_V0_2_31 = listOf(
+        Item("scroll-principal", "Écran principal (build test) : les onglets défilent dans l'espace restant — le bas de la liste est atteignable ; le plan de tests est replié (▶) et s'ouvre au clic"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible — correctif racine imePadding v0.2.31"),
+        Item("verrou-defile", "Écran verrou : le contenu défile (petit écran / clavier ouvert) — déverrouillage toujours utilisable"),
+        Item("console-toolbox", "Console v0.8.2 : boîte à outils 1-clic — le journal s'affiche EN TÊTE, auto-défilé à chaque ligne, « Copier la sortie » + « ← retour à la liste » (enchaînement des blocs sans ressaisie du mot de passe)"),
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT l'appel via les réplicas temporaires (validation continue des fixs v0.2.29)"),
+        Item("replica-joignable", "Réplicas temporaires : le réplica découvert d'un contact EST joignable — pas de « Host unreachable »"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; l'onglet Blocages le liste ; débloquer restaure l'état d'avant"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message (canal « Messages »), rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.31.md). */
+    fun items(): List<Item> = ITEMS_V0_2_31
 
     /**
      * v0.2.26 — la redondance est-elle disponible ? (≥ 2 réplicas effectifs,

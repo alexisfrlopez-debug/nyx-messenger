@@ -8,8 +8,12 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import net.nyx.messenger.di.ServiceLocator
@@ -90,13 +94,26 @@ class MainActivity : FragmentActivity() {
             val settings = SettingsManager.get(this)
             val themeMode by settings.themeMode.collectAsState()
             NyxTheme(mode = themeMode) {
-                NyxNavHost(
-                    // Lien d'invitation entrant : nyx://add?o=<onion>&k=<alias>
-                    initialAddRequest = intent?.data?.let { uri ->
-                        if (uri.scheme == "nyx" && uri.host == "add") uri.getQueryParameter("o") else null
-                    },
-                    exitDialog = { ExitDialog(this@MainActivity) }
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // v0.2.31 — CORRECTIF SYSTÉMATIQUE CLAVIER (demande
+                        // opérateur : « vérifie systématiquement qu'on puisse
+                        // voir le bas de la page quand le clavier est ouvert ») :
+                        // imePadding() à la RACINE — tout le contenu se hisse
+                        // au-dessus du clavier, sur TOUS les écrans (les
+                        // imePadding imbriqués — Chat v0.2.15, dialogue contacts
+                        // — ne doublent pas : les insets sont consommés).
+                        .imePadding()
+                ) {
+                    NyxNavHost(
+                        // Lien d'invitation entrant : nyx://add?o=<onion>&k=<alias>
+                        initialAddRequest = intent?.data?.let { uri ->
+                            if (uri.scheme == "nyx" && uri.host == "add") uri.getQueryParameter("o") else null
+                        },
+                        exitDialog = { ExitDialog(this@MainActivity) }
+                    )
+                }
             }
         }
     }

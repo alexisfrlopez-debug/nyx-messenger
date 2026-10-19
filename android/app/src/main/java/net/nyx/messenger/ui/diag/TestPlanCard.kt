@@ -39,10 +39,26 @@ fun TestPlanCard() {
     val context = LocalContext.current
     var tick by remember { mutableStateOf(0) }
     val items = remember { TestPlan.items() }
+    // v0.2.31 — REPLIÉ PAR DÉFAUT (demande opérateur : « l'écran principal ne
+    // défile plus, je ne vois pas le bas ») : la carte plan (12 items ≈ 500 dp)
+    // en pleine hauteur sous la bannière Tor écrasait la zone d'onglets dès
+    // que l'espace restant était mesuré (fix weight(1f) de cet écran).
+    // L'en-tête (titre + progression) reste visible ; la liste s'ouvre au clic.
+    var expanded by remember { mutableStateOf(false) }
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(stringResource(R.string.testplan_title), style = MaterialTheme.typography.titleSmall)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
+            ) {
+                Text(
+                    stringResource(R.string.testplan_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(if (expanded) "▼" else "▶", style = MaterialTheme.typography.labelSmall)
+            }
             Spacer(Modifier.height(4.dp))
             Text(stringResource(R.string.testplan_desc), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(4.dp))
@@ -52,7 +68,7 @@ fun TestPlanCard() {
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.height(4.dp))
-            for (item in items) {
+            if (expanded) for (item in items) {
                 val done = remember(tick) { TestPlan.doneAt(context, item.id) > 0L }
                 // v0.2.26 : les items destructeurs (couper le réplica, cycle
                 // sans serveur) sont BLOQUÉS sans redondance (≥ 2 réplicas ou

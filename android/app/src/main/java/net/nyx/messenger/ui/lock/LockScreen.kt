@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
@@ -206,6 +208,10 @@ fun LockScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // v0.2.31 — DÉFILEMENT SYSTÉMATIQUE (demande opérateur : « vérifie
+            // systématiquement que les écrans puissent défiler ») : petit écran
+            // ou clavier ouvert — le contenu du verrou reste accessible.
+            .verticalScroll(rememberScrollState())
             // Opaque : le verrou est un calque au-dessus de la navigation
             // (NyxNavHost v0.2.1) — le contenu dessous ne doit pas transparaître.
             .background(MaterialTheme.colorScheme.background)
