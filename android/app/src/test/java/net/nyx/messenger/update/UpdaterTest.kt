@@ -10,6 +10,8 @@ import org.junit.Test
  * v0.2.20 — tests JVM de la mise à jour automatique (partie PURE) : parsing
  * de la réponse GitHub /releases/latest (pré-release rejetée, APK standard
  * uniquement) et comparaison sémantique des versions.
+ * v0.2.40 — CANAL TEST : parsing de la liste /releases (première release
+ * avec asset -test.apk, pré-releases ADMISES, drafts rejetés, anti-downgrade).
  */
 class UpdaterTest {
 
@@ -28,6 +30,38 @@ class UpdaterTest {
              "browser_download_url": "https://github.com/x/nyx-v0.2.20-release.apk"}
           ]
         }
+    """.trimIndent()
+
+    /** Liste /releases (canal test) : la plus récente d'abord. */
+    private val jsonList = """
+        [
+          {
+            "url": "https://api.github.com/repos/alexisfrlopez-debug/nyx-messenger/releases/43",
+            "tag_name": "v0.2.40",
+            "name": "Nyx v0.2.40",
+            "draft": false,
+            "prerelease": true,
+            "assets": [
+              {"name": "nyx-v0.2.40-20261023-210000-test.apk",
+               "browser_download_url": "https://github.com/x/nyx-v0.2.40-test.apk"},
+              {"name": "nyx-v0.2.40-20261023-210000-release.apk",
+               "browser_download_url": "https://github.com/x/nyx-v0.2.40-release.apk"},
+              {"name": "SHA256SUMS-v0.2.40.txt",
+               "browser_download_url": "https://github.com/x/sums40.txt"}
+            ]
+          },
+          {
+            "url": "https://api.github.com/repos/alexisfrlopez-debug/nyx-messenger/releases/42",
+            "tag_name": "v0.2.39",
+            "name": "Nyx v0.2.39",
+            "draft": false,
+            "prerelease": true,
+            "assets": [
+              {"name": "nyx-v0.2.39-20261023-180000-test.apk",
+               "browser_download_url": "https://github.com/x/nyx-v0.2.39-test.apk"}
+            ]
+          }
+        ]
     """.trimIndent()
 
     @Test
@@ -70,5 +104,79 @@ class UpdaterTest {
     fun `versions avec suffixe test gérées`() {
         assertTrue(Updater.isNewer("v0.2.21", "0.2.20-test2"))
         assertFalse(Updater.isNewer("v0.2.20", "0.2.20-test2"))
+    }
+
+    // ── v0.2.40 — CANAL TEST : parseLatestTest (liste /releases) ──
+
+    @Test
+    fun `canal test - première release (pré-release ADMISE) avec APK test choisie`() {
+        val r = Updater.parseLatestTest(jsonList)
+        assertEquals("v0.2.40", r!!.tag)
+        assertEquals("0.2.40", r.version)
+        // l'ASSET TEST est choisi, jamais l'asset -release.apk de la même release
+        assertEquals("https://github.com/x/nyx-v0.2.40-test.apk", r.apkUrl)
+    }
+
+    @Test
+    fun `canal test - release sans asset test est SAUTÉE (la suivante est prise)`() {
+        // v0.2.40 sans asset -test.apk → on retombe sur v0.2.39
+        val json = jsonList.replace(
+            "nyx-v0.2.40-20261023-210000-test.apk", "nyx-v0.2.40-20261023-210000-STD.apk"
+        )
+        val r = Updater.parseLatestTest(json)
+        assertEquals("v0.2.39", r!!.tag)
+        assertEquals("https://github.com/x/nyx-v0.2.39-test.apk", r.apkUrl)
+    }
+
+    @Test
+    fun `canal test - DRAFT rejeté (sécurité, l'API publique n'en liste pas)`() {
+        // JSON dédié (trimIndent rend fragiles les replace multi-lignes) :
+        // v0.2.40 en DRAFT avec asset test → SAUTÉE, v0.2.39 retenue.
+        val json = """
+            [
+              {
+                "url": "https://api.github.com/repos/alexisfrlopez-debug/nyx-messenger/releases/43",
+                "tag_name": "v0.2.40",
+                "name": "Nyx v0.2.40",
+                "draft": true,
+                "prerelease": true,
+                "assets": [
+                  {"name": "nyx-v0.2.40-20261023-210000-test.apk",
+                   "browser_download_url": "https://github.com/x/nyx-v0.2.40-test.apk"}
+                ]
+              },
+              {
+                "url": "https://api.github.com/repos/alexisfrlopez-debug/nyx-messenger/releases/42",
+                "tag_name": "v0.2.39",
+                "name": "Nyx v0.2.39",
+                "draft": false,
+                "prerelease": true,
+                "assets": [
+                  {"name": "nyx-v0.2.39-20261023-180000-test.apk",
+                   "browser_download_url": "https://github.com/x/nyx-v0.2.39-test.apk"}
+                ]
+              }
+            ]
+        """.trimIndent()
+        val r = Updater.parseLatestTest(json)
+        assertEquals("v0.2.39", r!!.tag)
+    }
+
+    @Test
+    fun `canal test - anti-downgrade, version installée test plus récente que la liste`() {
+        // installée « 0.2.40-test » (versionName du flavor diag) vs release v0.2.40
+        // → isNewer FAUX (suffixe ignoré par la comparaison)
+        assertFalse(Updater.isNewer("0.2.40", "0.2.40-test"))
+        // et une liste plus ancienne ne déclenche jamais de mise à jour
+        assertFalse(Updater.isNewer("0.2.39", "0.2.40-test"))
+        // livraison suivante → OUI
+        assertTrue(Updater.isNewer("0.2.41", "0.2.40-test"))
+    }
+
+    @Test
+    fun `canal test - liste vide ou sans tag rejetée`() {
+        assertNull(Updater.parseLatestTest("[]"))
+        assertNull(Updater.parseLatestTest("pas du json"))
+        assertNull(Updater.parseLatestTest("{\"message\":\"Not Found\"}"))
     }
 }

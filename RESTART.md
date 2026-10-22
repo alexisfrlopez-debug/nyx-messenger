@@ -44,6 +44,21 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 61 — REÇUES 2026-10-23, ENREGISTRÉES AVANT
+> TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
+>
+> 1. **MISE À JOUR AUTOMATIQUE DE LA VERSION TEST DEPUIS GITHUB** — verbatim
+>    opérateur : « j'aimerais que la version test se mette à jour
+>    automatiquement dès qu'une nouvelle version est poussée sur github » →
+>    le flavor « diag » (Nyx TEST, net.nyx.messenger.test) doit DÉTECTER les
+>    nouvelles releases publiées sur github.com/alexisfrlopez-debug/nyx-messenger
+>    (§9.6) et s'auto-mettre à jour : interrogation périodique de l'API
+>    releases, téléchargement de l'APK « test » correspondant, vérification
+>    SHA-256 (SHA256SUMS), puis installation (permission
+>    REQUEST_INSTALL_PACKAGES + intent d'installation, l'utilisateur
+>    confirme). À implémenter comme service de mise à jour autonome dans la
+>    version test uniquement (TEST_BUILD=true), avec bannière de statut.
+
 > 🔴 **INSTRUCTIONS SESSION 60 — REÇUES 2026-10-23, ENREGISTRÉES AVANT
 > TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
 >

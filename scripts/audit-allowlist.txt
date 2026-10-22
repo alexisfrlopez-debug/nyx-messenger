@@ -22,6 +22,19 @@ android/app/src/main/AndroidManifest.xml:android.permission.RECORD_AUDIO
 # La permission ne sert QUE la caméra de l'appelant — jamais le stockage.
 android/app/src/main/AndroidManifest.xml:android.permission.CAMERA
 
+# v0.2.40 — mise à jour automatique (canal test : demande opérateur « la
+# version test se met à jour dès qu'une nouvelle version est poussée sur
+# github » ; canal standard depuis v0.2.20) : l'installateur système exige
+# REQUEST_INSTALL_PACKAGES depuis Android 8 (minSdk 26) pour un intent
+# ACTION_VIEW application/vnd.android.package-archive. ABSENTE du manifest
+# entre v0.2.20 et v0.2.39 — l'installation était bloquée silencieusement par
+# Android. L'app n'est PAS distribuée par le Play Store (GitHub/Drive) ; la
+# permission ne déclenche AUCUNE installation sans la confirmation explicite
+# de l'utilisateur dans l'installateur système ; l'APK téléchargé vit dans
+# le cache privé et l'origine (GitHub Releases du dépôt nyx-messenger) est
+# vérifiée par la version + l'asset attendu du canal.
+android/app/src/main/AndroidManifest.xml:android.permission.REQUEST_INSTALL_PACKAGES
+
 # v0.2.34 — TorControlClientTest (nouveaux tests régression ADD_ONION Detach) :
 # méthodes @Before/@After invoquées par JUnit4 via annotations, jamais par
 # appel direct — l'analyseur DEAD-KT ne voit pas les annotations.

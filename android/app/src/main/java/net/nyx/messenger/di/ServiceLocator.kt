@@ -175,26 +175,29 @@ object ServiceLocator {
 
             startInboxPolling()
 
-            // v0.2.20 — MISE À JOUR AUTOMATIQUE (VERSION NORMALE UNIQUEMENT —
-            // demande opérateur : « se mettre à jour toute seule, quand la
-            // dernière release est validée pour la production »). La release
-            // passe non-pré-release = validation ; téléchargement via Tor puis
-            // installation avec confirmation Android. Le build test
-            // valide par le plan de tests (TestPlan) et reste manuel.
-            if (!net.nyx.messenger.BuildConfig.TEST_BUILD) {
-                net.nyx.messenger.update.Updater.currentVersion =
-                    net.nyx.messenger.BuildConfig.VERSION_NAME
-                net.nyx.messenger.update.Updater.appContext = context.applicationContext
-                val updateHandler = CoroutineExceptionHandler { _, e ->
-                    android.util.Log.w("nyx-update", "boucle mise à jour terminée : ${e.message}")
-                }
-                val updateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + updateHandler)
-                updateScope.launch {
-                    net.nyx.messenger.update.Updater.autoLoop(
-                        { net.nyx.messenger.tor.TorManager.activeSocksPort },
-                        context.cacheDir
-                    )
-                }
+            // v0.2.20 — MISE À JOUR AUTOMATIQUE (build standard). v0.2.40 —
+            // ÉTENDUE AU BUILD TEST (demande opérateur : « j'aimerais que la
+            // version test se mette à jour automatiquement dès qu'une nouvelle
+            // version est poussée sur github ») : les DEUX builds lancent la
+            // boucle, sur des canaux DISJOINTS — standard : dernière release
+            // VALIDÉE (non-pré-release, APK -release) ; test : dernière
+            // release PUBLIÉE (pré-releases admises, APK -test, vérification
+            // toutes les 30 min). Téléchargement via Tor puis installation
+            // avec confirmation Android.
+            net.nyx.messenger.update.Updater.currentVersion =
+                net.nyx.messenger.BuildConfig.VERSION_NAME
+            net.nyx.messenger.update.Updater.testChannel =
+                net.nyx.messenger.BuildConfig.TEST_BUILD
+            net.nyx.messenger.update.Updater.appContext = context.applicationContext
+            val updateHandler = CoroutineExceptionHandler { _, e ->
+                android.util.Log.w("nyx-update", "boucle mise à jour terminée : ${e.message}")
+            }
+            val updateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + updateHandler)
+            updateScope.launch {
+                net.nyx.messenger.update.Updater.autoLoop(
+                    { net.nyx.messenger.tor.TorManager.activeSocksPort },
+                    context.cacheDir
+                )
             }
 
             initialized = true

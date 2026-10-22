@@ -171,9 +171,13 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
   #    USE_BIOMETRIC / USE_FINGERPRINT : déverrouillage LOCAL opt-in (ADR-010 §3) —
   #    apportées par androidx.biometric au manifest fusionné ; l'OS vérifie,
   #    l'app ne reçoit qu'un succès/échec, aucune donnée biométrique n'est lue.
+  #    REQUEST_INSTALL_PACKAGES (v0.2.40) : installateur système pour la mise à
+  #    jour automatique (canal test + standard) — exigée par Android 8+ ; sa
+  #    présence est légitimée par l'allowlist de l'audit (audit-allowlist.txt,
+  #    justification complète) ; aucune installation sans confirmation user.
   BADGE=$("$BT/aapt2" dump badging "$APK_SRC")
   BAD_PERMS=$(echo "$BADGE" | rg "uses-permission" \
-    | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT|RECORD_AUDIO|CAMERA" \
+    | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT|RECORD_AUDIO|CAMERA|REQUEST_INSTALL_PACKAGES" \
     | rg -v "net\.nyx\.messenger(\.test)?\.[A-Z_]+" || true)
   [ -z "$BAD_PERMS" ] && check "Permissions minimales (liste fermée)" 0 \
                      || check "Permissions non autorisées" 1 "$BAD_PERMS"

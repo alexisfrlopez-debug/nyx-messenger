@@ -18,6 +18,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- v0.2.20 : visio — capture caméra pour l'encodeur H.264 du canal direct. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- v0.2.20/v0.2.40 : mise à jour automatique (standard + canal test) —
+         l'installateur système exige cette permission depuis Android 8
+         (minSdk 26). ABSENTE en v0.2.20-v0.2.39 : l'installation était BLOQUÉE
+         silencieusement par Android (l'intent ACTION_VIEW application/vnd.
+         android.package-archive est rejeté) — correctif v0.2.40. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".NyxApplication"

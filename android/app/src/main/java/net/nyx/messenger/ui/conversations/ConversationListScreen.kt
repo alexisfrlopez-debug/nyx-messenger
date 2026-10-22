@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -305,6 +306,14 @@ fun ConversationListScreen(
             val torReady = torState is TorManager.TorState.Ready
             ReplicaProbeEffect(torReady = torReady, intervalMs = 20_000L)
             ReplicaStatusLine(repo, torReady)
+            // v0.2.40 — BANNIÈRE MISE À JOUR (demande opérateur : « la version
+            // test se met à jour dès qu'une nouvelle version est poussée sur
+            // github ») : quand une mise à jour a été téléchargée (canal test :
+            // dernière release publiée, pré-releases incluses ; canal standard :
+            // dernière validée), la bannière apparaît EN TÊTE de l'écran
+            // principal — un appui lance l'installateur système. Visible sur
+            // les DEUX builds (le standard bénéficie du même raccourci).
+            UpdateBanner()
             // Build test : gros bouton rouge d'export de logs vers le Drive (v0.2.2)
             // + PLAN DE TESTS de validation (v0.2.20 — demande opérateur : listing
             // des tests à effectuer, résultats journalisés nyx-test). v0.2.38 :
@@ -1009,6 +1018,57 @@ private fun TorBanner(state: TorManager.TorState) {
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
+    }
+}
+
+/**
+ * v0.2.40 — BANNIÈRE MISE À JOUR AUTOMATIQUE (demande opérateur : « la version
+ * test se met à jour automatiquement dès qu'une nouvelle version est poussée
+ * sur github »). Compacte et NON INTRUSIVE dans la zone fixe de l'écran
+ * principal (le plafond v0.2.38 doit rester maîtrisé — ScrollPolicy) :
+ *  - READY (APK déjà téléchargé, canal test ou standard) : carte CLIQUABLE
+ *    « Nouvelle version X prête — installer » → installateur système
+ *    (confirmation Android) ; disparaît dès l'installation ;
+ *  - DOWNLOADING : simple ligne de progression discrète (le détail vit dans
+ *    la carte Paramètres) ;
+ *  - tous les autres états : RIEN (à jour / erreur réseau = silence).
+ */
+@Composable
+private fun UpdateBanner() {
+    val state by net.nyx.messenger.update.Updater.state.collectAsState()
+    val testChannel = BuildConfig.TEST_BUILD
+    when (val st = state) {
+        is net.nyx.messenger.update.Updater.State.Ready -> {
+            Spacer(Modifier.height(8.dp))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { net.nyx.messenger.update.Updater.install(st.apk) },
+                colors = androidx.compose.material3.CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text(
+                    stringResource(
+                        R.string.update_banner_ready,
+                        if (testChannel) "${st.release.version} (test)" else st.release.version
+                    ),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                )
+            }
+        }
+        is net.nyx.messenger.update.Updater.State.Downloading -> {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.update_banner_downloading, st.release.version),
+                color = MaterialTheme.colorScheme.tertiary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
+        else -> {}
     }
 }
 

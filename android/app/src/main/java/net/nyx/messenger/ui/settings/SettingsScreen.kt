@@ -153,13 +153,15 @@ fun SettingsScreen(onBack: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
-            // ---- v0.2.20 : mise à jour automatique (VERSION NORMALE UNIQUEMENT) ----
-            if (!net.nyx.messenger.BuildConfig.TEST_BUILD) {
-                UpdateCard()
-                Spacer(Modifier.height(8.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-            }
+            // ---- v0.2.20 : mise à jour automatique — v0.2.40 : les DEUX
+            //      builds (canal standard : dernière validée ; canal test :
+            //      dernière publiée, pré-releases incluses — demande opérateur
+            //      « la version test se met à jour dès qu'une nouvelle version
+            //      est poussée sur github ») ----
+            UpdateCard()
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
 
             // ---- v0.2.35 : réplica embarqué (TOUTES les versions) + liste des
             //      réplicas personnalisés ----
@@ -334,29 +336,44 @@ private fun AccountCard() {
  * est validée pour la production »). États : vérification / à jour /
  * disponible (téléchargement AUTO via Tor) / prête (appui = installateur
  * système). La validation = la release passe non-pré-release sur GitHub.
+ * v0.2.40 : visible aussi dans le build TEST — canal test (dernière release
+ * publiée, pré-releases admises, APK -test.apk, vérification 30 min).
  */
 @Composable
 private fun UpdateCard() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by net.nyx.messenger.update.Updater.state.collectAsState()
+    val testChannel = net.nyx.messenger.BuildConfig.TEST_BUILD
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(stringResource(R.string.settings_update_title), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
-            Text(stringResource(R.string.settings_update_desc), style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(
+                    if (testChannel) R.string.settings_update_desc_test
+                    else R.string.settings_update_desc
+                ),
+                style = MaterialTheme.typography.bodySmall
+            )
             Spacer(Modifier.height(8.dp))
             when (val st = state) {
                 is net.nyx.messenger.update.Updater.State.UpToDate ->
-                    Text(stringResource(R.string.settings_update_latest, st.tag),
+                    Text(
+                        stringResource(
+                            if (testChannel) R.string.settings_update_latest_test
+                            else R.string.settings_update_latest,
+                            if (testChannel) "${st.tag} (test)" else st.tag
+                        ),
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.bodyMedium)
                 is net.nyx.messenger.update.Updater.State.Checking ->
                     Text(stringResource(R.string.settings_update_downloading, "…"),
                         style = MaterialTheme.typography.bodyMedium)
                 is net.nyx.messenger.update.Updater.State.Available ->
-                    Text(stringResource(R.string.settings_update_available, st.release.version),
+                    Text(stringResource(R.string.settings_update_available,
+                            if (testChannel) "${st.release.version} (test)" else st.release.version),
                         color = MaterialTheme.colorScheme.tertiary,
                         style = MaterialTheme.typography.bodyMedium)
                 is net.nyx.messenger.update.Updater.State.Downloading -> {
@@ -367,12 +384,18 @@ private fun UpdateCard() {
                 }
                 is net.nyx.messenger.update.Updater.State.Ready -> {
                     Text(
-                        stringResource(R.string.settings_update_ready, st.release.version),
+                        stringResource(
+                            R.string.settings_update_ready,
+                            if (testChannel) "${st.release.version} (test)" else st.release.version
+                        ),
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.bodyMedium
                     )
                     TextButton(onClick = { net.nyx.messenger.update.Updater.install(st.apk) }) {
-                        Text(stringResource(R.string.settings_update_ready, st.release.version))
+                        Text(stringResource(
+                            R.string.settings_update_ready,
+                            if (testChannel) "${st.release.version} (test)" else st.release.version
+                        ))
                     }
                 }
                 is net.nyx.messenger.update.Updater.State.Failed ->

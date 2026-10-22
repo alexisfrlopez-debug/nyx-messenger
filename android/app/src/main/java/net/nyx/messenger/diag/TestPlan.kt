@@ -355,8 +355,43 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.39.md). */
-    fun items(): List<Item> = ITEMS_V0_2_39
+    /** v0.2.40 — items de validation (miroir de docs/releases/v0.2.40.md) :
+     *  MISE À JOUR AUTOMATIQUE DU BUILD TEST (demande opérateur : « j'aimerais
+     *  que la version test se mette à jour automatiquement dès qu'une nouvelle
+     *  version est poussée sur github ») : canal test dédié — la version TEST
+     *  suit désormais la DERNIÈRE release publiée (pré-releases incluses, APK
+     *  -test) avec vérification toutes les 30 min, téléchargement auto via Tor,
+     *  bannière « Nouvelle version X prête — installer » sur l'écran principal,
+     *  notification + carte Paramètres dédiée. AUSSI : correctif manifest
+     *  REQUEST_INSTALL_PACKAGES (absente depuis v0.2.20 — l'installation
+     *  était bloquée silencieusement par Android 8+ sur les DEUX canaux).
+     *  Les validations critiques v0.2.39 (HSFETCH, appels) restent en tête. */
+    val ITEMS_V0_2_40 = listOf(
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (NOUVEAU v0.2.40) : à la publication de la prochaine release GitHub, la version TEST la détecte en ≤ 30 min (ou via Paramètres → « Vérifier maintenant »), la télécharge via Tor, affiche la bannière « Nouvelle version X prête — installer » + notification « Nyx TEST » → L'INSTALLATION ABOUTIT (correctif permission REQUEST_INSTALL_PACKAGES : Android 8+ la bloquait silencieusement depuis v0.2.20)"),
+        Item("maj-auto-carte", "MAJ AUTO — carte Paramètres visible dans le build TEST avec le texte « Canal TEST : … pré-releases incluses » ; « Vérifier maintenant » rafraîchit l'état ; les versions PLUS ANCIENNES ne sont jamais proposées (anti-downgrade)"),
+        Item("maj-auto-standard", "MAJ AUTO CANAL STANDARD (validation continue v0.2.20) : le build NORMAL continue d'ignorer les pré-releases — il ne propose QUE la dernière release validée (non-pré-release), APK -release.apk"),
+        Item("hsfetch-ok", "DIAG PERSISTANT (validation continue v0.2.39) : après un échec de connexion, le log montre « HSFETCH <10 premiers car.>… — descripteur re-demandé aux HSDirs » SANS aucun « erreur Tor 513 »"),
+        Item("appel-decroche", "APPELS (validation continue v0.2.39, LES 2 TÉLÉPHONES à jour) : un appel passé ~1 min après le DÉMARRAGE de l'app de l'appelé DOIT établir le média ; plus aucune salve de « SOCKS server general failure »"),
+        Item("appel-repos", "APPELS après >2 min de fonctionnement des deux apps : le média s'établit dès la 1re ou 2e tentative"),
+        Item("sonde-ok", "DIAG PERSISTANT : après un redémarrage de l'app, l'auto-sonde peut échouer UNE fois puis la récupération HSFETCH (sans 513) la rétablit"),
+        Item("replica-console", "Console v0.8.7 : le réplica temporaire découvert passe EN LIGNE quand le téléphone tourne depuis >2 min"),
+        Item("lastseen", "Console v0.8.7 : le « vu » du réplica temporaire affiche une date RÉELLE et non plus « 1970 »"),
+        Item("scroll-principal-v2", "ÉCRAN PRINCIPAL (validation continue v0.2.38) : la liste des conversations DÉFILE toujours — la bannière de mise à jour ne perturbe ni le défilement ni le plafond de la zone fixe"),
+        Item("scroll-toutes-fenetres", "TOUTES LES FENÊTRES (validation continue v0.2.38) : chat, contacts/blocages, réglages, profil, adresse, verrou, connexions, onboarding — chaque écran défile, clavier ouvert aussi"),
+        Item("fusion-replica", "Fusion : la carte « Réplica embarqué » dans les Paramètres du build NORMAL (validation continue v0.2.35/36)"),
+        Item("lisibilite-nuit", "LISIBILITÉ MODE « NUIT » : aucun texte noir/illisible sur le dégradé bleu nuit (validation continue v0.2.36)"),
+        Item("lisibilite-aube", "LISIBILITÉ MODE « AUBE » : aucun texte pâle/illisible sur ivoire (validation continue v0.2.36)"),
+        Item("esthetique", "Esthétique « Nyx, déesse de la nuit » : dégradé/lune/icône/aube (validation continue v0.2.36)"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible dans la ligne de titre MÊME CARTE REPLIÉE"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; débloquer restaure l'état exact (validation continue)"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message, rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.40.md). */
+    fun items(): List<Item> = ITEMS_V0_2_40
 
 
     /**
