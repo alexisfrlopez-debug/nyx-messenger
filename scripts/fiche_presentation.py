@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(version 0.2.37 du 22 octobre 2026), la compare honnêtement aux "
+         "(version 0.2.38 du 22 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
          "dans le cadre du cahier des charges initial : anonymat intégral, "
@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.37 · Console v0.8.6 · Serveur v0.2.35 "
+              ["Versions livrées", "Messagerie v0.2.38 · Console v0.8.6 · Serveur v0.2.35 "
                                    "(22 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -582,7 +582,7 @@ def build_story():
               ["Résilience", "Liste de rendez-vous signée par la clé de release", "v0.2.23"],
               ["Appareil", "Tor embarqué 0.4.9.14 (sans Orbot)", "v0.2.25"],
               ["Appareil", "Interface « Nuit de Nyx » : thème nuit/aube, "
-                 "contrastes verrouillés par tests WCAG ; v0.2.37 : appels réparés (récupération du descripteur onion après redémarrage du correspondant)", "v0.2.35–v0.2.37"],
+                 "contrastes verrouillés par tests WCAG ; v0.2.37 : appels réparés (récupération du descripteur onion après redémarrage du correspondant) ; v0.2.38 : défilement garanti par construction (zone fixe plafonnée, listes toujours majoritaires à l'écran)", "v0.2.35–v0.2.38"],
               ["Appareil", "Verrou biométrique / code, base SQLCipher", "v0.2.x"],
               ["Appareil", "Sauvegarde chiffrée + clé de récupération nyx1", "v0.2.3"],
               ["Appareil", "Effacement d'urgence, mise à jour in-app", "v0.2.x"],
@@ -592,7 +592,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.37 / v0.8.6).",
+                  "(version v0.2.38 / v0.8.6).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -751,7 +751,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.37) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.38) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -869,6 +869,14 @@ def build_story():
                "onion (HSFETCH) après un redémarrage du correspondant — "
                "décrocher établit enfin le média ; sonde console du réplica "
                "téléphoné auto-réparée, « vu » à date réelle."],
+              ["4ᵉ édition", "22 octobre 2026", "Messagerie v0.2.38 · "
+               "Console v0.8.6 · Serveur v0.2.35",
+               "Défilement garanti par construction sur l'écran principal : "
+               "zone fixe plafonnée à 40 % de l'écran (elle défile en "
+               "interne si besoin), listes toujours majoritaires — invariant "
+               "verrouillé par tests JVM ; audit systématique du défilement "
+               "de toutes les fenêtres (messager et console) ; cartes de "
+               "diagnostic repliées par défaut sur le build de test."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -907,8 +915,8 @@ def build_story():
 
     para(story,
          "La qualité est suivie en continu par une batterie de tests "
-         "automatisés : 450 tests JVM exécutés sur trois variantes de build "
-         "(1 350 exécutions), les tests Go du serveur, et 51 tests pour la "
+         "automatisés : 328 tests JVM exécutés sur deux variantes de build "
+         "(656 exécutions), les tests Go du serveur, et 57 tests pour la "
          "console. Chaque livraison passe un audit de code strict (zéro défaut "
          "critique ou majeur toléré), et les APK sont signés avec la clé de "
          "release officielle — les sommes de contrôle SHA-256 sont publiées "
@@ -1008,7 +1016,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.37 / v0.8.6 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.38 / v0.8.6 · AGPL-3.0</div>
 </div>
 </body>
 </html>

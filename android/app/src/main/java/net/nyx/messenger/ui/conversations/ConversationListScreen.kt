@@ -11,12 +11,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -263,9 +265,37 @@ fun ConversationListScreen(
             )
         }
     ) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp)
+        // v0.2.38 — DÉFILEMENT GARANTI PAR CONSTRUCTION (retour opérateur :
+        // « l'écran principal de la messagerie ne défile pas, il faudrait
+        // vérifier systématiquement le défilement de toutes les fenêtres »).
+        // Cause racine de la récidive : la zone FIXE (bannières + cartes de
+        // diagnostic du build test) vivait AVANT les onglets SANS plafond —
+        // sur un appareil compact (ou grande police, bannières d'erreur
+        // multi-lignes, carte plan déployée), elle pouvait occuper à elle
+        // seule plus que l'écran : la zone d'onglets weight(1f) — confinée au
+        // RESTANT depuis v0.2.31 — tombait alors à ~0 px (plus rien ne
+        // défile, le bas est inatteignable). Désormais la zone fixe est
+        // PLAFONNÉE à [ScrollPolicy.HEADER_MAX_FRACTION] de la hauteur du
+        // corps (elle défile EN INTERNE si son contenu déborde — cartes de
+        // diagnostic accessibles en tout état de cause) et la zone d'onglets
+        // reçoit TOUT le restant : elle garde TOUJOURS au moins
+        // [ScrollPolicy.LIST_MIN_FRACTION] de l'écran. Invariant verrouillé
+        // par ScrollPolicyTest.
+        BoxWithConstraints(
+            Modifier.fillMaxSize().padding(padding)
         ) {
+            // Plafond de la zone fixe — capturé ICI (portée BoxWithConstraints)
+            // car les lambdas imbriquées (Colonnes) masquent le récepteur.
+            val headerMax = ScrollPolicy.headerMaxDp(maxHeight.value).dp
+        Column(
+            Modifier.fillMaxSize().padding(16.dp)
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = headerMax)
+                    .verticalScroll(rememberScrollState())
+            ) {
             TorBanner(torState)
             // v0.2.16 — état du RÉPLICA sous la bannière Tor (retour terrain :
             // « après fermeture/réouverture, le client ne se connecte plus au
@@ -277,12 +307,14 @@ fun ConversationListScreen(
             ReplicaStatusLine(repo, torReady)
             // Build test : gros bouton rouge d'export de logs vers le Drive (v0.2.2)
             // + PLAN DE TESTS de validation (v0.2.20 — demande opérateur : listing
-            // des tests à effectuer, résultats journalisés nyx-test).
+            // des tests à effectuer, résultats journalisés nyx-test). v0.2.38 :
+            // les deux cartes sont REPLIÉES par défaut (zone fixe compacte).
             if (BuildConfig.TEST_BUILD) {
                 Spacer(Modifier.height(8.dp))
                 TestLogExportCard()
                 Spacer(Modifier.height(8.dp))
                 TestPlanCard()
+            }
             }
 
             // ── v0.2.29 — ONGLETS ──
@@ -304,13 +336,10 @@ fun ConversationListScreen(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            // v0.2.31 — RÉPARATION DÉFILEMENT (demande opérateur : « l'écran
-            // principal ne défile plus, je ne vois pas le bas ») : l'onglet est
-            // confiné à la hauteur RESTANTE (weight(1f)) — sans lui, la colonne
-            // défilable de l'onglet se mesurait sur la hauteur de l'écran entière
-            // sous les bannières/cartes test, débordait sous le bas de l'écran
-            // (bas inatteignable, défilement inopérant). Le verticalScroll
-            // interne de chaque onglet défile désormais dans l'espace restant.
+            // v0.2.31 — onglet confiné à la hauteur RESTANTE (weight(1f)) ;
+            // v0.2.38 : le restant est GARANTI non nul (zone fixe plafonnée
+            // ci-dessus, voir ScrollPolicy) — le verticalScroll interne de
+            // chaque onglet défile dans un espace toujours substantiel.
             Box(Modifier.fillMaxWidth().weight(1f)) {
             when (tab) {
                 TAB_CONTACTS -> ContactsTab(
@@ -387,6 +416,7 @@ fun ConversationListScreen(
                 )
             }
             }
+        }
         }
     }
 
@@ -1069,3 +1099,38 @@ private fun InvitationStatusLine(c: net.nyx.messenger.data.db.ContactEntity) {
 private const val TAB_CONVERSATIONS = 0
 private const val TAB_CONTACTS = 1
 private const val TAB_BLOCKED = 2
+
+/**
+ * v0.2.38 — POLITIQUE DE DÉFILEMENT DE L'ÉCRAN PRINCIPAL (retour opérateur :
+ * « l'écran principal de la messagerie ne défile pas, il faudrait vérifier
+ * systématiquement le défilement de toutes les fenêtres »).
+ *
+ * AVANT : la zone fixe (bannières + cartes de diagnostic du build test)
+ * n'avait AUCUN plafond — sur un écran compact (ou grande police, bannières
+ * d'erreur multi-lignes) elle pouvait dépasser l'écran entier et la zone
+ * d'onglets (weight(1f), confinée au restant depuis v0.2.31) tombait à
+ * ~0 px : plus rien ne défilait. MAINTENANT : la zone fixe est plafonnée à
+ * [HEADER_MAX_FRACTION] de la hauteur du corps et défile EN INTERNE si elle
+ * déborde ; la zone d'onglets garde TOUJOURS au moins [LIST_MIN_FRACTION]
+ * de l'écran (moins le chrome des onglets).
+ *
+ * Objet VOLONTAIREMENT pur Kotlin (Float, aucun type Compose) : l'invariant
+ * est vérifié par [net.nyx.messenger.ui.ScrollPolicyTest] en JVM.
+ */
+internal object ScrollPolicy {
+    /** Part MAXIMALE de la hauteur du corps dévolue à la zone fixe. */
+    const val HEADER_MAX_FRACTION = 0.40f
+
+    /** Part MINIMALE garantie à la zone d'onglets (listes défilantes). */
+    const val LIST_MIN_FRACTION = 1f - HEADER_MAX_FRACTION
+
+    /** Chrome des onglets (TabRow 48 dp + espace 8 dp), en dp. */
+    const val TAB_CHROME_DP = 56f
+
+    /** Plafond de la zone fixe (dp) pour une hauteur de corps donnée (dp). */
+    fun headerMaxDp(availableDp: Float): Float = availableDp * HEADER_MAX_FRACTION
+
+    /** Hauteur MINIMALE GARANTIE de la zone d'onglets (dp) pour un corps donné. */
+    fun listMinDp(availableDp: Float): Float =
+        availableDp * LIST_MIN_FRACTION - TAB_CHROME_DP
+}

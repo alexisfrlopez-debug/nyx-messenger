@@ -62,8 +62,12 @@ fun TestPlanCard() {
                 Text(if (expanded) "▼" else "▶", style = MaterialTheme.typography.labelSmall)
             }
             Spacer(Modifier.height(4.dp))
-            Text(stringResource(R.string.testplan_desc), style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(4.dp))
+            // v0.2.38 : consigne affichée SEULEMENT dépliée (ligne compacte
+            // repliée — la zone fixe de l'écran principal reste basse).
+            if (expanded) {
+                Text(stringResource(R.string.testplan_desc), style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+            }
             Text(
                 stringResource(R.string.testplan_progress, TestPlan.doneCount(context), items.size),
                 style = MaterialTheme.typography.labelMedium,

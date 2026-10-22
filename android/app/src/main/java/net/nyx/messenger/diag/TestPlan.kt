@@ -284,8 +284,41 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.37.md). */
-    fun items(): List<Item> = ITEMS_V0_2_37
+    /** v0.2.38 — items de validation (miroir de docs/releases/v0.2.38.md) :
+     *  DÉFILEMENT GARANTI PAR CONSTRUCTION (retour opérateur : « l'écran
+     *  principal de la messagerie ne défile pas, il faudrait vérifier
+     *  systématiquement le défilement de toutes les fenêtres » — RÉCIDIVE
+     *  malgré le fix v0.2.31 : la zone fixe bannières + cartes test n'avait
+     *  aucun plafond, elle pouvait dépasser l'écran et écraser la zone
+     *  d'onglets à ~0 px). Fix : zone fixe plafonnée à 40 % du corps et
+     *  défilante EN INTERNE (ScrollPolicy, invariant verrouillé par
+     *  ScrollPolicyTest) + cartes de diagnostic REPLIÉES par défaut +
+     *  audit systématique de toutes les fenêtres (chat/réglages/profils/
+     *  verrou/connexions : colonnes défilantes confirmées). Les validations
+     *  HSFETCH v0.2.37 restent EN ATTENTE terrain — items conservés. */
+    val ITEMS_V0_2_38 = listOf(
+        Item("scroll-principal-v2", "ÉCRAN PRINCIPAL (correctif v0.2.38) : la liste des conversations DÉFILE toujours — même build test (cartes repliées par défaut : « Envoi des journaux ▶ » + « Plan de tests ▶ »), même bannières d'erreur multi-lignes, même grande police d'accessibilité ; la zone d'onglets garde toujours ≥ 60 % de l'écran"),
+        Item("scroll-zone-fixe", "Écran principal build test : DÉPLIER les deux cartes de diagnostic — la zone fixe (bannières + cartes) défile EN INTERNE si elle dépasse 40 % de l'écran (plan de tests complet atteignable), les onglets restent visibles dessous"),
+        Item("scroll-toutes-fenetres", "TOUTES LES FENÊTRES : chat (messages + fichiers & médias), contacts/blocages, réglages, mon profil, fiche contact, mon adresse, verrou, connexions, onboarding — chaque écran défile quand son contenu dépasse l'écran, clavier ouvert aussi"),
+        Item("appel-decroche", "APPELS (correctif v0.2.37 À VALIDER) : un appel passé ~1 min après le DÉMARRAGE de l'app de l'appelé DOIT établir le média — le log appelant montre « HSFETCH » puis la connexion ; plus aucune salve de « SOCKS server general failure »"),
+        Item("appel-repos", "APPELS après >2 min de fonctionnement des deux apps : le média s'établit dès la 1re ou 2e tentative (validation v0.2.37)"),
+        Item("sonde-ok", "DIAG PERSISTANT : après un redémarrage de l'app, l'auto-sonde peut échouer UNE fois mais la salve suivante est OK — plus de « RÉPUBLICATION FORCÉE » intempestive (validation v0.2.37)"),
+        Item("replica-console", "Console v0.8.6 : le réplica temporaire découvert passe EN LIGNE quand le téléphone tourne depuis >2 min (HSFETCH intégré à la sonde console — validation v0.2.37)"),
+        Item("lastseen", "Console v0.8.6 : le « vu » du réplica temporaire affiche une date RÉELLE et non plus « 1970 » (validation v0.2.37)"),
+        Item("fusion-replica", "Fusion : la carte « Réplica embarqué » dans les Paramètres du build NORMAL (validation continue v0.2.35/36)"),
+        Item("lisibilite-nuit", "LISIBILITÉ MODE « NUIT » : aucun texte noir/illisible sur le dégradé bleu nuit (validation continue v0.2.36)"),
+        Item("lisibilite-aube", "LISIBILITÉ MODE « AUBE » : aucun texte pâle/illisible sur ivoire (validation continue v0.2.36)"),
+        Item("esthetique", "Esthétique « Nyx, déesse de la nuit » : dégradé/lune/icône/aube (validation continue v0.2.36)"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état (collecte/envoi/déposé) reste visible dans la ligne de titre MÊME CARTE REPLIÉE"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; débloquer restaure l'état exact (validation continue)"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message, rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.38.md). */
+    fun items(): List<Item> = ITEMS_V0_2_38
 
 
     /**

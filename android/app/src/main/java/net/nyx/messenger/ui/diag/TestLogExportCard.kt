@@ -1,11 +1,13 @@
 package net.nyx.messenger.ui.diag
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -20,10 +22,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Intent
@@ -39,12 +43,20 @@ import java.util.Locale
 
 /**
  * CARTE DÉBOGAGE — build « test » UNIQUEMENT (l'appelant est gardé par
- * BuildConfig.TEST_BUILD) : gros bouton rouge en tête de l'écran conversations.
+ * BuildConfig.TEST_BUILD) : carte d'export de logs en tête de l'écran
+ * conversations.
+ *
+ * v0.2.38 — REPLIÉE PAR DÉFAUT (retour opérateur : « l'écran principal de la
+ * messagerie ne défile pas ») : la carte déployée (~170 dp : titre + gros
+ * bouton rouge 72 dp + partage) écrasait la zone d'onglets sur les écrans
+ * compacts. Désormais une LIGNE compacte (titre + état + ▶) ; le contenu
+ * (gros bouton rouge + partage + état détaillé) s'ouvre au clic. L'état
+ * courant (collecte…/envoi…/déposé/erreur) reste visible DANS la ligne même
+ * repliée — l'opérateur voit le résultat sans déplier.
  *
  * Un appui = pipeline complet :
  *   1. collecte des logs (logcat + en-tête diagnostic, cf. LogCollector) ;
  *   2. dépôt direct dans le dossier de travail Drive (cf. DriveUploader).
- * L'état s'affiche sous le bouton (collecte → envoi → déposé / erreur).
  * Aucune donnée de conversation n'est collectée — journaux système uniquement.
  */
 @Composable
@@ -55,6 +67,8 @@ fun TestLogExportCard() {
     var sharing by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var ok by remember { mutableStateOf<Boolean?>(null) }
+    // v0.2.38 : repli par défaut (écran principal compact — voir doc classe).
+    var expanded by remember { mutableStateOf(false) }
 
     fun stamp(): String = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
 
@@ -63,11 +77,36 @@ fun TestLogExportCard() {
         colors = CardDefaults.cardColors(containerColor = Color(0xFFB71C1C).copy(alpha = 0.08f))
     ) {
         Column(Modifier.padding(12.dp)) {
-            Text(
-                stringResource(R.string.debug_card_title),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.error
-            )
+            // v0.2.38 — ligne d'en-tête compacte TOUJOURS visible (repli/dépli).
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+            ) {
+                Text(
+                    stringResource(R.string.debug_card_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+                status?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when (ok) {
+                            true -> MaterialTheme.colorScheme.tertiary
+                            false -> MaterialTheme.colorScheme.error
+                            null -> MaterialTheme.colorScheme.onSurface
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (expanded) "▼" else "▶", style = MaterialTheme.typography.labelSmall)
+            }
+            if (expanded) {
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
@@ -127,7 +166,6 @@ fun TestLogExportCard() {
                     }
                 )
             }
-
             // v0.2.9 — Recours SANS Drive (retour opérateur : « j'ai voulu
             // envoyer le log mais message d'erreur » — le refresh token
             // embarqué à la compilation peut expirer/révoquer, l'envoi Drive
@@ -205,6 +243,7 @@ fun TestLogExportCard() {
             ) {
                 Text(stringResource(if (sharing) R.string.debug_share_running else R.string.debug_share))
             }
+            } // fin contenu déplié (v0.2.38)
         }
     }
 }
