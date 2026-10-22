@@ -94,7 +94,7 @@ class Drive:
         req.add_header("Authorization", f"Bearer {self._access_token()}")
         for k, v in (headers or {}).items():
             req.add_header(k, v)
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=600) as r:
             data = r.read()
             return data if raw else (json.loads(data) if data else {})
 
