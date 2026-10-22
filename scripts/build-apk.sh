@@ -80,6 +80,22 @@ echo "${YLW}═══ 2/4 BUILD RELEASE SIGNÉ — variants standard + test ═�
 # deux jeux d'intermédiaires sur le disque.
 build_one() { # build_one <Flavor> <glob-sortie-attendue>
   local FLAVOR="$1" OUT="$2" FOUND
+  # v0.2.39 — PIPELINE REPRISABLE : le bac à sable tue les runs > 10 min
+  # (sessions 58/59/60 — chaque reprise REFAISAIT les 2 variants depuis le
+  # début : Standard ~5 min + Diag ~5,5 min + audit + contrôles > budget).
+  # Si l'APK /tmp existe et est PLUS RÉCENT que toute entrée du source
+  # (android/app/src + build.gradle.kts), un run précédent l'a déjà produit
+  # — on reprend SANS refaire gradlew (les contrôles d'autonomie restent
+  # intégralement exécutés sur l'APK repris).
+  local CACHED_APK="/tmp/nyx-apk-$FLAVOR.apk" NEWER_SRC
+  if [ -f "$CACHED_APK" ]; then
+    NEWER_SRC=$(find android/app/src android/app/build.gradle.kts -type f -newer "$CACHED_APK" 2>/dev/null | head -1)
+    if [ -z "$NEWER_SRC" ]; then
+      echo "APK $FLAVOR déjà construit (source inchangé) — REPRISE : $CACHED_APK"
+      return 0
+    fi
+    echo "source modifié après l'APK $FLAVOR ($NEWER_SRC) — rebuild complet"
+  fi
   ( cd android && ./gradlew ":app:assemble${FLAVOR}Release" --console=plain -q --no-daemon \
       -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
       -Dorg.gradle.workers.max=1 )

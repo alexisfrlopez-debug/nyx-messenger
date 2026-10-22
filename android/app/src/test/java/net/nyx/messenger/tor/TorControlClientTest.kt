@@ -64,6 +64,19 @@ class TorControlClientTest {
                         writer.write("250 OK\r\n")
                     }
                     line.startsWith("DEL_ONION") -> writer.write("250 OK\r\n")
+                    // v0.2.39 — le faux control port VALIDE HSFETCH comme le vrai
+                    // tor 0.4.9.14 (handle_control_hsfetch → hs_address_is_valid →
+                    // hs_parse_address_no_log : strlen == 56 base32 EXACTEMENT,
+                    // SINON « 513 Invalid argument »). v0.2.37-v0.2.38 envoyaient
+                    // « <56>.onion » (62 car.) → 513 sur TOUT le terrain.
+                    line.startsWith("HSFETCH") -> {
+                        val addr = line.removePrefix("HSFETCH ").trim()
+                        if (Regex("^[a-z2-7]{56}$").matches(addr)) {
+                            writer.write("250 OK\r\n")
+                        } else {
+                            writer.write("513 Invalid argument \"$addr\"\r\n")
+                        }
+                    }
                     else -> writer.write("250 OK\r\n")
                 }
                 writer.flush()
@@ -123,25 +136,41 @@ class TorControlClientTest {
     }
 
     /**
-     * v0.2.37 — RÉGRESSION « SOCKS server general failure » en boucle : la
-     * récupération des appels repose sur HSFETCH (force la re-demande du
-     * descripteur au HSDirs EN CONTOURNANT le cache client — cause racine
-     * terrain v0.2.36 : descripteur périmé à points d'introduction morts
-     * après un redémarrage de l'app du pair, gardé jusqu'à 24 h par tor).
-     * CONTRAT : la commande doit être exactement « HSFETCH <onion56>.onion »
-     * — une adresse incomplète (sans .onion) ou une autre commande serait
-     * silencieusement ignorée par tor et la récupération ne servirait à rien.
+     * v0.2.39 — RÉGRESSION « HSFETCH rejeté 513 » (cause racine « toujours
+     * SOCKS server failure + décrochage impossible » MALGRÉ le correctif
+     * HSFETCH v0.2.37, logs terrain 22/10 20:51 : téléphones ET console
+     * affichaient « erreur Tor 513 — Invalid argument » à CHAQUE HSFETCH).
+     *
+     * Le control-spec impose HSAddress = 56*Base32Character — l'adresse NUÈ
+     * SANS suffixe « .onion » (grammaire : "HSFETCH" SP HSAddress ; exemple
+     * officiel : « HSFETCH vww6ybal…pnpyyd » sans suffixe). Le source tor
+     * 0.4.9.14 confirme : handle_control_hsfetch → hs_address_is_valid →
+     * hs_parse_address_no_log → strlen(address) != HS_SERVICE_ADDR_LEN_BASE32
+     * (= 56) → « Invalid length » → 513 — la récupération n'a donc JAMAIS
+     * opéré sur le terrain et les descripteurs périmés sont restés en cache.
+     *
+     * CONTRAT (vérifié par le faux control port ci-dessus qui rejette en 513
+     * toute adresse non conforme, comme le vrai tor) : hsfetch() doit envoyer
+     * exactement « HSFETCH <56 base32> » et recevoir 250 OK — un suffixe
+     * « .onion » ressusciterait le 513 et re-casserait appels + réplicas.
      */
     @Test
-    fun `HSFETCH demande le descripteur d une onion avec suffixe complet`() {
+    fun `HSFETCH envoie l adresse nue de 56 caracteres exigee par le control-spec`() {
         val onion56 = "vxb5tsk44ikklazo2spqpng33w4wjfwewcylnw4kiheit25u6ive7zyd"
         TorControlClient(port()).use { c ->
+            // Lève IllegalStateException si le (faux) tor répond 513 —
+            // c'est exactement ce que le vrai tor faisait à v0.2.37/v0.2.38.
             c.hsfetch(onion56)
         }
         assertTrue(
-            "HSFETCH malformé — la récupération descripteur serait un no-op : " +
-                received.joinToString(" | "),
-            received.any { it == "HSFETCH $onion56.onion" }
+            "HSFETCH doit être « HSFETCH <56 base32> » SANS suffixe .onion " +
+                "(spec: HSAddress = 56*Base32Character) — reçu : ${received.joinToString(" | ")}",
+            received.any { it == "HSFETCH $onion56" }
+        )
+        assertTrue(
+            "Le suffixe .onion est INTERDIT par le control-spec (tor répond 513 — " +
+                "régression terrain v0.2.37) — reçu : ${received.joinToString(" | ")}",
+            received.none { it == "HSFETCH $onion56.onion" }
         )
     }
 

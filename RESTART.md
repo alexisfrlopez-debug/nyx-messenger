@@ -44,6 +44,24 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 60 — REÇUES 2026-10-23, ENREGISTRÉES AVANT
+> TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
+>
+> Contexte terrain : correctif HSFETCH v0.2.37 installé, scrolling v0.2.38
+> livré — MAIS retour opérateur : « logs envoyés / toujours le problème
+> "SOCKS server failure" et décrochage impossible. la cause peut être la
+> même, donc à régler en priorité ».
+> 1. **« SOCKS server failure » PERSISTANT + DÉCROCHAGE IMPOSSIBLE —
+>    PRIORITÉ ABSOLUE** — le correctif HSFETCH (v0.2.37) N'A PAS RÉSOLU le
+>    problème : les tentatives média échouent toujours en « SOCKS server
+>    failure » et les appels restent impossibles à décrocher ; l'opérateur
+>    suggère (à raison) une CAUSE COMMUNE → récupérer les NOUVEAUX logs
+>    envoyés sur le Drive, analyser le DIAG PERSISTANT des 2 téléphones,
+>    identifier la vraie cause racine (HSFETCH a contourné le cache de
+>    descripteurs mais le symptôme persiste → chercher ailleurs : SOCKS
+>    lui-même, circuit/rendez-vous, intro points, port média 47471,
+>    configuration tor embarqué), corriger et livrer.
+
 > 🔴 **INSTRUCTIONS SESSION 59 — REÇUES 2026-10-22 (~17:05), ENREGISTRÉES
 > AVANT TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
 >

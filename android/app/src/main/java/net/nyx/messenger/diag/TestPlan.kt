@@ -317,8 +317,46 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.38.md). */
-    fun items(): List<Item> = ITEMS_V0_2_38
+    /** v0.2.39 — items de validation (miroir de docs/releases/v0.2.39.md) :
+     *  CORRECTIF CRITIQUE HSFETCH (retour opérateur : « toujours le problème
+     *  "SOCKS server failure" et décrochage impossible. la cause peut être
+     *  la même, donc à régler en priorité » — CONFIRMÉ, cause IDENTIQUE des
+     *  deux symptômes) : v0.2.37 envoyait « HSFETCH <56>.onion » alors que le
+     *  control-spec exige HSAddress = 56*Base32Character SANS suffixe → tor
+     *  rejetait CHAQUE HSFETCH par « 513 Invalid argument » (vérifié source
+     *  tor 0.4.9.14 hs_parse_address_no_log) → la récupération de descripteur
+     *  n'a JAMAIS opéré sur le terrain → cache client périmé → « SOCKS server
+     *  general failure » en boucle → appels sans média + réplica « SOCKS
+     *  injoignable » console. Fix : adresse NUE (56 base32) des DEUX côtés
+     *  (messager + console v0.8.7), faux control-port des tests de contrat
+     *  validant désormais la syntaxe comme le vrai tor (513 sinon). Les
+     *  validations HSFETCH v0.2.37/38 (jamais réellement exécutables) et le
+     *  défilement v0.2.38 restent inclus. ATTENTION TERRAIN : les DEUX
+     *  téléphones doivent être en v0.2.39 (le Blackview était resté v0.2.36
+     *  — sans HSFETCH du tout — lors du test du 22/10 soir). */
+    val ITEMS_V0_2_39 = listOf(
+        Item("hsfetch-ok", "DIAG PERSISTANT (correctif v0.2.39) : après un échec de connexion, le log montre « HSFETCH <10 premiers car.>… — descripteur re-demandé aux HSDirs » SANS aucun « erreur Tor 513 » — la récupération opère enfin (v0.2.37/v0.2.38 étaient rejetées par tor)"),
+        Item("appel-decroche", "APPELS (correctif v0.2.39, LES 2 TÉLÉPHONES en v0.2.39) : un appel passé ~1 min après le DÉMARRAGE de l'app de l'appelé DOIT établir le média — le log appelant montre « HSFETCH » puis la connexion ; plus aucune salve de « SOCKS server general failure »"),
+        Item("appel-repos", "APPELS après >2 min de fonctionnement des deux apps : le média s'établit dès la 1re ou 2e tentative"),
+        Item("sonde-ok", "DIAG PERSISTANT : après un redémarrage de l'app, l'auto-sonde peut échouer UNE fois puis la récupération HSFETCH (sans 513) la rétablit — plus de « RÉPUBLICATION FORCÉE » intempestive"),
+        Item("replica-console", "Console v0.8.7 : le réplica temporaire découvert passe EN LIGNE quand le téléphone tourne depuis >2 min (HSFETCH corrigé dans la sonde console — plus de « HSFETCH tenté sans succès » en boucle)"),
+        Item("lastseen", "Console v0.8.7 : le « vu » du réplica temporaire affiche une date RÉELLE et non plus « 1970 »"),
+        Item("scroll-principal-v2", "ÉCRAN PRINCIPAL (validation continue v0.2.38) : la liste des conversations DÉFILE toujours — cartes repliées par défaut, bannières d'erreur multi-lignes, grande police ; zone d'onglets ≥ 60 % de l'écran"),
+        Item("scroll-toutes-fenetres", "TOUTES LES FENÊTRES (validation continue v0.2.38) : chat, contacts/blocages, réglages, profil, adresse, verrou, connexions, onboarding — chaque écran défile, clavier ouvert aussi"),
+        Item("fusion-replica", "Fusion : la carte « Réplica embarqué » dans les Paramètres du build NORMAL (validation continue v0.2.35/36)"),
+        Item("lisibilite-nuit", "LISIBILITÉ MODE « NUIT » : aucun texte noir/illisible sur le dégradé bleu nuit (validation continue v0.2.36)"),
+        Item("lisibilite-aube", "LISIBILITÉ MODE « AUBE » : aucun texte pâle/illisible sur ivoire (validation continue v0.2.36)"),
+        Item("esthetique", "Esthétique « Nyx, déesse de la nuit » : dégradé/lune/icône/aube (validation continue v0.2.36)"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible dans la ligne de titre MÊME CARTE REPLIÉE"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; débloquer restaure l'état exact (validation continue)"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message, rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.39.md). */
+    fun items(): List<Item> = ITEMS_V0_2_39
 
 
     /**

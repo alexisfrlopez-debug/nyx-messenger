@@ -153,10 +153,22 @@ class TorControlClient(private val controlPort: Int) : AutoCloseable {
      * garde-fou « on a déjà un descripteur utilisable » (can_client_refetch_desc)
      * → le descripteur fraîchement publié par le pair est récupéré et REMPLACE
      * l'entrée de cache (révision plus haute = remplacement, cache_store_as_client).
+     *
+     * v0.2.39 — CORRECTIF CRITIQUE DE SYNTAXE (cause racine « toujours SOCKS
+     * server failure » malgré v0.2.37, logs terrain 22/10 20:51) : le
+     * control-spec exige HSAddress = 56*Base32Character — l'adresse NUÈ, SANS
+     * suffixe « .onion ». La grammaire : "HSFETCH" SP (HSAddress / …).
+     * Vérifié dans le source tor 0.4.9.14 : handle_control_hsfetch →
+     * hs_address_is_valid → hs_parse_address_no_log → strlen(address) !=
+     * HS_SERVICE_ADDR_LEN_BASE32 (= 56) → « Invalid length » → 513. v0.2.37
+     * envoyait « HSFETCH <56>.onion » (62 caractères) → rejet 513 SYSTÉMATIQUE
+     * sur tout le terrain (téléphones + console) → la récupération n'a JAMAIS
+     * opéré, les descripteurs périmés sont restés en cache → appels toujours
+     * impossibles à décrocher + réplica « SOCKS injoignable ».
      */
     fun hsfetch(onion56: String) {
         require(onion56.length == 56) { "adresse onion invalide (${onion56.length} ≠ 56)" }
-        cmd("HSFETCH $onion56.onion")
+        cmd("HSFETCH $onion56")
     }
 
     override fun close() {

@@ -73,7 +73,7 @@ object EmbeddedReplica {
     private var server: ServerSocket? = null
     private var db: NyxDatabase? = null
     private var ownOnion: String = ""
-    private var versionName: String = "0.2.38"
+    private var versionName: String = "0.2.39"
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val rate = ReplicaQuota.RateLimiter()
