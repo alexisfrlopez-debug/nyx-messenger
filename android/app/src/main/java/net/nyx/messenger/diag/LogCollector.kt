@@ -70,6 +70,13 @@ object LogCollector {
         sb.append("réplicas embarqués : ").append(BuildConfig.BOOTSTRAP_REPLICAS.ifBlank { "(aucun)" }).append("\n")
         sb.append("\n===== TOR.LOG (fin — progression réelle du bootstrap) =====\n")
         sb.append(torLogTail(context))
+        // v0.2.33 — ANNEAU DE DIAGNOSTIC PERSISTANT : les événements critiques
+        // (appels, publication onion, sondes, annonces réplica) survivent à la
+        // mort du process — le logcat, lui, ne contient que le process courant
+        // (terrain v0.2.31 : export 58 s après un démarrage, traces d'appels
+        // de l'heure précédente PERDUES).
+        sb.append("\n===== DIAG PERSISTANT (survit au redémarrage de l'app) =====\n")
+        sb.append(DiagLog.tail(32 * 1024))
         sb.append("\n===== LOGCAT (fin de tampon) =====\n")
 
         val logcat = dumpLogcat()

@@ -33,6 +33,9 @@ import net.nyx.messenger.net.RendezvousList
 class NyxApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // v0.2.33 — anneau de diagnostic persistant (survit à la mort du
+        // process ; embarqué dans chaque export de logs — cf. DiagLog).
+        net.nyx.messenger.diag.DiagLog.init(this)
         ServiceLocator.init(this)
         // v0.2.19 : les réplicas CUSTOM (Paramètres — build « test 2 ») passent
         // AVANT les réplicas d'amorçage embarqués : le premier de la liste est

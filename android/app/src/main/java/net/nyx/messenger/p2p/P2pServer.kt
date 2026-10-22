@@ -43,13 +43,13 @@ object P2pServer {
             localPort = server.localPort
             started = true
             val t = Thread({
-                android.util.Log.i("nyx-p2p", "écouteur direct prêt (local $localPort)")
+                net.nyx.messenger.diag.DiagLog.i("nyx-p2p", "écouteur direct prêt (local $localPort)")
                 while (true) {
                     val sock: Socket = try {
                         server.accept()
                     } catch (e: Exception) {
                         if (started) {
-                            android.util.Log.w("nyx-p2p", "écouteur interrompu : ${e.message}")
+                            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "écouteur interrompu : ${e.message}")
                             // Recrée l'écouteur (le port peut avoir changé) —
                             // la republication onion suivra au prochain Ready.
                             started = false
@@ -63,7 +63,7 @@ object P2pServer {
             t.isDaemon = true
             t.start()
         } catch (e: Exception) {
-            android.util.Log.w("nyx-p2p", "démarrage écouteur impossible : ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "démarrage écouteur impossible : ${e.message}")
         }
     }
 
@@ -74,7 +74,7 @@ object P2pServer {
         val hello = helloFrame?.takeIf { it.type == P2pProtocol.F_HELLO }
             ?.let { P2pProtocol.parseHello(it.payload) }
         if (hello == null) {
-            android.util.Log.w("nyx-p2p", "connexion sans HELLO valide — fermée")
+            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "connexion sans HELLO valide — fermée")
             runCatching { sock.close() }
             return
         }
@@ -87,7 +87,7 @@ object P2pServer {
         )
         val authOk = verifier != null && verifier(hello.onion, expected, hello.sig)
         if (!authOk || isAllowed?.invoke(hello.onion) != true) {
-            android.util.Log.w("nyx-p2p", "HELLO ${hello.kind} REFUSÉ de ${hello.onion.take(16)}…")
+            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "HELLO ${hello.kind} REFUSÉ de ${hello.onion.take(16)}…")
             if (hello.kind == "call") {
                 runCatching { P2pProtocol.write(sock.getOutputStream(), P2pProtocol.F_CALL_REJECT) }
             }
@@ -103,7 +103,7 @@ object P2pServer {
                 runCatching { sock.close() }
                 return
             }
-            android.util.Log.i("nyx-p2p", "appel entrant authentifié de ${hello.onion.take(16)}… (cid ${hello.cid.take(8)}…)")
+            net.nyx.messenger.diag.DiagLog.i("nyx-p2p", "appel entrant authentifié de ${hello.onion.take(16)}… (cid ${hello.cid.take(8)}…)")
             sink(P2pCallConnection(sock, hello))
         }
     }
@@ -122,17 +122,17 @@ object P2pServer {
                 val body = String(frame.payload, Charsets.UTF_8)
                 val ok = kotlinx.coroutines.runBlocking { sink(hello.onion, body) }
                 if (!ok) {
-                    android.util.Log.w("nyx-p2p", "fragment direct ${received + 1}/${hello.count} refusé — arrêt")
+                    net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "fragment direct ${received + 1}/${hello.count} refusé — arrêt")
                     break
                 }
                 received++
             }
         } catch (e: Exception) {
-            android.util.Log.w("nyx-p2p", "dépôt direct interrompu à $received/${hello.count} : ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "dépôt direct interrompu à $received/${hello.count} : ${e.message}")
         } finally {
             runCatching { P2pProtocol.write(out, P2pProtocol.F_ACK, intToBytes(received)) }
             runCatching { sock.close() }
-            android.util.Log.i("nyx-p2p", "dépôt direct terminé : $received/${hello.count} fragments ingérés")
+            net.nyx.messenger.diag.DiagLog.i("nyx-p2p", "dépôt direct terminé : $received/${hello.count} fragments ingérés")
         }
     }
 

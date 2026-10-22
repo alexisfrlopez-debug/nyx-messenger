@@ -64,7 +64,7 @@ object CallManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
         CoroutineExceptionHandler { _, e ->
-            android.util.Log.w("nyx-call", "coroutine appel terminée : ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-call", "coroutine appel terminée : ${e.message}")
         })
 
     private val _ui = MutableStateFlow(CallUi())
@@ -135,7 +135,7 @@ object CallManager {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                android.util.Log.w("nyx-call", "appel sortant interrompu : ${e::class.simpleName} ${e.message}")
+                net.nyx.messenger.diag.DiagLog.w("nyx-call", "appel sortant interrompu : ${e::class.simpleName} ${e.message}")
                 end("erreur : ${e.message ?: e::class.simpleName}")
             }
         }
@@ -209,7 +209,7 @@ object CallManager {
                     video = engine
                     audioEngine.videoSink = { bytes -> engine.feedDecoder(bytes) }
                     vCsdB64 = java.util.Base64.getEncoder().encodeToString(vcsd)
-                    android.util.Log.i("nyx-video", "visio annoncée dans le HELLO (csd ${vcsd.size} o)")
+                    net.nyx.messenger.diag.DiagLog.i("nyx-video", "visio annoncée dans le HELLO (csd ${vcsd.size} o)")
                 } else {
                     engine.stop()
                     _ui.value = _ui.value.copy(videoEnabled = false)
@@ -230,7 +230,7 @@ object CallManager {
                     P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64), sig
                 ))
             }.getOrElse { e ->
-                android.util.Log.w("nyx-call", "HELLO non remis : ${e.message}")
+                net.nyx.messenger.diag.DiagLog.w("nyx-call", "HELLO non remis : ${e.message}")
                 runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
                 end("connexion perdue"); return@run
             }
@@ -253,7 +253,7 @@ object CallManager {
                             video?.startReceiving(vcsd)
                             video?.transmit = true
                         }
-                        android.util.Log.i("nyx-video", "visio ACTIVE (csd pair ${peerVideoCsd.length} o b64)")
+                        net.nyx.messenger.diag.DiagLog.i("nyx-video", "visio ACTIVE (csd pair ${peerVideoCsd.length} o b64)")
                     } else {
                         // Le pair n'a pas de vidéo (v0.2.19 ou caméra refusée).
                         _ui.value = _ui.value.copy(videoEnabled = false)
@@ -261,7 +261,7 @@ object CallManager {
                         video = null
                     }
                     _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "", phaseChangedAt = nowMs())
-                    android.util.Log.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…)")
+                    net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…)")
                 }
                 P2pProtocol.F_CALL_REJECT -> end("refusé")
                 else -> {
@@ -315,7 +315,7 @@ object CallManager {
                 }
                 pendingOffer = signal
                 val label = signal.alias.ifBlank { author.take(10) + "…" }
-                android.util.Log.i("nyx-call", "appel entrant de ${author.take(16)}… (cid ${signal.cid.take(8)}…)")
+                net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel entrant de ${author.take(16)}… (cid ${signal.cid.take(8)}…)")
                 _ui.value = CallUi(Phase.INCOMING, author, label, signal.cid,
                     message = "appel entrant…", phaseChangedAt = nowMs())
                 net.nyx.messenger.notify.ContactNotifier.incomingCall(author, label)
@@ -357,6 +357,13 @@ object CallManager {
         val state = _ui.value
         if (state.phase != Phase.INCOMING) return
         acceptedCid = state.cid
+        // v0.2.33 — trace persistante de l'INSTANT d'acceptation (l'export
+        // post-redémarrage ne voyait jamais QUAND l'utilisateur avait appuyé).
+        net.nyx.messenger.diag.DiagLog.i(
+            "nyx-call",
+            "acceptation utilisateur (cid ${state.cid.take(8)}… — média " +
+                "${if (conn != null) "déjà connecté" else "pas encore arrivé"})"
+        )
         _ui.value = state.copy(phase = Phase.WAIT, message = "connexion…", phaseChangedAt = nowMs())
         // Si la connexion P2P est déjà là (HELLO reçu avant l'appui) —
         // [onIncomingConnection] l'a gardée en attente : finalise maintenant.
@@ -423,7 +430,7 @@ object CallManager {
                     // L'offre n'est pas encore arrivée (poll ≤ 15 s) : garder.
                     val cid = connection.hello.cid
                     waited[cid] = connection
-                    android.util.Log.i("nyx-call", "média AVANT l'offre — connexion gardée (cid ${cid.take(8)}…)")
+                    net.nyx.messenger.diag.DiagLog.i("nyx-call", "média AVANT l'offre — connexion gardée (cid ${cid.take(8)}…)")
                     scope.launch {
                         delay(WAITED_TTL_MS)
                         val orphan = synchronized(this@CallManager) { waited.remove(cid) }
@@ -443,7 +450,7 @@ object CallManager {
                 conn = connection
                 if (state.phase == Phase.INCOMING) {
                     // L'appui « accepter » viendra : la connexion patiente.
-                    android.util.Log.i("nyx-call", "média arrivé pendant la sonnerie — en attente d'acceptation")
+                    net.nyx.messenger.diag.DiagLog.i("nyx-call", "média arrivé pendant la sonnerie — en attente d'acceptation")
                     return@launch
                 }
             }
@@ -462,7 +469,7 @@ object CallManager {
             runCatching { held.close() }
             return
         }
-        android.util.Log.i("nyx-call", "offre reçue — connexion média déjà là, adoptée (cid ${cid.take(8)}…)")
+        net.nyx.messenger.diag.DiagLog.i("nyx-call", "offre reçue — connexion média déjà là, adoptée (cid ${cid.take(8)}…)")
         conn = held // la sonnerie continue — finalisation à l'acceptation
     }
 
@@ -483,7 +490,7 @@ object CallManager {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
-            android.util.Log.w("nyx-call", "finalisation entrante échouée : ${e::class.simpleName} ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-call", "finalisation entrante échouée : ${e::class.simpleName} ${e.message}")
             end("connexion impossible : ${e.message ?: e::class.simpleName}")
         }
     }
@@ -517,7 +524,7 @@ object CallManager {
                     vEngine.startReceiving(java.util.Base64.getDecoder().decode(c.hello.vcsd))
                     vEngine.transmit = true
                 }
-                android.util.Log.i("nyx-video", "visio ACTIVE côté appelé")
+                net.nyx.messenger.diag.DiagLog.i("nyx-video", "visio ACTIVE côté appelé")
             } else {
                 vEngine.stop()
             }
@@ -528,7 +535,7 @@ object CallManager {
             c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(myCsdB64, myVCsdB64)
                 .toByteArray(Charsets.UTF_8))
         }.getOrElse { e ->
-            android.util.Log.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
             end("connexion perdue"); return
         }
         runCatching { engine.startReceiving(peerCsd) }
@@ -537,7 +544,7 @@ object CallManager {
             phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "",
             videoEnabled = myVCsdB64.isNotEmpty(), phaseChangedAt = nowMs()
         )
-        android.util.Log.i("nyx-call", "appel actif avec ${_ui.value.peer.take(16)}… (côté appelé)")
+        net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel actif avec ${_ui.value.peer.take(16)}… (côté appelé)")
     }
 
     /* ------------------------------- COMMUN ------------------------------- */

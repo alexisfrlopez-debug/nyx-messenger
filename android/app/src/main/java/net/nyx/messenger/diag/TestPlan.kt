@@ -144,7 +144,7 @@ object TestPlan {
      *  verticalScroll INTERNE quand la carte est déployée) ; les 10 items
      *  v0.2.31 sont repris À L'IDENTIQUE (validation continue — aucun n'est
      *  encore coché en terrain). */
-    val ITEMS_V0_2_32 = listOf(
+    private val ITEMS_V0_2_32 = listOf(
         Item("scroll-plan-tests", "Plan de tests : la liste DÉPLOYÉE défile À L'INTÉRIEUR de la carte — toutes les cases et « Tout réinitialiser » sont atteignables (l'entête reste visible)"),
         Item("scroll-principal", "Écran principal (build test) : les onglets défilent dans l'espace restant — le bas de la liste est atteignable ; le plan de tests est replié (▶) et s'ouvre au clic"),
         Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible — correctif racine imePadding v0.2.31"),
@@ -158,8 +158,31 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.32.md). */
-    fun items(): List<Item> = ITEMS_V0_2_32
+    /** v0.2.33 — items de validation (miroir de docs/releases/v0.2.33.md) :
+     *  PIPELINE LOGS RÉPARÉ (refresh token Drive expiré le 21/10 — cycle ~7 j,
+     *  cause « les logs ne s'envoient plus ») : nouveau token intégré au build
+     *  + ANNEAU DE DIAGNOSTIC PERSISTANT (DiagLog — les traces d'appels
+     *  surviennent à la mort du process ; l'export v0.2.31 ne montrait qu'un
+     *  process de 58 s, les tentatives d'appel de l'heure précédente étaient
+     *  PERDUES). Les 11 items v0.2.32 sont repris À L'IDENTIQUE (validation
+     *  continue — le retour terrain n'a pas encore coché le plan défilant). */
+    val ITEMS_V0_2_33 = listOf(
+        Item("logs-arrivent", "Bouton rouge (build test) : l'export de logs ARRIVE dans le dossier Drive (vérifiable dans les minutes qui suivent) — refresh token renouvelé le 22/10 ; l'export contient la section « DIAG PERSISTANT »"),
+        Item("scroll-plan-tests", "Plan de tests : la liste DÉPLOYÉE défile À L'INTÉRIEUR de la carte — toutes les cases et « Tout réinitialiser » sont atteignables (l'entête reste visible)"),
+        Item("scroll-principal", "Écran principal (build test) : les onglets défilent dans l'espace restant — le bas de la liste est atteignable ; le plan de tests est replié (▶) et s'ouvre au clic"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible — correctif racine imePadding v0.2.31"),
+        Item("verrou-defile", "Écran verrou : le contenu défile (petit écran / clavier ouvert) — déverrouillage toujours utilisable"),
+        Item("console-toolbox", "Console v0.8.3 : bouton « Rafraîchir » sur la page réplicas embarqués + ligne découverte (nœuds interrogés / annonces reçues) ; boîte à outils 1-clic inchangée"),
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT l'appel — exporter les logs JUSTE APRÈS l'essai (l'anneau persistant garde maintenant les traces même si l'app redémarre)"),
+        Item("replica-joignable", "Réplicas temporaires : le réplica découvert d'un contact EST joignable — pas de « Host unreachable »"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; l'onglet Blocages le liste ; débloquer restaure l'état exact d'avant"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message (canal « Messages »), rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.33.md). */
+    fun items(): List<Item> = ITEMS_V0_2_33
 
     /**
      * v0.2.26 — la redondance est-elle disponible ? (≥ 2 réplicas effectifs,

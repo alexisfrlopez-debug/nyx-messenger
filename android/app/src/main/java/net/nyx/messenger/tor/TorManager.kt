@@ -32,7 +32,7 @@ class TorManager private constructor(context: Context) {
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO +
             kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
-                android.util.Log.w("nyx-tor", "coroutine manager terminée : ${e.message}")
+                net.nyx.messenger.diag.DiagLog.w("nyx-tor", "coroutine manager terminée : ${e.message}")
             }
     )
 
@@ -215,7 +215,7 @@ class TorManager private constructor(context: Context) {
                 // porte-t-il le port média ? (le pair qui appelle ne peut joindre
                 // que ce qui est DANS le descripteur HSDir.)
                 if (mediaPort > 0) {
-                    android.util.Log.i(
+                    net.nyx.messenger.diag.DiagLog.i(
                         "nyx-tor", "onion publié : $published ports=80→$target, " +
                             "${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT}→$mediaPort"
                     )
@@ -228,7 +228,7 @@ class TorManager private constructor(context: Context) {
                         selfTestMediaPort(published)
                     }
                 } else {
-                    android.util.Log.w(
+                    net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor", "onion publié SANS port média (écouteur P2P non lié) — " +
                             "appels directs indisponibles jusqu'à republication"
                     )
@@ -255,13 +255,13 @@ class TorManager private constructor(context: Context) {
             runCatching { s.close() }
         }.fold(
             onSuccess = {
-                android.util.Log.i(
+                net.nyx.messenger.diag.DiagLog.i(
                     "nyx-p2p", "auto-sonde média OK : ${ownOnion.take(16)}…:" +
                         "${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT} joignable (descripteur publié)"
                 )
             },
             onFailure = { e ->
-                android.util.Log.w(
+                net.nyx.messenger.diag.DiagLog.w(
                     "nyx-p2p", "auto-sonde média ÉCHOUÉE : ${ownOnion.take(16)}…:" +
                         "${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT} (${e.message}) " +
                         "— descripteur non propagé ou port média absent : les appels ENTRANTS ne pourront pas établir le média"
@@ -287,13 +287,13 @@ class TorManager private constructor(context: Context) {
                 delay(PUBLICATION_RETRY_MS)
                 val st = _state.value
                 if (st is TorState.Ready && keyProvider != null && onionPublishedAddress == null) {
-                    android.util.Log.w(
+                    net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor",
                         "watchdog : tor Ready mais onion NON publiée — republication"
                     )
                     runCatching { publishOwnOnion() }
-                        .onSuccess { android.util.Log.i("nyx-tor", "onion service publié : $it") }
-                        .onFailure { android.util.Log.w("nyx-tor", "publication onion différée : ${it.message}") }
+                        .onSuccess { net.nyx.messenger.diag.DiagLog.i("nyx-tor", "onion service publié : $it") }
+                        .onFailure { net.nyx.messenger.diag.DiagLog.w("nyx-tor", "publication onion différée : ${it.message}") }
                 }
             }
         }
@@ -330,18 +330,18 @@ class TorManager private constructor(context: Context) {
                 }
                 if (probe.failed == 0) {
                     if (probeFails > 0) {
-                        android.util.Log.i("nyx-tor", "auto-sonde : $published de nouveau joignable")
+                        net.nyx.messenger.diag.DiagLog.i("nyx-tor", "auto-sonde : $published de nouveau joignable")
                     }
                     probeFails = 0
                 } else {
                     probeFails++
-                    android.util.Log.w(
+                    net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor",
                         "auto-sonde ÉCHOUÉE (${probe.failed}/${probe.total}) : $published — " +
                             "tentative $probeFails/$PROBE_FAILS_BEFORE_REPUBLISH (${probe.detail})"
                     )
                     if (probeFails >= PROBE_FAILS_BEFORE_REPUBLISH) {
-                        android.util.Log.w(
+                        net.nyx.messenger.diag.DiagLog.w(
                             "nyx-tor",
                             "RÉPUBLICATION FORCÉE de $published (descripteur non propagé / " +
                                 "points d'introduction morts — « host unreachable » côté pair)"
@@ -349,9 +349,9 @@ class TorManager private constructor(context: Context) {
                         probeFails = 0
                         runCatching { unpublishOwnOnion() }
                         runCatching { publishOwnOnion() }
-                            .onSuccess { android.util.Log.i("nyx-tor", "onion re-publiée : $it") }
+                            .onSuccess { net.nyx.messenger.diag.DiagLog.i("nyx-tor", "onion re-publiée : $it") }
                             .onFailure {
-                                android.util.Log.w("nyx-tor", "re-publication échouée : ${it.message}")
+                                net.nyx.messenger.diag.DiagLog.w("nyx-tor", "re-publication échouée : ${it.message}")
                                 startProbeWatchdog(published) // repart sur l'ancienne adresse (même clé)
                             }
                         return@launch // cette boucle meurt — publishOwnOnion a relancé la sienne
@@ -522,12 +522,12 @@ class TorManager private constructor(context: Context) {
                 if (keyProvider != null) {
                     publishOwnOnion()
                         .onSuccess { addr ->
-                            android.util.Log.i("nyx-tor", "onion service publié : $addr")
+                            net.nyx.messenger.diag.DiagLog.i("nyx-tor", "onion service publié : $addr")
                         }
                         .onFailure { e ->
                             // Ne bloque pas l'état Ready : les réplicas restent joignables,
                             // seule l'adresse P2P de l'utilisateur manque (v0.2 : direct push).
-                            android.util.Log.w("nyx-tor", "publication onion différée : ${e.message}")
+                            net.nyx.messenger.diag.DiagLog.w("nyx-tor", "publication onion différée : ${e.message}")
                         }
                 }
                 setState(TorState.Ready)
@@ -551,9 +551,9 @@ class TorManager private constructor(context: Context) {
         keyProvider = provider
         scope.launch {
             runCatching { publishOwnOnion() }
-                .onSuccess { addr -> android.util.Log.i("nyx-tor", "onion service publié : $addr") }
+                .onSuccess { addr -> net.nyx.messenger.diag.DiagLog.i("nyx-tor", "onion service publié : $addr") }
                 .onFailure { e ->
-                    android.util.Log.w("nyx-tor", "publication différée : ${e.message}")
+                    net.nyx.messenger.diag.DiagLog.w("nyx-tor", "publication différée : ${e.message}")
                     // La publication a peut-être mis Failed — tor lui-même est prêt.
                     if (_state.value is TorState.Failed) setState(TorState.Ready)
                 }

@@ -359,10 +359,10 @@ object ServiceLocator {
                             runCatching {
                                 repository.announceReplica("$me:80")
                             }.onFailure { e ->
-                                android.util.Log.w("nyx-replica", "annonce réplica échouée : ${e.message}")
+                                net.nyx.messenger.diag.DiagLog.w("nyx-replica", "annonce réplica échouée : ${e.message}")
                             }
                         } else if (serving && me != null) {
-                            android.util.Log.i(
+                            net.nyx.messenger.diag.DiagLog.i(
                                 "nyx-replica",
                                 "annonce réplica SAUTÉE : onion non publiée " +
                                     "(publiée=${published?.take(16) ?: "null"} ≠ nous=${me.take(16)}…) " +
@@ -395,12 +395,12 @@ object ServiceLocator {
                                 )
                             }.onSuccess {
                                 nextReplicaProfileAt = now + REPLICA_PROFILE_PERIOD_MS
-                                android.util.Log.i(
+                                net.nyx.messenger.diag.DiagLog.i(
                                     "nyx-send",
                                     "✓ profil public (re)publié — carte réplica fraîche pour la console"
                                 )
                             }.onFailure { e ->
-                                android.util.Log.w("nyx-send", "✗ republication profil : ${e.message}")
+                                net.nyx.messenger.diag.DiagLog.w("nyx-send", "✗ republication profil : ${e.message}")
                             }
                         }
                     }
