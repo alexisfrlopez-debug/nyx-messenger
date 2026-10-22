@@ -181,8 +181,29 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.33.md). */
-    fun items(): List<Item> = ITEMS_V0_2_33
+    /** v0.2.34 — items de validation (miroir de docs/releases/v0.2.34.md) :
+     *  CAUSE RACINE HISTORIQUE CORRIGÉE — l'onion du téléphone était DÉTRUIT
+     *  à la naissance (ADD_ONION sans flag Detach : tor tue le service
+     *  éphémère dès la fermeture de la connexion contrôle ; preuve v0.2.33 —
+     *  auto-sondes KO dès 15 s, « No more HSDir available to query » en
+     *  boucle, appel entrant accepté mais média jamais établi). Correctif :
+     *  Flags=Detach,DiscardPK + sérialisation des publications (collision
+     *  tor 551 du 22/10 02:52:41). Les items critiques v0.2.33 sont repris. */
+    val ITEMS_V0_2_34 = listOf(
+        Item("sonde-ok", "DIAG PERSISTANT (export logs) : « auto-sonde média OK : …:47471 joignable (descripteur publié) » apparaît ~15 s après « onion publié » — PLUS AUCUN « SOCKS: Host unreachable » / « No more HSDir » sur notre propre onion (preuve directe du service vivant)"),
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT le média (audio/visio fluide, les deux sens) — exporter les logs juste après l'essai ; côté appelant les « média essai N » ne débouchent plus sur « connexion directe impossible »"),
+        Item("replica-console", "Console v0.8.4 (APRÈS mise à jour du nœud ≥ v0.2.25) : les réplicas embarqués apparaissent seuls (auto-ajout) et leur sonde est OK ; si une ligne « ÉCHEC : … 404 … METTRE LE NŒUD À JOUR » s'affiche, le serveur de prod reste à mettre à jour"),
+        Item("logs-arrivent", "Bouton rouge (build test) : l'export de logs ARRIVE dans le dossier Drive — contient la section « DIAG PERSISTANT » avec les événements du process en cours"),
+        Item("scroll-plan-tests", "Plan de tests : la liste DÉPLOYÉE défile À L'INTÉRIEUR de la carte — toutes les cases et « Tout réinitialiser » sont atteignables (l'entête reste visible)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible — correctif racine imePadding v0.2.31"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; l'onglet Blocages le liste ; débloquer restaure l'état exact d'avant"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message (canal « Messages »), rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.34.md). */
+    fun items(): List<Item> = ITEMS_V0_2_34
 
     /**
      * v0.2.26 — la redondance est-elle disponible ? (≥ 2 réplicas effectifs,

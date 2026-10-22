@@ -21,3 +21,9 @@ android/app/src/main/AndroidManifest.xml:android.permission.RECORD_AUDIO
 # (chiffré par Tor, E2E, rien ne transite par un réplica, rien n'est stocké).
 # La permission ne sert QUE la caméra de l'appelant — jamais le stockage.
 android/app/src/main/AndroidManifest.xml:android.permission.CAMERA
+
+# v0.2.34 — TorControlClientTest (nouveaux tests régression ADD_ONION Detach) :
+# méthodes @Before/@After invoquées par JUnit4 via annotations, jamais par
+# appel direct — l'analyseur DEAD-KT ne voit pas les annotations.
+android/app/src/test/java/net/nyx/messenger/tor/TorControlClientTest.kt:startFakeControlPort
+android/app/src/test/java/net/nyx/messenger/tor/TorControlClientTest.kt:stopFakeControlPort

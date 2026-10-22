@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -71,6 +73,16 @@ class TorManager private constructor(context: Context) {
     private var probeWatchdog: Job? = null
     /** Échecs consécutifs des sondes (2 → républication forcée). */
     @Volatile private var probeFails = 0
+
+    /**
+     * v0.2.34 — Sérialisation publish/unpublish (terrain 22/10 02:52:41 :
+     * trois connexions contrôle ouvertes LA MÊME SECONDE, deux ADD_ONION avec
+     * la même clé en concurrence → tor 551 « Onion Service private key
+     * collides with an existing v3 service » + tor_bug_occurred_). Le
+     * publicationWatchdog, le probeWatchdog et l'annonce périodique peuvent
+     * tous vouloir republier en même temps : désormais UN SEUL à la fois.
+     */
+    private val onionMutex = Mutex()
 
     sealed interface TorState {
         /** Avant toute tentative. */
@@ -173,7 +185,11 @@ class TorManager private constructor(context: Context) {
      *  de l'onion sert le RÉPLICA TEMPORAIRE ([net.nyx.messenger.replica.EmbeddedReplica],
      *  écouteur démarré au préalable par ServiceLocator) au lieu du port local
      *  inutilisé — un contact ajoute donc « <notre onion>:80 » dans ses réplicas. */
-    suspend fun publishOwnOnion(localPort: Int? = null): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun publishOwnOnion(localPort: Int? = null): Result<String> = onionMutex.withLock {
+        publishOwnOnionLocked(localPort)
+    }
+
+    private suspend fun publishOwnOnionLocked(localPort: Int?): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             onionPublishedAddress = null // (re)publication — l'ancienne n'est plus garantie
             val cfg = config ?: error("Tor non démarré")
@@ -406,7 +422,9 @@ class TorManager private constructor(context: Context) {
         return ProbeResult(total, failed, details.joinToString("; "))
     }
 
-    suspend fun unpublishOwnOnion() {
+    suspend fun unpublishOwnOnion() = onionMutex.withLock { unpublishOwnOnionLocked() }
+
+    private suspend fun unpublishOwnOnionLocked() {
         val cfg = config ?: return
         val sid = onionServiceId ?: return
         withContext(Dispatchers.IO) {

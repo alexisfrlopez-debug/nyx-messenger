@@ -113,7 +113,19 @@ class TorControlClient(private val controlPort: Int) : AutoCloseable {
         if (mediaPort > 0) {
             ports.append(" Port=${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT},127.0.0.1:$mediaPort")
         }
-        val resp = cmd("ADD_ONION ED25519-V3:$keyB64 Flags=DiscardPK $ports")
+        // v0.2.34 — Flags=Detach (CAUSE RACINE « appels qui ne décrochent pas » +
+        // « réplicas embarqués invisibles console », prouvée par les auto-sondes
+        // v0.2.33) : un service ADD_ONION est ÉPHÉMÈRE — tor le DÉTRUIT dès la
+        // fermeture de la connexion contrôle qui l'a créé (spéc. control-port ;
+        // bug v0.2.0 n°2 documenté côté serveur Go, qui garde sa connexion ouverte
+        // via Watch() — d'où des nœuds joignables mais des téléphones muets).
+        // L'app fermait sa connexion juste après l'ADD_ONION : le service mourrait
+        // à la naissance, descripteur jamais propagé (auto-sondes KO dès 15 s,
+        // « No more HSDir available to query » en boucle) → média d'appel
+        // impossible, réplica embarqué injoignable depuis la console. Detach :
+        // le service survit à la fermeture ; DEL_ONION reste fonctionnel depuis
+        // n'importe quelle connexion authentifiée (arrêt propre / republication).
+        val resp = cmd("ADD_ONION ED25519-V3:$keyB64 Flags=Detach,DiscardPK $ports")
         return resp.values["ServiceID"] ?: error("ADD_ONION : ServiceID absent (${resp.lines})")
     }
 
