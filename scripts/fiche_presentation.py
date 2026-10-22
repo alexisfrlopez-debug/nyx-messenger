@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(version 0.2.39 du 22 octobre 2026), la compare honnêtement aux "
+         "(version 0.2.40 du 23 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
          "dans le cadre du cahier des charges initial : anonymat intégral, "
@@ -375,11 +375,11 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.39 · Console v0.8.7 · Serveur v0.2.35 "
-                                   "(22 octobre 2026)"],
+              ["Versions livrées", "Messagerie v0.2.40 · Console v0.8.7 · Serveur v0.2.35 "
+                                   "(23 octobre 2026)"],
           ],
           [0.28, 0.72],
-          caption="Tableau 1 — Fiche d'identité du projet Nyx au 22 octobre 2026.")
+          caption="Tableau 1 — Fiche d'identité du projet Nyx au 23 octobre 2026.")
 
     # ================= 2. Comment ça marche =================
     p2 = Paragraph(
@@ -585,14 +585,15 @@ def build_story():
                  "contrastes verrouillés par tests WCAG ; v0.2.37–v0.2.38 : récupération du descripteur onion tentée (HSFETCH) après redémarrage du correspondant ; v0.2.39 : syntaxe corrigée (adresse nue de 56 caractères exigée par le control-spec de tor — la récupération opère enfin) ; v0.2.38 : défilement garanti par construction (zone fixe plafonnée, listes toujours majoritaires à l'écran)", "v0.2.35–v0.2.39"],
               ["Appareil", "Verrou biométrique / code, base SQLCipher", "v0.2.x"],
               ["Appareil", "Sauvegarde chiffrée + clé de récupération nyx1", "v0.2.3"],
-              ["Appareil", "Effacement d'urgence, mise à jour in-app", "v0.2.x"],
+              ["Appareil", "Effacement d'urgence", "v0.2.x"],
+              ["Appareil", "MISE À JOUR AUTOMATIQUE : le build TEST suit chaque release publiée sur GitHub (pré-releases incluses, vérification toutes les 30 min), le build standard suit les releases validées (non-pré-release, 6 h) ; détection + téléchargement via Tor, bannière « Nouvelle version prête — installer », installation confirmée par l'utilisateur ; correctif v0.2.40 : la permission d'installation (absente depuis v0.2.20) est enfin déclarée — Android 8+ bloquait silencieusement la mise à jour", "v0.2.20 · v0.2.40"],
               ["Diagnostic", "Plan de test intégré, journal persistant, export de logs", "v0.2.33"],
               ["Administration", "Console nyx-admin : flotte, déploiement et mise à jour "
                                  "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH) ; v0.8.7 : correctif de syntaxe HSFETCH (adresse nue) — le réplica téléphoné passe enfin EN LIGNE après redémarrage de l'app", "v0.8.7"],
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.39 / v0.8.7).",
+                  "(version v0.2.40 / v0.8.7).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -751,7 +752,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.39) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.40) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -887,6 +888,18 @@ def build_story():
                "« SOCKS injoignable » avaient cette cause commune ; tests de "
                "contrat réécrits : le faux control port valide la syntaxe "
                "comme le vrai tor."],
+              ["6ᵉ édition", "23 octobre 2026", "Messagerie v0.2.40 · "
+               "Console v0.8.7 · Serveur v0.2.35",
+               "Mise à jour automatique de la version TEST (demande "
+               "opérateur) : le build test suit désormais chaque release "
+               "publiée sur GitHub — pré-releases incluses, vérification "
+               "toutes les 30 minutes — avec téléchargement via Tor, "
+               "bannière d'installation sur l'écran principal et "
+               "notification dédiée ; le build standard conserve son canal "
+               "validé (non-pré-release) ; correctif critique découvert au "
+               "passage : la permission d'installation REQUEST_INSTALL_PACKAGES, "
+               "absente du manifest depuis la v0.2.20, est enfin déclarée — "
+               "Android 8+ rejetait silencieusement toute installation."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -1026,7 +1039,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.39 / v0.8.7 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.40 / v0.8.7 · AGPL-3.0</div>
 </div>
 </body>
 </html>
