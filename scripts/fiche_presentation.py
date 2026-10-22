@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(version 0.2.38 du 22 octobre 2026), la compare honnêtement aux "
+         "(version 0.2.39 du 22 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
          "dans le cadre du cahier des charges initial : anonymat intégral, "
@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.38 · Console v0.8.6 · Serveur v0.2.35 "
+              ["Versions livrées", "Messagerie v0.2.39 · Console v0.8.7 · Serveur v0.2.35 "
                                    "(22 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -554,7 +554,7 @@ def build_story():
                  "des commandes signées sur un canal d'administration séparé "
                  "(onion d'admin avec authentification client Tor). Surtout, elle "
                  "industrialise l'exploitation : <b>déploiement d'un nouveau "
-                 "réplica en un clic</b> via SSH, <b>mise à jour du nœud en un clic</b> à identité conservée, sonde du réplica téléphoné auto-réparée (v0.8.6), boîte à outils de maintenance "
+                 "réplica en un clic</b> via SSH, <b>mise à jour du nœud en un clic</b> à identité conservée, sonde du réplica téléphoné auto-réparée (v0.8.7), boîte à outils de maintenance "
                  "en un clic (diagnostic, réparation, durcissement, tests de bout "
                  "en bout — 12 blocs éprouvés), et terminal SSH intégré. C'est "
                  "une pièce maîtresse du projet : sans elle, administrer une "
@@ -582,17 +582,17 @@ def build_story():
               ["Résilience", "Liste de rendez-vous signée par la clé de release", "v0.2.23"],
               ["Appareil", "Tor embarqué 0.4.9.14 (sans Orbot)", "v0.2.25"],
               ["Appareil", "Interface « Nuit de Nyx » : thème nuit/aube, "
-                 "contrastes verrouillés par tests WCAG ; v0.2.37 : appels réparés (récupération du descripteur onion après redémarrage du correspondant) ; v0.2.38 : défilement garanti par construction (zone fixe plafonnée, listes toujours majoritaires à l'écran)", "v0.2.35–v0.2.38"],
+                 "contrastes verrouillés par tests WCAG ; v0.2.37–v0.2.38 : récupération du descripteur onion tentée (HSFETCH) après redémarrage du correspondant ; v0.2.39 : syntaxe corrigée (adresse nue de 56 caractères exigée par le control-spec de tor — la récupération opère enfin) ; v0.2.38 : défilement garanti par construction (zone fixe plafonnée, listes toujours majoritaires à l'écran)", "v0.2.35–v0.2.39"],
               ["Appareil", "Verrou biométrique / code, base SQLCipher", "v0.2.x"],
               ["Appareil", "Sauvegarde chiffrée + clé de récupération nyx1", "v0.2.3"],
               ["Appareil", "Effacement d'urgence, mise à jour in-app", "v0.2.x"],
               ["Diagnostic", "Plan de test intégré, journal persistant, export de logs", "v0.2.33"],
               ["Administration", "Console nyx-admin : flotte, déploiement et mise à jour "
-                                 "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH)", "v0.8.6"],
+                                 "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH) ; v0.8.7 : correctif de syntaxe HSFETCH (adresse nue) — le réplica téléphoné passe enfin EN LIGNE après redémarrage de l'app", "v0.8.7"],
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.38 / v0.8.6).",
+                  "(version v0.2.39 / v0.8.7).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -751,7 +751,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.38) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.39) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -877,6 +877,16 @@ def build_story():
                "verrouillé par tests JVM ; audit systématique du défilement "
                "de toutes les fenêtres (messager et console) ; cartes de "
                "diagnostic repliées par défaut sur le build de test."],
+              ["5ᵉ édition", "22 octobre 2026", "Messagerie v0.2.39 · "
+               "Console v0.8.7 · Serveur v0.2.35",
+               "Correctif critique HSFETCH : la commande de récupération du "
+               "descripteur onion (introduite v0.2.37/v0.8.6) était rejetée "
+               "par tor — erreur 513 — car l'adresse était envoyée avec le "
+               "suffixe « .onion » que le control-spec interdit (adresse nue "
+               "de 56 caractères exigée) ; appels sans média et réplica "
+               "« SOCKS injoignable » avaient cette cause commune ; tests de "
+               "contrat réécrits : le faux control port valide la syntaxe "
+               "comme le vrai tor."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -1016,7 +1026,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.38 / v0.8.6 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.39 / v0.8.7 · AGPL-3.0</div>
 </div>
 </body>
 </html>
