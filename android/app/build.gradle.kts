@@ -49,8 +49,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 38
-        versionName = "0.2.34"
+        versionCode = 39
+        versionName = "0.2.35"
         // Credentials Drive du build test (vides si test-upload.properties absent)
         buildConfigField("String", "DRIVE_CLIENT_ID",     "\"${testUpload("drive.clientId")}\"")
         buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${testUpload("drive.clientSecret")}\"")
@@ -60,21 +60,20 @@ android {
         buildConfigField("String", "BOOTSTRAP_REPLICAS", "\"$bootstrapReplicas\"")
         // Rendezvous signé (v0.2.23) : clé publique de release + asset assets/rendezvous.json
         buildConfigField("String", "RENDEZVOUS_PUBKEY", "\"$rendezvousPubkey\"")
-        // v0.2.19 : réplica temporaire embarqué — ACTIVÉ dans le flavor « diag2 »
-        // (version « test 2 » de validation ; faux dans standard et diag).
-        buildConfigField("boolean", "EMBEDDED_REPLICA", "false")
+        // v0.2.35 : réplica temporaire embarqué — INTÉGRÉ À TOUTES LES VERSIONS
+        // (demande opérateur : fusion dans normale + test après validation
+        // terrain v0.2.19→v0.2.34 ; l'ancien flavor « diag2 » est SUPPRIMÉ).
+        buildConfigField("boolean", "EMBEDDED_REPLICA", "true")
     }
 
-    // Trois livrables par release depuis v0.2.19 (demande opérateur : le
-    // RÉPLICA temporaire embarqué vit d'abord dans une version « test 2 »
-    // séparée, jusqu'à validation pour intégration aux versions normale et test) :
-    //  - « standard » : l'app publique, inchangée ;
+    // DEUX livrables par release depuis v0.2.35 (fusion demandée par
+    // l'opérateur : le RÉPLICA temporaire embarqué, validé en « test 2 » de la
+    // v0.2.19 à la v0.2.34, est désormais intégré AUX DEUX versions — la
+    // version « test 2 » n'a plus de raison d'exister, le flavor diag2 est
+    // supprimé) :
+    //  - « standard » : l'app publique, AVEC réplica embarqué ;
     //  - « diag »     : + gros bouton rouge (écran conversations) qui collecte
-    //    les logs et les dépose dans le dossier de travail Drive pour examen ;
-    //  - « diag2 »    : = diag + RÉPLICA TEMPORAIRE EMBARQUÉ (le téléphone
-    //    héberge un réplica sur le port 80 de son onion tant que l'app tourne).
-    //    NB : le flavor s'appelle « diag2 » car AGP interdit les noms commençant
-    //    par « test » — l'UTILISATEUR voit toujours « Nyx TEST 2 » / « -test2 ».
+    //    les logs et les dépose dans le dossier de travail Drive pour examen.
     flavorDimensions += "mode"
     productFlavors {
         create("standard") {
@@ -87,14 +86,6 @@ android {
             versionNameSuffix = "-test"
             resValue("string", "app_name", "Nyx TEST")
             buildConfigField("boolean", "TEST_BUILD", "true")
-        }
-        create("diag2") {
-            dimension = "mode"
-            applicationIdSuffix = ".test2"         // cohabite avec standard ET test
-            versionNameSuffix = "-test2"
-            resValue("string", "app_name", "Nyx TEST 2")
-            buildConfigField("boolean", "TEST_BUILD", "true")
-            buildConfigField("boolean", "EMBEDDED_REPLICA", "true")
         }
     }
     signingConfigs {

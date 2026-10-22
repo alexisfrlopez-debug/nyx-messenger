@@ -26,7 +26,7 @@ import net.nyx.messenger.net.RendezvousList
  * BuildConfig.RENDEZVOUS_PUBKEY) est désormais la source d'amorçage de
  * référence. Une liste altérée est refusée EN BLOC et retombe sur le pont
  * legacy (v0.2.7) — jamais d'injection non signée. Priorité de fusion :
- *   1. réplicas CUSTOM (Paramètres — build « test 2 »)
+ *   1. réplicas CUSTOM (Paramètres — toutes versions depuis v0.2.35)
  *   2. rendezvous signé (assets/rendezvous.json)
  *   3. bootstrap legacy (replica-bootstrap.properties)
  */
@@ -37,7 +37,7 @@ class NyxApplication : Application() {
         // process ; embarqué dans chaque export de logs — cf. DiagLog).
         net.nyx.messenger.diag.DiagLog.init(this)
         ServiceLocator.init(this)
-        // v0.2.19 : les réplicas CUSTOM (Paramètres — build « test 2 ») passent
+        // v0.2.19 : les réplicas CUSTOM (Paramètres — toutes versions depuis v0.2.35) passent
         // AVANT les réplicas d'amorçage embarqués : le premier de la liste est
         // utilisé (envoi + inbox). Permet de rattacher le client au réplica
         // temporaire d'un contact (fonctionnement sans le serveur central).

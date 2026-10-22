@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Nyx</string>
+    <!-- v0.2.35 — signature Nyx, déesse de la nuit -->
+    <string name="app_tagline">La nuit protège vos conversations.</string>
     <string name="onboarding_title">Bienvenue sur Nyx</string>
-    <string name="onboarding_intro">Messagerie anonyme et chiffrée, entièrement passant par le réseau Tor. Votre identité est une adresse onion générée sur cet appareil : aucune inscription, aucune donnée personnelle.</string>
+    <string name="onboarding_intro">Nyx veille sur vos conversations : messagerie anonyme, chiffrée de bout en bout, entièrement relayée par le réseau Tor. Votre identité est une adresse onion née sur cet appareil — aucune inscription, aucune donnée personnelle.</string>
     <string name="onboarding_warning">Important : votre identité vit dans une clé secrète stockée sur cet appareil. Si vous perdez l\'appareil sans sauvegarde, votre compte est perdu définitivement.</string>
     <string name="onboarding_create">Créer mon identité</string>
-    <string name="onboarding_creating">Génération des clés et publication du service onion…</string>
+    <string name="onboarding_creating">Nyx prépare votre identité secrète… (génération des clés, ouverture du service onion)</string>
     <string name="your_onion">Votre adresse Nyx</string>
     <string name="copy">Copier</string>
     <string name="copied">Adresse copiée</string>
@@ -40,14 +42,14 @@
     <string name="add">Ajouter</string>
     <string name="message_hint">Message…</string>
     <string name="send">Envoyer</string>
-    <string name="tor_starting">Tor embarqué : démarrage… %1$d%%</string>
-    <string name="tor_ready">Tor embarqué actif — trafic anonymisé</string>
-    <string name="tor_failed">Tor en échec — réseau indisponible (offline by design)</string>
+    <string name="tor_starting">Réveil du réseau Tor… %1$d%%</string>
+    <string name="tor_ready">Tor actif — vos échanges voyagent anonymisés</string>
+    <string name="tor_failed">Impossible de joindre le réseau Tor — vérifiez votre connexion (Wi-Fi / données), puis rouvrez Nyx.</string>
 
     <!-- v0.2.5 — écran CONNEXIONS (première page) : Tor puis réplica, barre de progression -->
     <string name="connexions_title">Connexion</string>
-    <string name="connexions_intro">Nyx se connecte d\'abord au réseau Tor, puis au réplica qui héberge les messages. Une fois ces deux étapes validées, l\'application s\'ouvre.</string>
-    <string name="connexions_step_tor">Étape 1 sur 2 — Tor embarqué…</string>
+    <string name="connexions_intro">Nyx s\'éveille : elle rejoint d\'abord le réseau Tor, puis le réplica qui garde vos messages. Ces deux pas franchis, l\'application s\'ouvre.</string>
+    <string name="connexions_step_tor">Étape 1 sur 2 — réveil du réseau Tor…</string>
     <string name="connexions_step_replica">Étape 2 sur 2 — réplica d\'amorçage…</string>
     <string name="connexions_step_done">Connecté — ouverture de l\'application…</string>
     <string name="connexions_tor_title">Tor embarqué</string>
@@ -56,8 +58,8 @@
     <string name="connexions_ko">Échec</string>
     <string name="connexions_wait">En cours…</string>
     <string name="connexions_percent">%1$d %%</string>
-    <string name="connexions_tor_starting">Bootstrap du démon Tor… (%1$d s)</string>
-    <string name="connexions_tor_ready">Tor est prêt — le trafic Nyx circule anonymisé.</string>
+    <string name="connexions_tor_starting">Mise en place du réseau Tor… (%1$d s)</string>
+    <string name="connexions_tor_ready">Tor est prêt — le trafic circule anonymisé.</string>
     <string name="connexions_tor_stuck">Tor n\'avance pas depuis plus d\'une minute : réseau filtré ou bloqué ? Essayez une autre connexion (Wi-Fi ↔ données mobiles) puis « Réessayer ». Sur build test, envoyez les logs ci-dessous.</string>
     <string name="connexions_retry">Réessayer</string>
     <string name="connexions_pending_tor">en attente de Tor</string>
@@ -96,7 +98,7 @@
     <string name="biometric_unavailable">Indisponible : enregistrez d\'abord une empreinte ou un code sur cet appareil.</string>
     <string name="biometric_confirm_title">Confirmer pour activer le verrou</string>
     <string name="biometric_confirm_subtitle">Vérifiez votre empreinte ou votre code de l\'appareil</string>
-    <string name="lock_title">Nyx est verrouillé</string>
+    <string name="lock_title">Nyx garde vos conversations</string>
     <string name="lock_subtitle">Vérifiez votre empreinte ou votre code de l\'appareil pour continuer</string>
     <string name="lock_unlock">Déverrouiller</string>
     <string name="lock_unavailable_desc">Aucun moyen de vérification disponible sur cet appareil (biométrie ou code supprimé). Vous pouvez désactiver le verrou pour accéder à l\'application.</string>
@@ -146,8 +148,8 @@
     <string name="settings_title">Paramètres</string>
     <string name="settings_theme">Thème</string>
     <string name="settings_theme_system">Suivre le système</string>
-    <string name="settings_theme_light">Clair</string>
-    <string name="settings_theme_dark">Sombre</string>
+    <string name="settings_theme_light">Aube</string>
+    <string name="settings_theme_dark">Nuit</string>
     <string name="settings_close">Fermeture de l\'application</string>
     <string name="settings_close_desc">Comportement du bouton retour / fermeture.</string>
     <string name="settings_close_ask">Demander à chaque fois</string>
@@ -329,7 +331,7 @@
     <string name="update_notification_text">La version %1$s a été téléchargée — appuyez pour l\'installer.</string>
 
     <!-- v0.2.20 — plan de tests (versions test uniquement) -->
-    <string name="testplan_title">Plan de tests v0.2.33</string>
+    <string name="testplan_title">Plan de tests v0.2.35</string>
     <string name="testplan_desc">Appuyez sur un test une fois effectué : le résultat est journalisé (nyx-test) et part dans l\'export de logs — il sert à valider la mise en production.</string>
     <string name="testplan_progress">%1$d / %2$d test(s) fait(s)</string>
     <string name="testplan_reset">Tout réinitialiser</string>

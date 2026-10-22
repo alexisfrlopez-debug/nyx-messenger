@@ -133,7 +133,8 @@ class RelayClient private constructor(
      *
      * v0.2.19 : [auth] = preuve « ts:sig » que le demandeur détient bien
      * l'adresse `to` (signature ed25519 de [net.nyx.messenger.replica.ReplicaValidate.inboxCanonical]).
-     * Le réplica EMBARQUÉ (v0.2.19, build test 2) l'exige ; le serveur Go
+     * Le réplica EMBARQUÉ (v0.2.19 ; toutes versions depuis v0.2.35) l'exige ;
+ * le serveur Go
      * IGNORE ce paramètre inconnu — le même client parle aux deux, zéro
      * changement serveur.
      */

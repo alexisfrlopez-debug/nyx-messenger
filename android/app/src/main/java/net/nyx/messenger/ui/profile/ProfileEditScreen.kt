@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -125,7 +126,8 @@ fun ProfileEditScreen(onBack: () -> Unit) {
         }
     }
 
-    Scaffold(topBar = {
+    Scaffold(containerColor = Color.Transparent, topBar = { // v0.2.35 : laisse voir le dégradé de nuit racine
+
         TopAppBar(title = { Text(stringResource(R.string.profile_title)) })
     }) { padding ->
         Column(

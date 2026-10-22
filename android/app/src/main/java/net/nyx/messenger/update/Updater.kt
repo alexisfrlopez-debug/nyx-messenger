@@ -21,8 +21,8 @@ import java.util.concurrent.TimeUnit
  * n'est pas validée sur le terrain ; la passer en non-pré-release (« latest »)
  * EST l'acte de validation. Cette classe ne considère QUE la release « latest »
  * non-pré-release de GitHub — les versions de test sont donc ignorées
- * automatiquement. (Concerne UNIQUEMENT le build standard : les builds
- * test/test2 ont leur propre canal de validation, cf. TestPlan.)
+ * automatiquement. (Concerne UNIQUEMENT le build standard : le build test a
+ * son propre canal de validation, cf. TestPlan.)
  *
  * FLUX : vérification (au démarrage puis toutes les 6 h) via l'API GitHub —
  * TOUT passe par le SOCKS de Tor embarqué ; si une version validée est plus
@@ -62,7 +62,7 @@ object Updater {
     /**
      * Parse la réponse `GET /releases/latest` (le endpoint ne renvoie QUE des
      * non-pré-release — garde double : « prerelease":true » rejeté). Retourne
-     * l'APK STANDARD (« …-release.apk ») — les variants test/test2 sont ignorés.
+     * l'APK STANDARD (« …-release.apk ») — le variant test est ignoré.
      */
     fun parseLatest(json: String): ReleaseInfo? {
         val tag = Regex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"").find(json)?.groupValues?.get(1)

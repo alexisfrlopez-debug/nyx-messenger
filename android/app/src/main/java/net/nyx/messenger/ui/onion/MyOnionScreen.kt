@@ -39,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.profile.ProfileKeys
@@ -65,7 +66,8 @@ fun MyOnionScreen(
     val profileStore = remember { net.nyx.messenger.profile.ProfileStore.get(context) }
     val avatarB64 = profileStore.load().valueOf(ProfileKeys.AVATAR)
 
-    Scaffold(topBar = {
+    Scaffold(containerColor = Color.Transparent, topBar = { // v0.2.35 : laisse voir le dégradé de nuit racine
+
         TopAppBar(title = { Text(stringResource(R.string.my_onion_title)) })
     }) { padding ->
         net.nyx.messenger.ui.components.CenteredScrollColumn(Modifier.padding(padding)) {

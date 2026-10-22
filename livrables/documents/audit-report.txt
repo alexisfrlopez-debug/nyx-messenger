@@ -1,4 +1,4 @@
-# Audit pré-compilation Nyx — 2026-10-22T09:43:33
+# Audit pré-compilation Nyx — 2026-10-22T12:14:49
 
 **Verdict : ✅ AUDIT PASSED — CRIT: 0 · MAJOR: 0 · MINOR: 1**
 
@@ -10,4 +10,4 @@
 
 ## MINOR · OPT-TODO
 
-- TODO/FIXME build.gradle.kts:118 — // TODO v1.0 : signature reproductible (F-Droid), build deterministe — `android/app/build.gradle.kts`
+- TODO/FIXME build.gradle.kts:109 — // TODO v1.0 : signature reproductible (F-Droid), build deterministe — `android/app/build.gradle.kts`

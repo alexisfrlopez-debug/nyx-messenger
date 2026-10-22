@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import net.nyx.messenger.R
 import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.net.ProfileResponse
@@ -60,7 +61,8 @@ fun ContactProfileScreen(peerOnion: String, onBack: () -> Unit) {
 
     val avatarB64 = profile?.fields?.get("avatar")?.value
 
-    Scaffold(topBar = {
+    Scaffold(containerColor = Color.Transparent, topBar = { // v0.2.35 : laisse voir le dégradé de nuit racine
+
         TopAppBar(
             title = {
                 Text(

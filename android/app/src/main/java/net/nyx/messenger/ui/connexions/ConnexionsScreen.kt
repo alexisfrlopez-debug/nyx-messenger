@@ -32,6 +32,7 @@ import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.tor.TorManager
 import net.nyx.messenger.ui.components.ScreenColumn
 import net.nyx.messenger.ui.diag.TestLogExportCard
+import net.nyx.messenger.ui.components.MoonHeader
 
 /**
  * ÉCRAN CONNEXIONS — PREMIÈRE PAGE affichée au lancement (v0.2.5, demande
@@ -109,7 +110,14 @@ fun ConnexionsScreen(onConnected: () -> Unit) {
     tick // recompute on tick
 
     ScreenColumn {
+        MoonHeader()
+        Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.connexions_title), style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.app_tagline),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.secondary
+        )
         Spacer(Modifier.height(8.dp))
         Text(stringResource(R.string.connexions_intro), style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(20.dp))

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.2.35 — icône Nyx « déesse de la nuit » (refonte esthétique) :
+     croissant de lune or pâle + constellation, couche FOREGROUND de l'icône
+     adaptative. Le croissant est construit au BÉZIER (pas d'arcs) : bord
+     externe = demi-cercle gauche r20 centre (50,54), bord interne = cubique
+     unique (contrôles 31,64 / 31,44) qui referme la lame. Les étoiles sont
+     des losanges pincés à 4 pointes. Tout le dessin vit dans la zone sûre
+     (cercle 33 dp autour du centre) — minSdk 26 : aucune version PNG. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Croissant de lune (or pâle, clair de lune) -->
+    <path
+        android:fillColor="#E8D5A8"
+        android:pathData="M50,34 C38.95,34 30,42.95 30,54 C30,65.05 38.95,74 50,74 C31,64 31,44 50,34 Z" />
+    <!-- Étoiles (lavande et or) -->
+    <path
+        android:fillColor="#E4DBFF"
+        android:pathData="M68,34 L69,37 L72,38 L69,39 L68,42 L67,39 L64,38 L67,37 Z" />
+    <path
+        android:fillColor="#F0E1B6"
+        android:pathData="M76,49 L76.75,50.25 L78,51 L76.75,51.75 L76,53 L75.25,51.75 L74,51 L75.25,50.25 Z" />
+    <path
+        android:fillColor="#E4DBFF"
+        android:pathData="M66,62 L66.6,63.4 L68,64 L66.6,64.6 L66,66 L65.4,64.6 L64,64 L65.4,63.4 Z" />
+    <path
+        android:fillColor="#F0E1B6"
+        android:pathData="M61,28 L61.5,29.5 L63,30 L61.5,30.5 L61,32 L60.5,30.5 L59,30 L60.5,29.5 Z" />
+</vector>

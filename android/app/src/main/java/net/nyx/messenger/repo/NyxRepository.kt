@@ -341,7 +341,7 @@ class NyxRepository(
 
         val cursor = pollStateDao.get(replicas.first())?.cursor ?: 0L
         // v0.2.19 : preuve d'identité du demandeur (signature NYX-INBOX) — le
-        // réplica embarqué (test 2) l'exige, le serveur Go l'ignore (paramètre
+        // réplica embarqué (toutes versions depuis v0.2.35) l'exige, le serveur Go l'ignore (paramètre
         // inconnu). Le MÊME client parle aux deux.
         val authTs = System.currentTimeMillis() / 1000
         val auth = "$authTs:" + cipher.signEvent(

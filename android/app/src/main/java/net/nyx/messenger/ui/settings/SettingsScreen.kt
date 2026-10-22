@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,7 +67,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     val settings = remember { SettingsManager.get(context) }
     val theme by settings.themeMode.collectAsState()
     val close by settings.closeBehavior.collectAsState()
-    Scaffold(topBar = {
+    Scaffold(containerColor = Color.Transparent, topBar = { // v0.2.35 : laisse voir le dégradé de nuit racine
+
         TopAppBar(title = { Text(stringResource(R.string.settings_title)) })
     }) { padding ->
         Column(
@@ -159,7 +161,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
             }
 
-            // ---- v0.2.19 : réplica temporaire + liste des réplicas (TEST 2) ----
+            // ---- v0.2.35 : réplica embarqué (TOUTES les versions) + liste des
+            //      réplicas personnalisés ----
             if (net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA) {
                 EmbeddedReplicaCard()
                 Spacer(Modifier.height(8.dp))

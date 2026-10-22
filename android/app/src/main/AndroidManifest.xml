@@ -22,13 +22,17 @@
     <application
         android:name=".NyxApplication"
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nyx">
 
         <!-- allowBackup=false : les clés d'identité ne doivent JAMAIS être sauvegardées
              automatiquement (ADR-003). -->
+        <!-- v0.2.35 : icône adaptative « Nyx, déesse de la nuit » (croissant +
+             constellation sur ciel dégradé — cf. res/mipmap-anydpi-v26/). -->
 
         <activity
             android:name=".MainActivity"

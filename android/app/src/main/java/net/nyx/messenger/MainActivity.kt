@@ -22,6 +22,7 @@ import net.nyx.messenger.settings.SettingsManager
 import net.nyx.messenger.tor.TorManager
 import net.nyx.messenger.ExitDialog
 import net.nyx.messenger.ui.NyxNavHost
+import net.nyx.messenger.ui.theme.NyxBackground
 import net.nyx.messenger.ui.theme.NyxTheme
 
 /**
@@ -94,6 +95,10 @@ class MainActivity : FragmentActivity() {
             val settings = SettingsManager.get(this)
             val themeMode by settings.themeMode.collectAsState()
             NyxTheme(mode = themeMode) {
+                // v0.2.35 — fond « ciel de nuit » dégradé derrière TOUT l'app
+                // (refonte esthétique ; les Scaffold/LockScreen restent
+                // transparents au-dessus).
+                NyxBackground(mode = themeMode) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -113,6 +118,7 @@ class MainActivity : FragmentActivity() {
                         },
                         exitDialog = { ExitDialog(this@MainActivity) }
                     )
+                }
                 }
             }
         }

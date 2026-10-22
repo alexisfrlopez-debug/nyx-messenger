@@ -5,7 +5,8 @@ package net.nyx.messenger.repo
  * temporaires ne se partagent pas tout seul entre contacts, et ne s'ajoutent
  * pas seuls à la console »).
  *
- * Un appareil qui sert un réplica temporaire embarqué (build « test 2 »)
+ * Un appareil qui sert un réplica temporaire embarqué (toutes versions
+ * depuis v0.2.35 ; version « test 2 » jusqu'à la v0.2.34)
  * annonce `{"alias":…,"replica":"<onion>:<port>","ver":"0.2.25"}` à CHACUN de
  * ses contacts acceptés — événement type « contact » chiffré E2E (type
  * standard du journal, ZÉRO changement serveur, corps opaque pour les

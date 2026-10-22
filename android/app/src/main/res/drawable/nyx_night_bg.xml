@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.2.35 — icône Nyx « déesse de la nuit » (refonte esthétique) :
+     fond ciel de nuit en dégradé (indigo violet → presque noir) + halo lunaire
+     discret. Couche BACKGROUND de l'icône adaptative (minSdk 26 : aucune
+     version PNG nécessaire). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Ciel : dégradé vertical zénith → horizon -->
+    <path android:pathData="M0,0 H108 V108 H0 Z">
+        <gradient
+            android:type="linear"
+            android:startX="0" android:startY="0"
+            android:endX="0" android:endY="108"
+            android:startColor="#1E1550"
+            android:endColor="#0B0820" />
+    </path>
+    <!-- Halo lunaire : disque indigo plus clair, centré sous le croissant -->
+    <path
+        android:fillColor="#221A4A"
+        android:pathData="M22,54 a32,32 0 1 0 64,0 a32,32 0 1 0 -64,0 Z" />
+</vector>

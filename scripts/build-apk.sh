@@ -3,10 +3,11 @@
 # Nyx — Pipeline de build APK (règle permanente, RESTART.md §9)
 #
 #   1. Audit pré-compilation STRICT (bloquant : CRIT/MAJOR → pas de build)
-#   2. Build release signé — TROIS variants depuis v0.2.19 (règle release :
-#      chaque version livre un APK « standard », un APK « test » à gros
-#      bouton rouge d'export de logs, et un APK « test 2 » à réplica
-#      temporaire embarqué — version de validation, demande opérateur)
+#   2. Build release signé — DEUX variants depuis v0.2.35 (fusion demandée
+#      par l'opérateur : le réplica temporaire embarqué, validé en « test 2 »
+#      de la v0.2.19 à la v0.2.34, est intégré AUX DEUX versions ; chaque
+#      version livre un APK « standard » et un APK « test » à gros bouton
+#      rouge d'export de logs — le flavor diag2 est supprimé)
 #   3. Vérification d'autonomie des 2 APK (signature, Tor embarqué, ABIs,
 #      permissions, absence de splits) — CRIT si un manquement
 #   4. Livraison : livrables/dernieres-livrables/ (local) — l'ancienne version
@@ -70,22 +71,34 @@ else
 fi
 
 # ---------- 2. build ----------
-echo "${YLW}═══ 2/4 BUILD RELEASE SIGNÉ — variants standard + test + test 2 ═══${NC}"
+echo "${YLW}═══ 2/4 BUILD RELEASE SIGNÉ — variants standard + test ═══${NC}"
 # Mémoire bornée par ligne de commande (priorité sur GRADLE_USER_HOME/gradle.properties
 # qui porte -Xmx2g) : conteneur 4,1 Go — sans borne, le JVM culmine à ~2,3 Go RSS
 # et l'OOM-killer du noyau tue le build (session 15). Kotlin in-process + 1 worker.
-( cd android && ./gradlew :app:assembleStandardRelease :app:assembleDiagRelease :app:assembleDiag2Release --console=plain -q --no-daemon \
-    -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
-    -Dorg.gradle.workers.max=1 )
-APK_STD=$(ls -t android/app/build/outputs/apk/standard/release/*.apk | head -1)
-APK_TEST=$(ls -t android/app/build/outputs/apk/diag/release/*.apk | head -1)
-APK_TEST2=$(ls -t android/app/build/outputs/apk/diag2/release/*.apk | head -1)
-[ -f "$APK_STD" ] || { echo "${RED}APK standard introuvable après build${NC}"; exit 1; }
-[ -f "$APK_TEST" ] || { echo "${RED}APK test introuvable après build${NC}"; exit 1; }
-[ -f "$APK_TEST2" ] || { echo "${RED}APK test 2 introuvable après build${NC}"; exit 1; }
+# v0.2.35 : espace disque restreint — les variants sont compilés SÉQUENTIELLEMENT
+# (build → copie APK en /tmp → clean → variant suivant) pour ne jamais garder
+# deux jeux d'intermédiaires sur le disque.
+build_one() { # build_one <Flavor> <glob-sortie-attendue>
+  local FLAVOR="$1" OUT="$2" FOUND
+  ( cd android && ./gradlew ":app:assemble${FLAVOR}Release" --console=plain -q --no-daemon \
+      -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+      -Dorg.gradle.workers.max=1 )
+  FOUND=$(ls -t $OUT 2>/dev/null | head -1)
+  [ -n "$FOUND" ] && [ -f "$FOUND" ] || { echo "${RED}APK $FLAVOR introuvable après build ($OUT)${NC}"; exit 1; }
+  cp "$FOUND" "/tmp/nyx-apk-$FLAVOR.apk"
+  # v0.2.35 — anti-splits : mémorise le NOMBRE d'APK produits par CE variant
+  # (le contrôle d) de check_apk ne doit PAS compter /tmp — tous les variants
+  # s'y accumulent en mode séquentiel — mais le compte du BUILD de CE variant).
+  ls $OUT 2>/dev/null | wc -l > "/tmp/nyx-apk-count-$FLAVOR.txt"
+  ( cd android && ./gradlew clean --console=plain -q --no-daemon \
+      -Dorg.gradle.jvmargs="-Xmx1024m -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=1 )
+}
+build_one Standard "android/app/build/outputs/apk/standard/release/*.apk"
+build_one Diag "android/app/build/outputs/apk/diag/release/*.apk"
+APK_STD=/tmp/nyx-apk-Standard.apk
+APK_TEST=/tmp/nyx-apk-Diag.apk
 echo "APK standard : $APK_STD ($(du -h "$APK_STD" | cut -f1))"
 echo "APK test     : $APK_TEST ($(du -h "$APK_TEST" | cut -f1))"
-echo "APK test 2   : $APK_TEST2 ($(du -h "$APK_TEST2" | cut -f1))"
 
 # ---------- 3. vérification d'autonomie (les 2 APK) ----------
 BT="$ANDROID_HOME/build-tools/34.0.0"
@@ -127,8 +140,12 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
                       || check "Natives critiques $abi" 1 "manquent:$MISS"
   done
 
-  # d) pas de split APK (un fichier unique = installation 1 clic)
-  N_SPLITS=$(ls "$(dirname "$APK_SRC")"/*.apk 2>/dev/null | wc -l)
+  # d) pas de split APK (un fichier unique = installation 1 clic) — v0.2.35 :
+  #    compte les sorties du BUILD de CE VARIANT (fichier /tmp/nyx-apk-count-<F>
+  #    écrit par build_one), PAS le contenu de /tmp où les 2 variants
+  #    s'accumulent en mode séquentiel (faux positif « 2 APK trouvés »).
+  _FLAVOR="$(basename "$APK_SRC" .apk)"; _FLAVOR="${_FLAVOR#nyx-apk-}"
+  N_SPLITS=$(cat "/tmp/nyx-apk-count-$_FLAVOR.txt" 2>/dev/null || echo 0)
   [ "$N_SPLITS" -eq 1 ] && check "APK universel unique (pas de splits)" 0 \
                        || check "APK universel unique" 1 "$N_SPLITS APK trouvés"
 
@@ -141,7 +158,7 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
   BADGE=$("$BT/aapt2" dump badging "$APK_SRC")
   BAD_PERMS=$(echo "$BADGE" | rg "uses-permission" \
     | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT|RECORD_AUDIO|CAMERA" \
-    | rg -v "net\.nyx\.messenger(\.test2?)?\.[A-Z_]+" || true)
+    | rg -v "net\.nyx\.messenger(\.test)?\.[A-Z_]+" || true)
   [ -z "$BAD_PERMS" ] && check "Permissions minimales (liste fermée)" 0 \
                      || check "Permissions non autorisées" 1 "$BAD_PERMS"
 
@@ -168,7 +185,6 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
 }
 check_apk "$APK_STD" "standard"
 check_apk "$APK_TEST" "test"
-check_apk "$APK_TEST2" "test 2"
 echo "${GRN}Autonomie : vérifiée (Tor embarqué, signé, universel, zéro dépendance externe)${NC}"
 
 # ---------- 4. livraison ----------
@@ -177,7 +193,6 @@ echo "${YLW}═══ 4/4 LIVRAISON ═══${NC}"
 VERSION=$(aapt2="$BT/aapt2"; "$aapt2" dump badging "$APK_STD" | rg -o "versionName='[^']+'" | cut -d"'" -f2)
 NAME_STD="nyx-v${VERSION}-${STAMP}-release.apk"
 NAME_TEST="nyx-v${VERSION}-${STAMP}-test.apk"
-NAME_TEST2="nyx-v${VERSION}-${STAMP}-test2.apk"
 
 # a) archivage de la version précédente (rangement session 13 : une version
 #    remplacée quitte dernieres-livrables/ pour archives/v<version>/)
@@ -195,22 +210,19 @@ for old_apk in "$LIVRABLES"/nyx-v*-release.apk; do
 done
 shopt -u nullglob
 
-# b) dépôt des trois livrables
+# b) dépôt des deux livrables
 cp "$APK_STD"  "$LIVRABLES/$NAME_STD"
 cp "$APK_TEST" "$LIVRABLES/$NAME_TEST"
-cp "$APK_TEST2" "$LIVRABLES/$NAME_TEST2"
+rm -f /tmp/nyx-apk-Standard.apk /tmp/nyx-apk-Diag.apk
 SHA_STD=$(sha256sum "$LIVRABLES/$NAME_STD" | cut -d' ' -f1)
 SHA_TEST=$(sha256sum "$LIVRABLES/$NAME_TEST" | cut -d' ' -f1)
-SHA_TEST2=$(sha256sum "$LIVRABLES/$NAME_TEST2" | cut -d' ' -f1)
 {
   echo "$SHA_STD  $NAME_STD"
   echo "$SHA_TEST  $NAME_TEST"
-  echo "$SHA_TEST2  $NAME_TEST2"
 } > "$LIVRABLES/SHA256SUMS-latest.txt"
 {
   echo "$SHA_STD  $NAME_STD"
   echo "$SHA_TEST  $NAME_TEST"
-  echo "$SHA_TEST2  $NAME_TEST2"
 } > "$LIVRABLES/SHA256SUMS-v${VERSION}.txt"
 # rapport d'audit de ce cycle joint → livrables/documents/
 LAST_REPORT=$(ls -t reports/audit-*.md 2>/dev/null | head -1 || true)
@@ -219,13 +231,11 @@ LAST_REPORT=$(ls -t reports/audit-*.md 2>/dev/null | head -1 || true)
 cat << EOF
 
 ${GRN}════════════════════════════════════════════════${NC}
-${GRN}✅ LIVRABLES PRODUITS (standard + test + test 2)${NC}
+${GRN}✅ LIVRABLES PRODUITS (standard + test — réplica embarqué intégré aux deux)${NC}
   APK std    : $LIVRABLES/$NAME_STD
                SHA-256 $SHA_STD
   APK test   : $LIVRABLES/$NAME_TEST
                SHA-256 $SHA_TEST
-  APK test 2 : $LIVRABLES/$NAME_TEST2 (réplica temporaire embarqué)
-               SHA-256 $SHA_TEST2
-  Suivant    : scripts/release.sh --version $VERSION --apk "$LIVRABLES/$NAME_STD" --test-apk "$LIVRABLES/$NAME_TEST" --test2-apk "$LIVRABLES/$NAME_TEST2"
+  Suivant    : scripts/release.sh --version $VERSION --apk "$LIVRABLES/$NAME_STD" --test-apk "$LIVRABLES/$NAME_TEST"
 ${GRN}════════════════════════════════════════════════${NC}
 EOF

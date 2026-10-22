@@ -88,6 +88,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -459,6 +460,7 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     }
 
     Scaffold(
+        containerColor = Color.Transparent, // v0.2.35 : laisse voir le dégradé de nuit racine
         modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(

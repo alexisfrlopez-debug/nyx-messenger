@@ -63,6 +63,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.launch
 import net.nyx.messenger.BuildConfig
 import net.nyx.messenger.R
@@ -214,6 +215,7 @@ fun ConversationListScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent, // v0.2.35 : laisse voir le dégradé de nuit racine
         modifier = Modifier.imePadding(), // v0.2.15 : saisie d'ajout au-dessus du clavier
         topBar = {
             TopAppBar(

@@ -22,7 +22,8 @@ object ProfileKeys {
     const val LOCATION = "location"
     const val AVATAR = "avatar"
     /** v0.2.25 : adresse du réplica temporaire embarqué « <onion>:80 » —
-     *  auto-déclarée à la publication (test 2), agrégée par le serveur
+     *  auto-déclarée à la publication (toutes versions depuis v0.2.35),
+     *  agrégée par le serveur
      *  (/admin/replicas) pour l'auto-ajout à la console admin. */
     const val REPLICA = "replica"
 

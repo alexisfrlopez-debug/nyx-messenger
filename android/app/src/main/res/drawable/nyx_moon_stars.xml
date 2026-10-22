@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.2.35 — décoration « Nyx, déesse de la nuit » EN-APP (refonte
+     esthétique) : même croissant + constellation que l'icône adaptative,
+     sans le fond — affiché en tête des écrans Connexions/Onboarding via
+     painterResource. Teinte directe (or pâle / lavande), sans adaptation. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Croissant de lune (or pâle) -->
+    <path
+        android:fillColor="#E8D5A8"
+        android:pathData="M50,34 C38.95,34 30,42.95 30,54 C30,65.05 38.95,74 50,74 C31,64 31,44 50,34 Z" />
+    <!-- Étoiles (lavande et or) -->
+    <path
+        android:fillColor="#E4DBFF"
+        android:pathData="M68,34 L69,37 L72,38 L69,39 L68,42 L67,39 L64,38 L67,37 Z" />
+    <path
+        android:fillColor="#F0E1B6"
+        android:pathData="M76,49 L76.75,50.25 L78,51 L76.75,51.75 L76,53 L75.25,51.75 L74,51 L75.25,50.25 Z" />
+    <path
+        android:fillColor="#E4DBFF"
+        android:pathData="M66,62 L66.6,63.4 L68,64 L66.6,64.6 L66,66 L65.4,64.6 L64,64 L65.4,63.4 Z" />
+    <path
+        android:fillColor="#F0E1B6"
+        android:pathData="M61,28 L61.5,29.5 L63,30 L61.5,30.5 L61,32 L60.5,30.5 L59,30 L60.5,29.5 Z" />
+</vector>

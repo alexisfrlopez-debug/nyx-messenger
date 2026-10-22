@@ -9,7 +9,8 @@ package net.nyx.messenger.diag
  *
  * FONCTIONNEMENT :
  *  - la liste est DÉFINIE PAR RELEASE (les items de « À tester » des notes) —
- *    affichée sur la liste des conversations des builds test/test2 UNIQUEMENT ;
+ *    affichée sur la liste des conversations du build test UNIQUEMENT (le
+ *    build standard est l'app publique, sans instrumentation) ;
  *  - un appui marque le test FAIT (horodaté dans les préférences locales) et
  *    journalise « nyx-test PASS <id> : <label> » — la ligne part dans l'export
  *    de logs (LogCollector lit le tampon logcat) → l'agent/l'opérateur voit
@@ -202,8 +203,35 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.34.md). */
-    fun items(): List<Item> = ITEMS_V0_2_34
+    /** v0.2.35 — items de validation (miroir de docs/releases/v0.2.35.md) :
+     *  (1) FUSION (demande opérateur) : le RÉPLICA EMBARQUÉ, validé en « test 2 »
+     *  de la v0.2.19 à la v0.2.34, est INTÉGRÉ aux versions normale ET test —
+     *  la version « test 2 » disparaît (2 APK par release) ; (2) REFONTE
+     *  ESTHÉTIQUE « Nyx, déesse de la nuit » (moins technique, plus agréable) ;
+     *  (3) serveur : constante de version ENFIN alignée sur les releases
+     *  (/admin/status distinguera ancien/nouveau nœud — axe fiche corrigé) ;
+     *  console v0.8.5 : MISE À JOUR DU NŒUD EN 1 CLIC. Les items terrain
+     *  critiques v0.2.34 (sonde-ok, appel-decroche) restent en tête :
+     *  non encore cochés au terrain. */
+    val ITEMS_V0_2_35 = listOf(
+        Item("fusion-replica", "Fusion : la carte « Réplica embarqué » apparaît dans les Paramètres du build NORMAL (jamais servi avant) — l'interrupteur arrête/reprend le service, l'annonce part aux contacts, le téléphone reste joignable :80 tant que l'app tourne"),
+        Item("sonde-ok", "DIAG PERSISTANT (export logs) : « auto-sonde média OK : …:47471 joignable (descripteur publié) » ~15 s après « onion publié » — plus aucun « No more HSDir » sur notre propre onion (validation continue v0.2.34)"),
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT le média (audio/visio fluide, les deux sens) — exporter les logs juste après l'essai (validation continue v0.2.34)"),
+        Item("replica-console", "Console v0.8.5 APRÈS « Mettre à jour le nœud » (1 clic) : les réplicas embarqués apparaissent seuls, /admin/replicas ne répond plus 404 et /admin/status affiche « 0.2.35 » (constante ENFIN alignée — axe fiche corrigé)"),
+        Item("maj-1clic", "Console v0.8.5 : « Mettre à jour le nœud » — journal en direct (SFTP + sha256 + stop/.bak/install/start + is-active), backup .bak visible, rollback < 1 min possible"),
+        Item("esthetique", "Esthétique « Nyx, déesse de la nuit » : dégradé de nuit sur tous les écrans, lune + constellation sur connexion/onboarding, icône croissant dans le lanceur, mode clair « aube » — aucun texte tronqué, l'app paraît moins technique"),
+        Item("logs-arrivent", "Bouton rouge (build test) : l'export de logs ARRIVE dans le dossier Drive — contient « DIAG PERSISTANT » (validation continue)"),
+        Item("scroll-plan-tests", "Plan de tests : la liste DÉPLOYÉE défile À L'INTÉRIEUR de la carte — toutes les cases et « Tout réinitialiser » sont atteignables (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; l'onglet Blocages le liste ; débloquer restaure l'état exact d'avant (validation continue)"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message (canal « Messages »), rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.35.md). */
+    fun items(): List<Item> = ITEMS_V0_2_35
+
 
     /**
      * v0.2.26 — la redondance est-elle disponible ? (≥ 2 réplicas effectifs,

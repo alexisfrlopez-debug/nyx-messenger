@@ -155,7 +155,14 @@ fun OnboardingScreen(onIdentityCreated: () -> Unit) {
     }
 
     net.nyx.messenger.ui.components.ScreenColumn {
+        net.nyx.messenger.ui.components.MoonHeader()
+        Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.onboarding_title), style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.app_tagline),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.secondary
+        )
         Spacer(Modifier.height(16.dp))
         Text(stringResource(R.string.onboarding_intro), style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(16.dp))

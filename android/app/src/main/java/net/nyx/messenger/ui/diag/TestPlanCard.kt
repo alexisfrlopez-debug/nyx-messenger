@@ -32,7 +32,7 @@ import net.nyx.messenger.R
 import net.nyx.messenger.diag.TestPlan
 
 /**
- * v0.2.20 — CARTE « PLAN DE TESTS » (builds test/test2 uniquement — demande
+ * v0.2.20 — CARTE « PLAN DE TESTS » (build test uniquement — demande
  * opérateur : listing des tests à effectuer, mis à jour au fur et à mesure,
  * résultats journalisés nyx-test pour la validation de mise en production).
  */

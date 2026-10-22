@@ -29,8 +29,8 @@ import java.net.Socket
  * v0.2.19 — RÉPLICA TEMPORAIRE EMBARQUÉ (demande opérateur : « lorsque
  * l'application est lancée, le téléphone devienne lui-même un replica temporaire
  * mais il ne faut pas que ça bouffe trop de ressource/bande passante/forfait de
- * données » — livré UNIQUEMENT dans la version « test 2 » jusqu'à validation,
- * avant intégration aux versions normale et test).
+ * données » — validé en version « test 2 » de la v0.2.19 à la v0.2.34,
+ * INTÉGRÉ aux versions normale et test depuis la v0.2.35).
  *
  * PRINCIPE : pendant que l'application tourne, le téléphone sert l'API réplica
  * — LES MÊMES 5 ROUTES que le serveur Go (RelayClient n'en connaît pas
@@ -51,8 +51,8 @@ import java.net.Socket
  * n'adressent que nos contacts (ou nous-mêmes) — surface d'abus quasi nulle.
  *
  * TEMPORAIRE : la table est purgée après 48 h et vidée par le mot de passe
- * destruction (Wipe efface la base entière). Hors « test 2 », la table reste
- * vide (le serveur n'est pas démarré).
+ * destruction (Wipe efface la base entière). Interrupteur Paramètres fermé
+ * = table vide (le serveur n'est pas démarré).
  */
 object EmbeddedReplica {
 
@@ -73,7 +73,7 @@ object EmbeddedReplica {
     private var server: ServerSocket? = null
     private var db: NyxDatabase? = null
     private var ownOnion: String = ""
-    private var versionName: String = "test2"
+    private var versionName: String = "0.2.35"
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val rate = ReplicaQuota.RateLimiter()

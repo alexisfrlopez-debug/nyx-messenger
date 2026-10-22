@@ -147,10 +147,11 @@ object ServiceLocator {
             net.nyx.messenger.p2p.P2pServer.start()
             net.nyx.messenger.p2p.CallManager.init(repoRef, context)
 
-            // v0.2.19 — RÉPLICA TEMPORAIRE EMBARQUÉ (BUILD « TEST 2 » UNIQUEMENT —
-            // demande opérateur : « lorsque l'application est lancée, le téléphone
-            // devienne lui-même un replica temporaire » ; version de validation,
-            // intégration aux versions normale et test après retour terrain).
+            // v0.2.19 → v0.2.35 — RÉPLICA TEMPORAIRE EMBARQUÉ (TOUTES LES
+            // VERSIONS — demande opérateur : « lorsque l'application est
+            // lancée, le téléphone devienne lui-même un replica temporaire » ;
+            // validé en « test 2 » de la v0.2.19 à la v0.2.34, intégré aux
+            // versions normale et test depuis la v0.2.35).
             // Écouteur démarré AVANT la publication onion (le port 80 doit être
             // servi dès l'annonce — même ordre que P2pServer) ; Interrupteur et
             // plafonds dans Paramètres.
@@ -178,8 +179,8 @@ object ServiceLocator {
             // demande opérateur : « se mettre à jour toute seule, quand la
             // dernière release est validée pour la production »). La release
             // passe non-pré-release = validation ; téléchargement via Tor puis
-            // installation avec confirmation Android. Les builds test/test2
-            // valident par le plan de tests (TestPlan) et restent manuels.
+            // installation avec confirmation Android. Le build test
+            // valide par le plan de tests (TestPlan) et reste manuel.
             if (!net.nyx.messenger.BuildConfig.TEST_BUILD) {
                 net.nyx.messenger.update.Updater.currentVersion =
                     net.nyx.messenger.BuildConfig.VERSION_NAME

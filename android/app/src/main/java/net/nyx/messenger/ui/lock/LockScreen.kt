@@ -44,6 +44,8 @@ import net.nyx.messenger.security.AppLock
 import net.nyx.messenger.security.PasswordVault
 import net.nyx.messenger.security.Wipe
 import net.nyx.messenger.settings.SettingsManager
+import net.nyx.messenger.ui.theme.nyxNightBackground
+import androidx.compose.ui.graphics.luminance
 
 /** Authenticators requis : biométrie classe 2+ OU code de l'appareil (repli — ADR-010 §3). */
 private const val AUTHENTICATORS =
@@ -214,7 +216,11 @@ fun LockScreen() {
             .verticalScroll(rememberScrollState())
             // Opaque : le verrou est un calque au-dessus de la navigation
             // (NyxNavHost v0.2.1) — le contenu dessous ne doit pas transparaître.
-            .background(MaterialTheme.colorScheme.background)
+            // v0.2.35 : ciel de nuit DÉGRADÉ (opaque — le contenu dessous
+            // ne transparaît toujours pas) au lieu de l'aplat violet.
+            .background(nyxNightBackground(
+                MaterialTheme.colorScheme.background.luminance() > 0.5f
+            ))
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally

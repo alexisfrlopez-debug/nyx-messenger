@@ -41,7 +41,10 @@ import (
         "github.com/alexisfrlopez-debug/nyx-messenger/server/internal/turn"
 )
 
-const version = "0.2.0"
+// version — alignée sur les releases GitHub depuis la v0.2.35 (session 55 :
+// figée à « 0.2.0 » depuis l'origine, /admin/status ne distinguait pas un
+// nœud ancien d'un nœud à jour — axe inscrit à la fiche de présentation).
+const version = "0.2.35"
 
 var defaultCookiePaths = []string{
         "/run/tor/control.authcookie",

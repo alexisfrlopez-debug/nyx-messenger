@@ -200,14 +200,15 @@ data class DelPendingEntity(
 )
 
 /**
- * v0.2.19 — RÉPLICA TEMPORAIRE EMBARQUÉ (version « test 2 » uniquement —
- * BuildConfig.EMBEDDED_REPLICA) : le téléphone héberge un réplica pendant que
- * l'application tourne. Les événements y sont stockés OPaques (corps chiffrés
+ * v0.2.19 → v0.2.35 — RÉPLICA TEMPORAIRE EMBARQUÉ (TOUTES les versions
+ * depuis la v0.2.35 — BuildConfig.EMBEDDED_REPLICA toujours vrai) : le
+ * téléphone héberge un réplica pendant que l'application tourne. Les
+ * événements y sont stockés OPaques (corps chiffrés
  * E2E, jamais déchiffrés par le réplica — même rôle que le serveur Go), dans
  * la base SQLCipher, avec plafonds + purge 48 h ([net.nyx.messenger.replica.EmbeddedReplica]).
  * gid = curseur global 1-based (miroir de journal.maxIndex côté Go — sert de
  * curseur d'inbox). Cette table existe dans TOUTES les versions (schéma unique)
- * mais reste vide hors test 2.
+ * et reste vide quand l'interrupteur Paramètres est désactivé.
  */
 @Entity(
     tableName = "replica_events",
