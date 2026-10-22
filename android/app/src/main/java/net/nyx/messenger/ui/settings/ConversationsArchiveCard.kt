@@ -35,7 +35,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -51,6 +50,7 @@ import net.nyx.messenger.di.ServiceLocator
 import net.nyx.messenger.ui.components.ErrorLine
 import net.nyx.messenger.ui.components.PasswordField
 import net.nyx.messenger.settings.SettingsManager
+import net.nyx.messenger.ui.theme.pendingAmber
 
 /* ================================================================
  * v0.2.26 — CARTE « RÉPLICAS » (demande opérateur : « je veux une liste
@@ -110,8 +110,8 @@ fun ReplicaStatusCard() {
                 val isActive = addr == active
                 val probeOk = isActive && probe?.ok == true
                 val dot = when {
-                    probeOk -> Color(0xFF2E7D32)
-                    isActive -> Color(0xFFF9A825)
+                    probeOk -> MaterialTheme.colorScheme.tertiary
+                    isActive -> pendingAmber()
                     (st?.lastFailAt ?: 0L) > (st?.lastOkAt ?: 0L) -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
@@ -141,7 +141,7 @@ fun ReplicaStatusCard() {
                         Text(
                             stringResource(R.string.replica_badge_active),
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF2E7D32),
+                            color = MaterialTheme.colorScheme.tertiary,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                     }
@@ -200,7 +200,7 @@ fun ReplicaStatusCard() {
                                 if (serving) R.string.replica_embedded_on else R.string.replica_embedded_off
                             ),
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (serving) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (serving) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }

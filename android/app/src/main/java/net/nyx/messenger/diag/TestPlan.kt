@@ -229,8 +229,34 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.35.md). */
-    fun items(): List<Item> = ITEMS_V0_2_35
+    /** v0.2.36 — items de validation (miroir de docs/releases/v0.2.36.md) :
+     *  CORRECTIF LISIBILITÉ MODE SOMBRE (retour opérateur : « en mode
+     *  "sombre" certains textes sont affichés en noir sur fond bleu foncé,
+     *  ce qui est peu lisible ») — cause racine : Scaffold transparents +
+     *  LocalContentColor par défaut NOIR ; fix racine NyxBackground +
+     *  statuts verts/ambre thème-aware + tests de contraste WCAG. Les items
+     *  terrain critiques v0.2.35 (fusion-replica, sonde-ok, appel-decroche,
+     *  replica-console, maj-1clic) restent EN TÊTE : non cochés au terrain. */
+    val ITEMS_V0_2_36 = listOf(
+        Item("fusion-replica", "Fusion : la carte « Réplica embarqué » apparaît dans les Paramètres du build NORMAL (jamais servi avant) — l'interrupteur arrête/reprend le service, l'annonce part aux contacts, le téléphone reste joignable :80 tant que l'app tourne"),
+        Item("sonde-ok", "DIAG PERSISTANT (export logs) : « auto-sonde média OK : …:47471 joignable (descripteur publié) » ~15 s après « onion publié » — plus aucun « No more HSDir » sur notre propre onion (validation continue v0.2.34/35)"),
+        Item("appel-decroche", "Appels/visio : « décrocher » ÉTABLIT le média (audio/visio fluide, les deux sens) — exporter les logs juste après l'essai (validation continue v0.2.34/35)"),
+        Item("replica-console", "Console v0.8.5 APRÈS « Mettre à jour le nœud » (1 clic) : les réplicas embarqués apparaissent seuls, /admin/replicas ne répond plus 404 et /admin/status affiche « 0.2.35 » (version du serveur embarqué — la 0.2.36 est la version de l'APP)"),
+        Item("maj-1clic", "Console v0.8.5 : « Mettre à jour le nœud » — journal en direct (SFTP + sha256 + stop/.bak/install/start + is-active), backup .bak visible, rollback < 1 min possible"),
+        Item("lisibilite-nuit", "LISIBILITÉ MODE « NUIT » (correctif v0.2.36) : AUCUN texte noir/illisible sur le dégradé bleu nuit — parcourir TOUS les écrans (conversations, chat, réglages, connexions, profils, onion, verrou, plan de tests) ; les textes par défaut sont blanc lunaire, les statuts OK en jade lisible"),
+        Item("lisibilite-aube", "LISIBILITÉ MODE « AUBE » (clair) : aucun texte pâle/illisible sur ivoire ; l'ambre « en attente » (réplica actif sans sonde OK) reste lisible — il était #F9A825 quasi invisible sur l'aube avant v0.2.36"),
+        Item("esthetique", "Esthétique « Nyx, déesse de la nuit » : dégradé de nuit sur tous les écrans, lune + constellation sur connexion/onboarding, icône croissant dans le lanceur, mode clair « aube » — aucun texte tronqué, l'app paraît moins technique"),
+        Item("logs-arrivent", "Bouton rouge (build test) : l'export de logs ARRIVE dans le dossier Drive — contient « DIAG PERSISTANT » (validation continue)"),
+        Item("scroll-plan-tests", "Plan de tests : la liste DÉPLOYÉE défile À L'INTÉRIEUR de la carte — toutes les cases et « Tout réinitialiser » sont atteignables (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; l'onglet Blocages le liste ; débloquer restaure l'état exact d'avant (validation continue)"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message (canal « Messages »), rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.36.md). */
+    fun items(): List<Item> = ITEMS_V0_2_36
 
 
     /**

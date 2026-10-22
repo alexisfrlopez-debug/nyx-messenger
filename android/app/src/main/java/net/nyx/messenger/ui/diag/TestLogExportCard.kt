@@ -121,7 +121,7 @@ fun TestLogExportCard() {
                     it,
                     style = MaterialTheme.typography.bodySmall,
                     color = when (ok) {
-                        true -> Color(0xFF2E7D32)
+                        true -> MaterialTheme.colorScheme.tertiary
                         false -> MaterialTheme.colorScheme.error
                         null -> MaterialTheme.colorScheme.onSurface
                     }

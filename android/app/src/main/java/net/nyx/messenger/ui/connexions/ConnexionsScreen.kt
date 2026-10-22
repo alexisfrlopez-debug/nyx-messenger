@@ -21,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -150,7 +149,7 @@ fun ConnexionsScreen(onConnected: () -> Unit) {
                     when (val st = torState) {
                         is TorManager.TorState.Ready -> Text(
                             stringResource(R.string.connexions_ok),
-                            color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold
+                            color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold
                         )
                         is TorManager.TorState.Starting -> Text(
                             stringResource(R.string.connexions_percent, st.percent),
@@ -222,7 +221,7 @@ fun ConnexionsScreen(onConnected: () -> Unit) {
                     when {
                         probe?.ok == true -> Text(
                             stringResource(R.string.connexions_ok),
-                            color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold
+                            color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold
                         )
                         torReady -> Text(stringResource(R.string.connexions_wait))
                         else -> Text(
@@ -248,7 +247,7 @@ fun ConnexionsScreen(onConnected: () -> Unit) {
                         LinearProgressIndicator(
                             progress = { 1f },
                             modifier = Modifier.fillMaxWidth(),
-                            color = Color(0xFF2E7D32)
+                            color = MaterialTheme.colorScheme.tertiary
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(

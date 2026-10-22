@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(version 0.2.34 du 22 octobre 2026), la compare honnêtement aux "
+         "(version 0.2.36 du 22 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
          "dans le cadre du cahier des charges initial : anonymat intégral, "
@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.34 · Console v0.8.4 · Serveur v0.2.34 "
+              ["Versions livrées", "Messagerie v0.2.36 · Console v0.8.5 · Serveur v0.2.35 "
                                    "(22 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -523,7 +523,7 @@ def build_story():
                  "release</b> du projet et vérifiée par chaque client avant usage "
                  "(ADR-016) : personne ne peut substituer un faux réseau "
                  "d'amorçage. Enfin, chaque téléphone peut servir de "
-                 "<b>réplica temporaire</b> pour ses contacts (v0.2.25) : "
+                 "<b>réplica temporaire</b> pour ses contacts (v0.2.25) — fonction intégrée aux versions standard et test depuis la v0.2.35 (fin de la version « test 2 » dédiée) : "
                  "l'application héberge alors un petit réplica, annonce son "
                  "adresse aux contacts de façon chiffrée, et la console "
                  "d'administration agrège ces annonces pour les afficher dans la "
@@ -554,7 +554,7 @@ def build_story():
                  "des commandes signées sur un canal d'administration séparé "
                  "(onion d'admin avec authentification client Tor). Surtout, elle "
                  "industrialise l'exploitation : <b>déploiement d'un nouveau "
-                 "réplica en un clic</b> via SSH, boîte à outils de maintenance "
+                 "réplica en un clic</b> via SSH, <b>mise à jour du nœud en un clic</b> à identité conservée (v0.8.5), boîte à outils de maintenance "
                  "en un clic (diagnostic, réparation, durcissement, tests de bout "
                  "en bout — 12 blocs éprouvés), et terminal SSH intégré. C'est "
                  "une pièce maîtresse du projet : sans elle, administrer une "
@@ -577,19 +577,22 @@ def build_story():
               ["Médias", "Limite de vues : permanent / vue unique / 1 relecture", "v0.2.28"],
               ["Appels", "Appels audio et vidéo P2P onion-vers-onion", "v0.2.x (consolidé v0.2.34)"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
-              ["Résilience", "Réplicas temporaires hébergés par les téléphones", "v0.2.25"],
+              ["Résilience", "Réplicas temporaires hébergés par les téléphones",
+               "v0.2.25 · toutes versions v0.2.35"],
               ["Résilience", "Liste de rendez-vous signée par la clé de release", "v0.2.23"],
               ["Appareil", "Tor embarqué 0.4.9.14 (sans Orbot)", "v0.2.25"],
+              ["Appareil", "Interface « Nuit de Nyx » : thème nuit/aube, "
+                 "contrastes verrouillés par tests WCAG", "v0.2.35–v0.2.36"],
               ["Appareil", "Verrou biométrique / code, base SQLCipher", "v0.2.x"],
               ["Appareil", "Sauvegarde chiffrée + clé de récupération nyx1", "v0.2.3"],
               ["Appareil", "Effacement d'urgence, mise à jour in-app", "v0.2.x"],
               ["Diagnostic", "Plan de test intégré, journal persistant, export de logs", "v0.2.33"],
-              ["Administration", "Console nyx-admin : flotte, déploiement 1-clic SSH, "
-                                 "boîte à outils, terminal", "v0.8.4"],
+              ["Administration", "Console nyx-admin : flotte, déploiement et mise à jour "
+                                 "du nœud 1-clic SSH, boîte à outils, terminal", "v0.8.5"],
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.34 / v0.8.4).",
+                  "(version v0.2.36 / v0.8.5).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -748,7 +751,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.34) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.36) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -798,8 +801,8 @@ def build_story():
                "multi-chemins", "Continu", "Livré en partie"],
               ["Diagnostic terrain long", "Version du serveur affichée "
                "différemment selon les nœuds : alignement du numéro de version "
-               "serveur sur les releases (constante historique figée à 0.2.0)",
-               "v0.2.35", "Constaté le 22/10/2026"],
+               "serveur sur les releases",
+               "v0.2.35", "Résolu (v0.2.35)"],
           ],
           [0.26, 0.42, 0.17, 0.15],
           caption="Tableau 6 — Chaque limite devient un axe, aligné sur le cahier des charges "
@@ -853,6 +856,13 @@ def build_story():
                "Console v0.8.4 · Serveur v0.2.34",
                "Création de la fiche : description complète, comparatif "
                "six applications, axes d'amélioration."],
+              ["2ᵉ édition", "22 octobre 2026", "Messagerie v0.2.36 · "
+               "Console v0.8.5 · Serveur v0.2.35",
+               "Fusion du réplica embarqué dans les versions standard et "
+               "test (fin de « test 2 »), interface « Nuit de Nyx », mise à "
+               "jour du nœud en un clic (console), correctif de lisibilité du "
+               "mode sombre (contrastes WCAG verrouillés par tests), zip "
+               "Windows retiré de la livraison console."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -992,7 +1002,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.34 / v0.8.4 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.36 / v0.8.5 · AGPL-3.0</div>
 </div>
 </body>
 </html>
