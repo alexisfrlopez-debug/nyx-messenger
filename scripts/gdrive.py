@@ -160,7 +160,11 @@ class Drive:
         il est considéré identique (les livrables publiés ne changent jamais) — skip."""
         folder = self.resolve(remote_dir)
         name = local.name
-        q = (f"name = '{name}' and '{folder}' in parents and trashed = false")
+        # Session 58 — GARDE-FOU : un DOSSIER homonyme ne doit JAMAIS être retenu
+        # (incident sessions 57/58 : dossiers parasites « RESTART.md » / « . » à la
+        # racine interceptaient l'upload par nom → PATCH média sur un dossier).
+        q = (f"name = '{name}' and mimeType != '{FOLDER_MIME}' "
+             f"and '{folder}' in parents and trashed = false")
         res = self._req("GET", f"{API}/files?q={urllib.parse.quote(q)}&fields=files(id,size)&pageSize=5")
         existing = res.get("files", [])
         if existing:

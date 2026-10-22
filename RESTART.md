@@ -44,6 +44,21 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 58 — REÇUES 2026-10-22 (16:59-17:00), ENREGISTRÉES
+> AVANT TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
+>
+> Contexte terrain : nœud VM MIS À JOUR en v0.2.35 (bouton 1 clic console v0.8.5) ;
+> les 3 logs reçus (2 téléphones v0.2.36 + console 17:00) sont dans le Drive racine.
+> 1. **RÉPLICA TEMPORAIRE « SOCKS INJOIGNABLE »** — verbatim opérateur : « Noeud mis
+>    à jour, le replica temporaire apparait dans la console mais affiche "SOCKS
+>    injoignable" » → le découverte auto fonctionne (plus de 404) MAIS la sonde
+>    /health du réplica embarqué échoue avec une erreur de type SOCKS → diagnostiquer
+>    dans le log console (nyx-admin-logs-20261022-170004.txt) et corriger.
+> 2. **APPELS TOUJOURS IMPOSSIBLES À DÉCROCHER** — verbatim : « toujours impossible
+>    de décrocher un appel » → malgré Flags=Detach (v0.2.34) et fusion réplica
+>    (v0.2.35), le média ne s'établit pas → analyser les logs v0.2.36 des 2
+>    téléphones (DIAG PERSISTANT), trouver la cause racine, corriger, livrer.
+
 > 🔴 **INSTRUCTIONS SESSION 57 — REÇUES 2026-10-22, ENREGISTRÉES AVANT TRAVAIL
 > (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
 >

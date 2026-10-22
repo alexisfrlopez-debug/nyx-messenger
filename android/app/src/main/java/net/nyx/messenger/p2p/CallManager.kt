@@ -157,8 +157,15 @@ object CallManager {
             //    l'offre, alors que le pair ne la connaît qu'après son poll
             //    (~15 s) et qu'un circuit onion entrant peut prendre 10-30 s
             //    → « Connect timed out » = appel mort avant même la sonnerie).
-            //    Désormais : essais de 12 s toutes les 3 s pendant 75 s —
+            //    Désormais : essais de 12 s toutes les 3 s pendant 150 s —
             //    le pair sonne et accepte pendant ce temps.
+            //    v0.2.37 — CAUSE RACINE « impossible de décrocher » CORRIGÉE :
+            //    chaque P2pClient.connect embarque la récupération HSFETCH
+            //    (descripteur périmé après redémarrage du pair = « SOCKS
+            //    server general failure » en boucle ; HSFETCH force la
+            //    re-demande du descripteur frais puis retente — voir
+            //    P2pClient.connect). La fenêtre de 150 s couvre la fenêtre
+            //    de propagation HSDir (~30-60 s) du pair qui vient de démarrer.
             var socket: java.net.Socket? = null
             val deadline = System.currentTimeMillis() + CONNECT_WINDOW_MS
             var attempt = 0
@@ -175,7 +182,8 @@ object CallManager {
                 socket = runCatching { P2pClient.connect(peer, CONNECT_ATTEMPT_MS) }.getOrElse { e ->
                     android.util.Log.i(
                         "nyx-call",
-                        "connexion directe impossible vers ${peer.take(16)}… (${e.message}) — nouvelle tentative"
+                        "connexion directe impossible vers ${peer.take(16)}… (${e.message}) — " +
+                            "nouvelle tentative (récupération HSFETCH déjà tentée par P2pClient)"
                     )
                     null
                 }

@@ -255,8 +255,37 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée (décompte, destruction à 0 vue)"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.36.md). */
-    fun items(): List<Item> = ITEMS_V0_2_36
+    /** v0.2.37 — items de validation (miroir de docs/releases/v0.2.37.md) :
+     *  CORRECTIF « SOCKS server general failure » / APPELS + CONSOLE (retour
+     *  opérateur 22/10 : « le replica temporaire apparait dans la console
+     *  mais affiche "SOCKS injoignable" » + « toujours impossible de décrocher
+     *  un appel ») — cause racine : descripteur onion PÉRIMÉ (points
+     *  d'introduction morts après chaque redémarrage d'app) servi par le
+     *  cache client (jusqu'à 24 h) et les HSDirs (30-60 s) → échec
+     *  d'INTRODUCE immédiat. Fix : HSFETCH (re-demande forcée du descripteur)
+     *  intégré aux connexions P2P, aux auto-sondes et à la console ;
+     *  republication forcée désormais dernier recours (elle aggravait le mal) ;
+     *  hygiène du DataDirectory corrompu (Xiaomi). */
+    val ITEMS_V0_2_37 = listOf(
+        Item("appel-decroche", "APPELS (correctif v0.2.37) : un appel passé ~1 min après le DÉMARRAGE de l'app de l'appelé DOIT établir le média — le log appelant montre « média essai N » puis « HSFETCH … — descripteur re-demandé » puis la connexion aboutit ; plus aucune salve de 14 « SOCKS server general failure »"),
+        Item("appel-repos", "APPELS après >2 min de fonctionnement des deux apps : le média s'établit dès la 1re ou 2e tentative (descripteur propagé — fenêtre HSDir passée)"),
+        Item("sonde-ok", "DIAG PERSISTANT (export logs) : après un redémarrage de l'app, l'auto-sonde peut échouer UNE fois (« descripteur pas encore propagé… HSFETCH déjà tenté ») mais la salve suivante (~10 min) est OK — plus de « RÉPUBLICATION FORCÉE » intempestive (désormais dernier recours après 4 échecs ~40 min)"),
+        Item("replica-console", "Console v0.8.6 APRÈS mise à jour du nœud (v0.2.35+) : le réplica temporaire découvert (source=auto) passe EN LIGNE (sonde /health OK, version 0.2.37) quand le téléphone tourne depuis >2 min — l'erreur « SOCKS server general failure » déclenche désormais HSFETCH + nouvelle sonde automatique dans la console elle-même"),
+        Item("lastseen", "Console v0.8.6 : le « vu » du réplica temporaire affiche une date RÉELLE (22/10/2026…) et non plus « 1970 » (le ts des annonces était en secondes, formaté comme des millisecondes)"),
+        Item("fusion-replica", "Fusion : la carte « Réplica embarqué » apparaît dans les Paramètres du build NORMAL — l'interrupteur arrête/reprend le service, l'annonce part aux contacts (validation continue v0.2.35/36)"),
+        Item("lisibilite-nuit", "LISIBILITÉ MODE « NUIT » : aucun texte noir/illisible sur le dégradé bleu nuit — tous les écrans (validation continue v0.2.36)"),
+        Item("lisibilite-aube", "LISIBILITÉ MODE « AUBE » : aucun texte pâle/illisible sur ivoire (validation continue v0.2.36)"),
+        Item("esthetique", "Esthétique « Nyx, déesse de la nuit » : dégradé/lune/icône/aube (validation continue v0.2.36)"),
+        Item("logs-arrivent", "Bouton rouge (build test) : l'export de logs ARRIVE dans le dossier Drive — contient « DIAG PERSISTANT » sans caractères binaires (corruption NUL tor.log purgée au démarrage si présente)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; débloquer restaure l'état exact (validation continue)"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message, rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.37.md). */
+    fun items(): List<Item> = ITEMS_V0_2_37
 
 
     /**

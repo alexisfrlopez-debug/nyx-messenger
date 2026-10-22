@@ -21,20 +21,66 @@ object P2pClient {
     /** Injecté par ServiceLocator — l'adresse onion locale (authentification). */
     @Volatile var me: String? = null
 
-    /** Connecte l'onion du pair sur le port média — socket TCP plein-duplex. */
-    fun connect(peer: String, timeoutMs: Int = 40_000): Socket {
+    /**
+     * v0.2.37 — délai entre HSFETCH et la 2ᵉ tentative : le fetch du
+     * descripteur + son stockage + la sélection d'un point d'introduction
+     * frais prennent ~10-15 s côté tor (source tor 0.4.9 : fetch_v3_desc →
+     * cache_store_as_client → client_desc_has_arrived).
+     */
+    private const val DESCRIPTOR_SETTLE_MS = 12_000L
+
+    /**
+     * Connecte l'onion du pair sur le port média — socket TCP plein-duplex.
+     *
+     * v0.2.37 — RÉCUPÉRATION DESCRIPTEUR PÉRIMÉ (cause racine terrain
+     * « impossible de décrocher » + « SOCKS server general failure », logs
+     * 22/10 + source tor 0.4.9.14 lu) : après un redémarrage de l'app du
+     * pair, son descripteur onion garde d'ANCIENS points d'introduction
+     * (morts) dans le cache client (jusqu'à 24 h !) et chez certains des 8
+     * HSDirs (30-60 s de propagation) → chaque connexion échoue en ~1 s par
+     * « SOCKS server general failure » (échec d'INTRODUCE). Réaction : sur
+     * échec, HSFETCH via le control port (force la re-demande du descripteur
+     * en CONTOURNANT le cache — TorControlClient.hsfetch), on laisse le fetch
+     * aboutir, puis UNE nouvelle tentative. Sans ça, l'appel meurt au bout
+     * de sa fenêtre d'essais alors que le pair est en parfaite santé.
+     *
+     * [descriptorRecovery] = false → comportement v0.2.36 (une seule tentative,
+     * pour les tests unitaires).
+     */
+    fun connect(peer: String, timeoutMs: Int = 40_000, descriptorRecovery: Boolean = true): Socket {
+        val first = tryConnect(peer, timeoutMs)
+        if (first != null) return first
+        if (!descriptorRecovery) throw lastConnectError.get()
+            ?: java.io.IOException("connexion impossible vers ${peer.take(16)}…")
+        // Récupération : descripteur périmé ? → HSFETCH + nouvelle tentative.
+        net.nyx.messenger.tor.TorManager.get(
+            net.nyx.messenger.di.ServiceLocator.appContext()
+        ).forceDescriptorRefresh(peer)
+        try { Thread.sleep(DESCRIPTOR_SETTLE_MS) } catch (_: InterruptedException) { }
+        val second = tryConnect(peer, timeoutMs)
+        if (second != null) return second
+        throw lastConnectError.get()
+            ?: java.io.IOException("connexion impossible vers ${peer.take(16)}…")
+    }
+
+    /** Dernière erreur de connexion (rejouée par [connect] à la fin). */
+    private val lastConnectError = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+
+    /** Une tentative de connexion — Socket ou null (erreur dans [lastConnectError]). */
+    private fun tryConnect(peer: String, timeoutMs: Int): Socket? {
         val socks = net.nyx.messenger.tor.TorManager.activeSocksPort
         val socket = Socket(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", socks)))
-        try {
+        return try {
             socket.connect(
                 InetSocketAddress.createUnresolved(peer, P2pProtocol.MEDIA_ONION_PORT),
                 timeoutMs
             )
             socket.soTimeout = 60_000
-            return socket
+            socket
         } catch (e: Exception) {
             runCatching { socket.close() }
-            throw e
+            lastConnectError.set(e)
+            null
         }
     }
 

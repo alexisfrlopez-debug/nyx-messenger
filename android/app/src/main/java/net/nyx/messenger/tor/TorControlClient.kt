@@ -134,6 +134,31 @@ class TorControlClient(private val controlPort: Int) : AutoCloseable {
         runCatching { cmd("DEL_ONION $serviceId") }
     }
 
+    /**
+     * v0.2.37 — HSFETCH : force la RE-DEMANDE du descripteur d'un service
+     * onion auprès des HSDirs responsables, EN CONTOURNANT le cache client.
+     *
+     * CAUSE RACINE terrain v0.2.36 (logs 22/10, source tor 0.4.9.14 lu) :
+     * le cache client garde un descripteur v3 jusqu'au début de la PROCHAINE
+     * période temporelle (hs_cache.c : expiration_ts =
+     * hs_get_start_time_of_next_time_period — jusqu'à ~24 h !). Un descripteur
+     * dont les points d'introduction sont MORTS (l'app du pair a redémarré :
+     * nouvelle instance tor = nouveaux points d'intro) reste donc utilisé
+     * jusqu'à ce que TOUS ses intro points soient marqués en échec — et même
+     * alors, le refetch peut retomber sur un HSDir qui sert encore l'ANCIENNE
+     * révision (8 HSDirs responsables, propagation non atomique). Symptôme :
+     * « SOCKS server general failure » (échec d'INTRODUCE) immédiat et répété.
+     *
+     * HSFETCH (control-spec) appelle hs_client_launch_v3_desc_fetch SANS le
+     * garde-fou « on a déjà un descripteur utilisable » (can_client_refetch_desc)
+     * → le descripteur fraîchement publié par le pair est récupéré et REMPLACE
+     * l'entrée de cache (révision plus haute = remplacement, cache_store_as_client).
+     */
+    fun hsfetch(onion56: String) {
+        require(onion56.length == 56) { "adresse onion invalide (${onion56.length} ≠ 56)" }
+        cmd("HSFETCH $onion56.onion")
+    }
+
     override fun close() {
         runCatching { socket?.close() }
         socket = null

@@ -83,6 +83,14 @@ class NyxTorService : Service() {
         // On tue tout tor orphelin de NOTRE uid avant de repartir.
         killLeftoverTor()
 
+        // v0.2.37 — HYGIÈNE DU DATADIRECTORY (terrain Xiaomi 22/10 : fichiers
+        // de cache tor remplis d'octets NUL après arrêts brutaux — tor
+        // warn-spamme « warn_if_nul_found : Found unexpected NUL while
+        // scanning microdesc cache » + consensus imparsable + tor.log lui-même
+        // pollué, l'export devient binaire). Un cache corrompu est SANS RISQUE
+        // à supprimer : tor le re-télécharge au bootstrap (~2-3 s mesurés).
+        cleanCorruptedTorState()
+
         val config = NyxTorConfig.create(this)
         val binary = resolveTorBinary()
         if (binary == null) {
@@ -221,6 +229,59 @@ class NyxTorService : Service() {
                 android.util.Log.w("nyx-tor", "démon tor orphelin détecté (pid $pid) — arrêt")
                 runCatching { android.os.Process.killProcess(pid) }
             }
+        }
+    }
+
+    /**
+     * v0.2.37 — Supprime les fichiers de cache tor CORROMPUS (octets NUL en
+     * tête — arrêt brutal/perte de puissance : alloué mais jamais écrit) AVANT
+     * de lancer le démon. Ciblé et prudent :
+     *  - caches dirinfo (`cached-microdescs*`, `cached-microdesc-consensus`) :
+     *    supprimés si NUL détecté — tor les re-télécharge au bootstrap
+     *    (~2-3 s, mesuré terrain) ; SANS AUCUNE clé dedans ;
+     *  - tor.log : tronqué si son début contient des NUL (sinon l'export de
+     *    logs devient un fichier BINAIRE et le LogCollector lit des NUL) ;
+     *  - tout le reste (state, verrous, clés de média éphémères) est laissé
+     *    intact — jamais de suppression au-delà de ces noms EXACTS.
+     * Terrain : Xiaomi 22/10 — microdesc cache 32 Mo commençant par 32 Ko de
+     * NUL, consensus imparsable, tor.log pollué, warn en boucle à chaque boot.
+     */
+    private fun cleanCorruptedTorState() {
+        val base = File(filesDir, "tor")
+        val dataDir = File(base, "data")
+        // 1. Caches dirinfo : NUL en tête = corrompu (un fichier sain ne
+        //    commence JAMAIS par un NUL — ce sont des documents texte).
+        for (name in listOf("cached-microdesc-consensus", "cached-microdescs", "cached-microdescs.new")) {
+            val f = File(dataDir, name)
+            if (!f.isFile) continue
+            val head = runCatching {
+                f.inputStream().use { ins -> ByteArray(minOf(f.length(), 512L).toInt()).also { ins.readFullyOr(it) } }
+            }.getOrNull() ?: continue
+            if (head.contains(0.toByte())) {
+                runCatching { f.delete() }
+                android.util.Log.w("nyx-tor", "cache tor corrompu supprimé ($name, ${f.length()} o) — re-téléchargé au bootstrap")
+            }
+        }
+        // 2. tor.log : tronqué si NUL en tête (fichier texte sinon).
+        val log = File(base, "tor.log")
+        if (log.isFile) {
+            val head = runCatching {
+                log.inputStream().use { ins -> ByteArray(minOf(log.length(), 512L).toInt()).also { ins.readFullyOr(it) } }
+            }.getOrNull()
+            if (head != null && head.contains(0.toByte())) {
+                runCatching { java.io.RandomAccessFile(log, "rw").use { raf -> raf.setLength(0) } }
+                android.util.Log.w("nyx-tor", "tor.log contenait des octets NUL (corruption) — tronqué")
+            }
+        }
+    }
+
+    /** Lecture complète tolérante (fichier plus court que le tampon). */
+    private fun java.io.InputStream.readFullyOr(buf: ByteArray) {
+        var off = 0
+        while (off < buf.size) {
+            val n = read(buf, off, buf.size - off)
+            if (n < 0) break
+            off += n
         }
     }
 

@@ -121,4 +121,34 @@ class TorControlClientTest {
         }
         assertTrue(received.any { it == "DEL_ONION aaaaaaaaaaaaaaaaaaaaaaaa" })
     }
+
+    /**
+     * v0.2.37 — RÉGRESSION « SOCKS server general failure » en boucle : la
+     * récupération des appels repose sur HSFETCH (force la re-demande du
+     * descripteur au HSDirs EN CONTOURNANT le cache client — cause racine
+     * terrain v0.2.36 : descripteur périmé à points d'introduction morts
+     * après un redémarrage de l'app du pair, gardé jusqu'à 24 h par tor).
+     * CONTRAT : la commande doit être exactement « HSFETCH <onion56>.onion »
+     * — une adresse incomplète (sans .onion) ou une autre commande serait
+     * silencieusement ignorée par tor et la récupération ne servirait à rien.
+     */
+    @Test
+    fun `HSFETCH demande le descripteur d une onion avec suffixe complet`() {
+        val onion56 = "vxb5tsk44ikklazo2spqpng33w4wjfwewcylnw4kiheit25u6ive7zyd"
+        TorControlClient(port()).use { c ->
+            c.hsfetch(onion56)
+        }
+        assertTrue(
+            "HSFETCH malformé — la récupération descripteur serait un no-op : " +
+                received.joinToString(" | "),
+            received.any { it == "HSFETCH $onion56.onion" }
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `HSFETCH refuse une adresse qui n a pas 56 caracteres`() {
+        TorControlClient(port()).use { c ->
+            c.hsfetch("trop-court")
+        }
+    }
 }

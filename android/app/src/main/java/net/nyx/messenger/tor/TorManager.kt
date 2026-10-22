@@ -265,6 +265,14 @@ class TorManager private constructor(context: Context) {
      * MEDIA_ONION_PORT via le SOCKS local (chemin onion complet, comme un
      * pair). OK = descripteur propagé + port servi ; échec = diagnostic
      * « impossible de décrocher » enregistré dans le log terrain.
+     *
+     * v0.2.37 — l'échec à +15 s est PRÉVISIBLE quand l'app vient de
+     * redémarrer : le nouveau descripteur (nouveaux points d'intro) met
+     * 30-60 s à atteindre les 8 HSDirs — la sonde lit l'ANCIEN descripteur.
+     * Depuis P2pClient.connect (récupération HSFETCH intégrée), un échec
+     * déclenche automatiquement HSFETCH + une 2e tentative ; le message
+     * final n'annonce plus « appels cassés » à tort — il explique le délai
+     * de propagation réel.
      */
     private fun selfTestMediaPort(ownOnion: String) {
         runCatching {
@@ -281,7 +289,8 @@ class TorManager private constructor(context: Context) {
                 net.nyx.messenger.diag.DiagLog.w(
                     "nyx-p2p", "auto-sonde média ÉCHOUÉE : ${ownOnion.take(16)}…:" +
                         "${net.nyx.messenger.p2p.P2pProtocol.MEDIA_ONION_PORT} (${e.message}) " +
-                        "— descripteur non propagé ou port média absent : les appels ENTRANTS ne pourront pas établir le média"
+                        "— descripteur pas encore propagé aux HSDirs (normal ~1 min après un " +
+                        "redémarrage de l'app) ou port média absent ; HSFETCH déjà tenté par la récupération"
                 )
             }
         )
@@ -321,12 +330,20 @@ class TorManager private constructor(context: Context) {
      * COMPLET via notre propre SOCKS, comme un pair) :
      *  - port média 47471 (appels/fichiers P2P) si l'écouteur P2P est lié ;
      *  - port 80 (réplica temporaire embarqué — GET /health) si servi.
-     * TOUS les ports applicables injoignables [PROBE_FAILS_BEFORE_REPUBLISH]
-     * fois de suite = descripteur non propagé ou points d'introduction morts
-     * (terrain : « Host unreachable » côté pair pendant que notre côté croit
-     * tout va bien) → RÉPUBLICATION FORCÉE (DEL_ONION + ADD_ONION) — points
-     * d'introduction frais + descripteur re-téléversé. Chaque résultat est
-     * journalisé (évidence terrain nominative : l'adresse est dans le log).
+     *
+     * v0.2.37 — LECTURE CORRIGÉE DES ÉCHECS (terrain v0.2.36 + source tor
+     * 0.4.9.14) : une sonde qui échoue avec « SOCKS server general failure »
+     * signifie presque toujours que le HSDir consulté sert ENCORE l'ANCIEN
+     * descripteur (points d'introduction morts — NOTRE app vient de redémarrer)
+     * ou que NOTRE cache client garde ce descripteur périmé (jusqu'à 24 h !).
+     * Ce n'est PAS une panne de notre service. La bonne réaction est
+     * HSFETCH (re-demande du descripteur en contournant le cache) puis
+     * re-sonder — la RÉPUBLICATION FORCÉE (DEL+ADD) est désormais un DERNIER
+     * RECOURS [PROBE_FAILS_BEFORE_REPUBLISH] : elle tue les points d'intro
+     * VIVANTS et ouvre une NOUVELLE fenêtre de descripteur périmé (30-60 s)
+     * pour tous les pairs — terrain 12:41:52 : elle a même rencontré la
+     * collision 550 (tor_bug_occurred_ + assertion hs_service_add_ephemeral).
+     * Chaque résultat est journalisé (évidence terrain nominative).
      */
     private fun startProbeWatchdog(published: String) {
         probeWatchdog?.cancel() // une seule boucle — la republication relance la nouvelle
@@ -351,25 +368,60 @@ class TorManager private constructor(context: Context) {
                     }
                     probeFails = 0
                 } else {
-                    probeFails++
+                    // v0.2.37 — HSFETCH D'ABORD : la cause n°1 est le descripteur
+                    // périmé (cache client ou HSDir pas encore à jour). On force la
+                    // re-demande puis on attend un cycle de fetch (~15 s) AVANT de
+                    // compter l'échec — la sonde suivante dira si c'est guéri.
                     net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor",
                         "auto-sonde ÉCHOUÉE (${probe.failed}/${probe.total}) : $published — " +
-                            "tentative $probeFails/$PROBE_FAILS_BEFORE_REPUBLISH (${probe.detail})"
+                            "(${probe.detail}) — HSFETCH puis nouvelle sonde"
+                    )
+                    forceDescriptorRefresh(published)
+                    delay(PROBE_HSFETCH_SETTLE_MS)
+                    val reprobe = probeSelf(published)
+                    if (reprobe.failed == 0) {
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-tor", "auto-sonde : $published joignable après HSFETCH " +
+                                "(descripteur périmé confirmé — service sain)"
+                        )
+                        probeFails = 0
+                        delay(PROBE_INTERVAL_MS)
+                        continue
+                    }
+                    probeFails++
+                    net.nyx.messenger.diag.DiagLog.w(
+                        "nyx-tor",
+                        "auto-sonde ÉCHOUÉE après HSFETCH — tentative $probeFails/" +
+                            "$PROBE_FAILS_BEFORE_REPUBLISH (${reprobe.detail})"
                     )
                     if (probeFails >= PROBE_FAILS_BEFORE_REPUBLISH) {
                         net.nyx.messenger.diag.DiagLog.w(
                             "nyx-tor",
-                            "RÉPUBLICATION FORCÉE de $published (descripteur non propagé / " +
-                                "points d'introduction morts — « host unreachable » côté pair)"
+                            "RÉPUBLICATION DERNIER RECOURS de $published (" +
+                                "$PROBE_FAILS_BEFORE_REPUBLISH échecs malgré HSFETCH — " +
+                                "descripteur probablement jamais propagé)"
                         )
                         probeFails = 0
                         runCatching { unpublishOwnOnion() }
+                        delay(REPUBLISH_PAUSE_MS) // laisse à tor le temps de libérer le service (anti-collision 550)
                         runCatching { publishOwnOnion() }
                             .onSuccess { net.nyx.messenger.diag.DiagLog.i("nyx-tor", "onion re-publiée : $it") }
                             .onFailure {
-                                net.nyx.messenger.diag.DiagLog.w("nyx-tor", "re-publication échouée : ${it.message}")
-                                startProbeWatchdog(published) // repart sur l'ancienne adresse (même clé)
+                                val msg = it.message ?: ""
+                                if (msg.contains("collision")) {
+                                    // v0.2.37 — collision = le service EXISTE ENCORE (Detach) : il
+                                    // continue de servir — pas une panne, on garde la boucle vivante.
+                                    net.nyx.messenger.diag.DiagLog.w(
+                                        "nyx-tor", "re-publication : collision (service déjà vivant — " +
+                                            "on le garde, il sert toujours) : $msg"
+                                    )
+                                    onionPublishedAddress = published
+                                    startProbeWatchdog(published)
+                                } else {
+                                    net.nyx.messenger.diag.DiagLog.w("nyx-tor", "re-publication échouée : $msg")
+                                    startProbeWatchdog(published) // repart sur l'ancienne adresse (même clé)
+                                }
                             }
                         return@launch // cette boucle meurt — publishOwnOnion a relancé la sienne
                     }
@@ -433,6 +485,36 @@ class TorManager private constructor(context: Context) {
         }
         onionServiceId = null
         onionPublishedAddress = null
+    }
+
+    /**
+     * v0.2.37 — RÉCUPÉRATION DESCRIPTEUR : HSFETCH force tor à re-demander le
+     * descripteur du service [onion] (56 caractères, sans suffixe) aux HSDirs
+     * responsables, en contournant le cache client (voir TorControlClient.hsfetch
+     * pour la cause racine terrain : descripteur périmé à points d'introduction
+     * morts après un redémarrage de l'app du pair → « SOCKS server general
+     * failure » jusqu'à 24 h sans ça).
+     *
+     * Bloquant ~100 ms (une commande contrôle) — appelé depuis un thread IO.
+     * Jamais d'exception : Result, l'appelant décide (une récupération ratée
+     * n'est jamais fatale, le prochain cycle naturel de tor re-essaiera).
+     */
+    fun forceDescriptorRefresh(onion: String): Result<Unit> = runCatching {
+        val cfg = config ?: error("tor non démarré")
+        val host = onion.trim().removeSuffix(".onion").lowercase()
+        require(host.length == 56) { "adresse onion invalide (${host.length} ≠ 56)" }
+        TorControlClient(cfg.controlPort).use { control ->
+            control.authenticate(cfg.cookieFile)
+            control.hsfetch(host)
+        }
+        net.nyx.messenger.diag.DiagLog.i(
+            "nyx-tor", "HSFETCH ${host.take(10)}… — descripteur re-demandé aux HSDirs " +
+                "(cache client contourné)"
+        )
+    }.onFailure { e ->
+        net.nyx.messenger.diag.DiagLog.w(
+            "nyx-tor", "HSFETCH ${onion.take(10)}… échoué : ${e.message?.take(100)}"
+        )
     }
 
     /* ---------- callbacks du service (invoqués depuis NyxTorService) ---------- */
@@ -586,12 +668,25 @@ class TorManager private constructor(context: Context) {
 
         // v0.2.29 — watchdogs de publication : réessai de publication toutes les
         // 30 s tant que l'onion n'est pas publiée ; sondes de notre propre
-        // onion 2 min après publication puis toutes les 10 min — 2 salves
-        // échouées (≈ 20 min) déclenchent la RÉPUBLICATION FORCÉE.
+        // onion 2 min après publication puis toutes les 10 min — depuis la
+        // v0.2.37, un échec déclenche d'abord HSFETCH (descripteur périmé)
+        // et seules 4 salves persistantes (~40 min) mènent à la republication.
         private const val PUBLICATION_RETRY_MS = 30_000L
         private const val PROBE_FIRST_DELAY_MS = 2 * 60_000L
         private const val PROBE_INTERVAL_MS = 10 * 60_000L
-        private const val PROBE_FAILS_BEFORE_REPUBLISH = 2
+        // v0.2.37 — 2 → 4 : la republication tue les points d'intro vivants et
+        // ouvre une fenêtre de descripteur périmé pour TOUS les pairs ; elle ne
+        // se déclenche désormais qu'après 4 échecs PERSISTANTS malgré HSFETCH
+        // (~40 min d'indisponibilité réelle confirmée).
+        private const val PROBE_FAILS_BEFORE_REPUBLISH = 4
+        // v0.2.37 — délai de guérison après HSFETCH (le fetch + le stockage du
+        // descripteur + la selection d'un point d'intro frais prennent ~10-15 s).
+        private const val PROBE_HSFETCH_SETTLE_MS = 15_000L
+        // v0.2.37 — pause DEL_ONION → ADD_ONION : le terrain v0.2.36 (12:41:52)
+        // a montré la collision 550 quand les deux commandes s'enchaînent en
+        // <100 ms (tor n'a pas fini de libérer le service : assertion non
+        // fatale hs_service_add_ephemeral).
+        private const val REPUBLISH_PAUSE_MS = 750L
 
         /**
          * Port SOCKS exposé par le Tor embarqué — lu par RelayClient/Repository
