@@ -185,6 +185,26 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    test2) devient STANDARD dans les builds normale et test1 ; la variante
 >    test2 est SUPPRIMÉE du pipeline de build (2 APK au lieu de 3).
 
+> **Pointeur rapide (session 66 — 2026-10-23)** : console **v0.8.10** (VC19,
+> dépôt privé 31128d6, APK + zip Windows + installateur.exe dans Drive
+> dernieres-livrables, v0.8.9 archivée) — **« JE VEUX POUVOIR DÉPLOYER CE
+> SERVEUR DEPUIS LA CONSOLE EN 1 CLIC »** : le bouton « Mettre à jour le
+> nœud » (v0.8.5) existait mais poussait le binaire EMBARQUÉ sans dire
+> LEQUEL — le zip console v0.8.9 embarquait encore **nyx-server v0.2.35
+> SANS le relais d'appels** : un clic « réussi » redéployait l'ancien
+> serveur et le repli relais restait INERT. FIX : **binaire v0.2.36
+> embarqué** (sha256 a77be2ec…, identique au fichier Drive, relais inclus)
+> + composant ServerBinary (extraction de version du binaire Go — rodata
+> fusionnée, heuristique testée) + **encart AVANT le clic** dans le
+> dialogue (« Binaire prêt à déployer : nyx-server v0.2.36 — 6,8 Mo —
+> sha256 a77be2ec03ef9f7f… ») + warning ambre si binaire absent + badge
+> onglet Flotte. 76 tests verts (+10), audit strict PASSED, binaire v0.2.36
+> vérifié DANS le zip par empreinte. **PRÉREQUIS TERRAIN v0.2.44 RÉSOLU** :
+> installer la console v0.8.10 → onglet Flotte → machine SSH du réplica →
+> « Mettre à jour le nœud » → le nœud passe en 0.2.36 (la carte flotte
+> affiche « EN LIGNE — v0.2.36 ») → le repli relais des appels devient
+> OPÉRATIONNEL.
+
 > **Pointeur rapide (session 65 — 2026-10-23)** : messagerie **v0.2.44**
 > (VC48, release GitHub 422036286 + 2 APK + Drive) + **serveur 0.2.36**
 > (relais média /call/relay — binaire linux dans Drive dernieres-livrables,
