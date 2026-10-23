@@ -44,7 +44,7 @@ import (
 // version — alignée sur les releases GitHub depuis la v0.2.35 (session 55 :
 // figée à « 0.2.0 » depuis l'origine, /admin/status ne distinguait pas un
 // nœud ancien d'un nœud à jour — axe inscrit à la fiche de présentation).
-const version = "0.2.35"
+const version = "0.2.36"
 
 var defaultCookiePaths = []string{
         "/run/tor/control.authcookie",

@@ -107,6 +107,21 @@ class NyxRepository(
     /** Réplica PORTANT le trafic courant (failover v0.2.25) — indicateur ACTIF. */
     val activeReplica: String? get() = replicas.getOrNull(replicaIndex)
 
+    /**
+     * v0.2.44 — INDICE DE RELAIS MÉDIA pour l'offre d'appel (repli décrochage) :
+     * le réplica ACTIF, SAUF s'il est l'onion DU PAIR — l'appelant n'atteint
+     * pas plus l'onion du pair en relais qu'en direct (terrain 23/10 : c'est
+     * LE chemin mort, « Connect timed out »/« general failure » sur :80 ET
+     * :47471) ; on préfère alors un AUTRE réplica (la flotte — chemin prouvé
+     * par le journal et /health). Dernier recours : le pair lui-même.
+     */
+    fun relayHintFor(peer: String): String? {
+        val p = peer.trim().lowercase().removeSuffix(".onion").substringBefore(":")
+        val active = replicas.getOrNull(replicaIndex) ?: return replicas.firstOrNull()
+        if (!active.startsWith(p)) return active
+        return replicas.firstOrNull { !it.startsWith(p) } ?: active
+    }
+
     private fun noteReplica(addr: String?, update: (ReplicaState) -> ReplicaState) {
         if (addr.isNullOrBlank()) return
         val cur = _replicaStates.value[addr] ?: ReplicaState(addr)

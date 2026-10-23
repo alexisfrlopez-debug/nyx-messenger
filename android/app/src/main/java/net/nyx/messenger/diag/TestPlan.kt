@@ -431,8 +431,24 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.41.md). */
-    fun items(): List<Item> = ITEMS_V0_2_41
+    val ITEMS_V0_2_44 = listOf(
+        Item("appel-decroche-relais", "APPEL DÉCROCHÉ VIA RELAIS (NOUVEAU v0.2.44, LES 2 TÉLÉPHONES en v0.2.44 + SERVEUR FLOTTE 0.2.36 DÉPLOYÉ) : appels alors que l'onion du pair est injoignable (le cas terrain 23/10) → après ~60 s le log appelant montre « relais réplica ouvert en parallèle », à ~150 s « média VIA RELAIS réplica — direct impossible », côté appelé « média via RELAIS réplica — HELLO de … » → LA CONVERSATION S'ÉTABLIT ET L'AUDIO COULE (le décrochage aboutit enfin)"),
+        Item("appel-direct-dabord", "APPEL DIRECT D'ABORD : onion du pair joignable → le média s'établit en direct AVANT 60 s et le log appelant montre la moitié relais libérée (« direct a gagné » : PAS de « média VIA RELAIS ») — le relais ne consomme jamais un appel sain"),
+        Item("serveur-relais-deploye", "SERVEUR 0.2.36 : le réplica de flotte interrogé par la console (ou curl via tor) répond 400 (pas 404) à « GET /call/relay?cid=test&role=caller » SANS Upgrade — preuve que la route existe avant de tester les appels"),
+        Item("conflux-zero", "TOR SANS CONFLUX : au bootstrap, le tor.log ne contient AUCUN « All current guards excluded by path restriction type 2 » (churn conflux supprimé — 29×/jour sur le Blackview en v0.2.43) ; « ConfluxEnabled 0 » accepté au démarrage (tor démarre)"),
+        Item("onion-propage-info", "FORENSIQUE INFO : le tor.log (niveau info désormais) montre « Launching a circuit to intro point » et « stored successfully »/« 200 OK » pour NOTRE onion — à envoyer avec les logs si les appels échouent encore"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie d'appel passent toujours par le réplica de flotte (l'offre arrive en ≤ 15 s), la carte réplica reste ONLINE en console v0.8.9"),
+        Item("raccroche-relais", "RACCROCHÉ RELAIS PROPRE : un appel établi VIA relais puis raccroché → le log serveur « relais appel … terminé » (si visible) et AUCUNE socket relais orpheline côté app (l'appel suivant s'ouvre normalement)"),
+        Item("appel-decroche", "APPELS DIRECTS (validation continue v0.2.39) : un appel passé ~1 min après le DÉMARRAGE de l'app de l'appelé DOIT établir le média ; plus aucune salve de « SOCKS server general failure »"),
+        Item("hsfetch-ok", "DIAG PERSISTANT (validation continue v0.2.39) : après un échec de connexion, le log montre « HSFETCH … — descripteur re-demandé aux HSDirs » SANS aucun « erreur Tor 513 » (les 513 restants dans les exports = ring des anciennes versions v0.2.38, à ignorer)"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue v0.2.40) : à la publication de CETTE release, la version TEST en v0.2.43-test la détecte en ≤ 30 min, la télécharge via Tor, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible dans la ligne de titre MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.44.md). */
+    fun items(): List<Item> = ITEMS_V0_2_44
 
 
     /**

@@ -17,11 +17,20 @@ data class CallSignal(
     val cid: String,       // identifiant de session (16 octets hex)
     val alias: String,     // alias déclaré de l'émetteur (affichage sonnerie)
     val ts: Long,          // horodatage émetteur (epoch s) — anti-rejeu souple
+    // v0.2.44 — REPLI RELAIS MÉDIA : l'offre indique l'onion du RÉPLICA où
+    // l'appelant ouvrira un canal relais (/call/relay). L'appelé s'y branche
+    // à l'acceptation si le média direct n'arrive pas — terrain sessions
+    // 41→65 : l'onion du pair est chroniquement injoignable (points d'intro
+    // morts) alors que téléphone↔réplica fonctionne toujours. Vide = pas de
+    // repli (v0.2.43 et avant ignorent le champ — MiniJson = extraction par
+    // clé, aucun rejet de payload inconnu).
+    val relay: String = "",
 ) {
     fun encode(): String {
         fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+        val relayField = if (relay.isNotEmpty()) ",\"relay\":\"${esc(relay)}\"" else ""
         return "{\"v\":1,\"kind\":\"call\",\"op\":\"${esc(op)}\",\"cid\":\"${esc(cid)}\"," +
-            "\"alias\":\"${esc(alias)}\",\"ts\":$ts}"
+            "\"alias\":\"${esc(alias)}\",\"ts\":$ts$relayField}"
     }
 
     companion object {
@@ -43,7 +52,8 @@ data class CallSignal(
                 ?: return null
             val alias = MiniJson.str(plain, "alias") ?: ""
             val ts = MiniJson.num(plain, "ts") ?: 0L
-            return CallSignal(op, cid, alias, ts)
+            val relay = MiniJson.str(plain, "relay") ?: ""
+            return CallSignal(op, cid, alias, ts, relay)
         }
 
         fun newCid(): String {

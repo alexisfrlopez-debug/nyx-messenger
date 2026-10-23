@@ -38,7 +38,27 @@ class NyxTorConfig private constructor(
             appendLine("CookieAuthentication 1")
             appendLine("CookieAuthFile ${cookieFile.absolutePath}")
             appendLine("DataDirectory ${dataDir.absolutePath}")
-            appendLine("Log notice file ${logFile.absolutePath}")
+            // v0.2.44 — CONFLUX DÉSACTIVÉ (session 65) : les tor.log terrain
+            // (2 téléphones, 22-23/10) sont saturés de « All current guards
+            // excluded by path restriction type 2 » = RST_EXCL_LIST = la
+            // restriction CONFLUX (multi-chemins, active par défaut en
+            // 0.4.9.x, CONFLUX_ENABLED_DEFAULT=1) qui épuise en boucle les
+            // guards et perturbe la construction des circuits — dont les
+            // points d'introduction des services oignon des téléphones
+            // (chroniquement injoignables). Conflux ne s'applique QU'AU
+            // trafic exit or la messagerie n'en émet AUCUN (tout est
+            // onion↔onion, source tor : or_options_st.h « excludes onion
+            // service traffic ») : le couper est SANS PERTE fonctionnelle
+            // et retire le churn de guards.
+            appendLine("ConfluxEnabled 0")
+            // v0.2.44 — LOG INFO : le tor.log des téléphones (notice) ne
+            // montre RIEN des cycles intro-points/upload-descripteur — les
+            // marqueurs forensiques (« Launching a circuit to intro point »,
+            // « stored successfully », échecs d'upload) sont en INFO. Le log
+            // est tronqué à l'export (queue du fichier) : la taille reste
+            // maîtrisée et la prochaine ronde terrain tranchera la cause
+            // exacte de l'injoignabilité des onions téléphone.
+            appendLine("Log info file ${logFile.absolutePath}")
             appendLine("__OwningControllerProcess $appPid")
             appendLine("SafeLogging 1")
             // Réseau restreint (censure) : ponts à ajouter plus tard via IPtProxy — ADR-007 §3.

@@ -85,6 +85,93 @@ object P2pClient {
     }
 
     /**
+     * v0.2.44 — CANAL RELAIS MÉDIA via le réplica (repli « décrochage ») :
+     * GET /call/relay?cid=…&role=… avec « Upgrade: nyx-pipe » sur l'onion du
+     * réplica (port 80, LE chemin prouvé terrain) ; le réplica répond 101 et
+     * apparie cette socket avec celle du pair par cid — puis pipe les octets
+     * à l'aveugle. Le protocole d'appel (HELLO/ACCEPT/audio, chiffré E2E)
+     * circule INCHANGÉ : la socket retournée s'utilise comme un direct.
+     *
+     * [role] = "caller" (côté appelant) ou "callee" (côté appelé). La socket
+     * peut rester silencieuse longtemps (le réplica tient chaque moitié
+     * jusqu'à l'appariement) — le soTimeout est réglé PAR L'APPELANT de ce
+     * canal selon sa fenêtre.
+     */
+    fun connectViaRelay(
+        replicaOnion: String,
+        cid: String,
+        role: String,
+        timeoutMs: Int = 30_000,
+    ): Socket {
+        require(role == "caller" || role == "callee") { "rôle relais invalide : $role" }
+        val (host, port) = relayTarget(replicaOnion)
+        val socks = net.nyx.messenger.tor.TorManager.activeSocksPort
+        val socket = Socket(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", socks)))
+        try {
+            // Port 80 du réplica = LE canal téléphone↔réplica qui marche
+            // toujours (journal, /health) — pas le port média 47471 du pair.
+            socket.connect(InetSocketAddress.createUnresolved(host, port), timeoutMs)
+            socket.soTimeout = timeoutMs // handshake 101 borné (serveur muet)
+            val out = socket.getOutputStream()
+            out.write(
+                ("GET /call/relay?cid=$cid&role=$role HTTP/1.1\r\n" +
+                    "Host: $host\r\n" +
+                    "Upgrade: nyx-pipe\r\nConnection: Upgrade\r\n\r\n").toByteArray(Charsets.ISO_8859_1)
+            )
+            out.flush()
+            // Réponse : ligne de statut puis en-têtes jusqu'à la ligne vide.
+            val inp = socket.getInputStream()
+            val statusLine = readLineCrlf(inp)
+            if (statusLine == null || !statusLine.contains(" 101")) {
+                val detail = statusLine?.take(60) ?: "aucune réponse"
+                socket.close()
+                throw java.io.IOException("relais réplica refusé : $detail")
+            }
+            while (true) {
+                val h = readLineCrlf(inp) ?: break
+                if (h.isEmpty()) break
+            }
+            return socket
+        } catch (e: Exception) {
+            runCatching { socket.close() }
+            throw e
+        }
+    }
+
+    /** Lit une ligne CRLF (HTTP) — null en fin de flux. */
+    private fun readLineCrlf(input: java.io.InputStream): String? {
+        val sb = StringBuilder()
+        while (true) {
+            val c = input.read()
+            if (c < 0) return if (sb.isEmpty()) null else sb.toString()
+            if (c == '\r'.code) {
+                val next = input.read()
+                if (next == '\n'.code) return sb.toString()
+                sb.append(' ')
+                continue
+            }
+            if (c == '\n'.code) return sb.toString()
+            if (sb.length < 8192) sb.append(c.toChar())
+        }
+    }
+
+    /**
+     * v0.2.44 — CIBLE DE CONNEXION RELAIS : le registre/rendezvous portent
+     * « xxx.onion:80 » (RelayClient laisse OkHttp parser) — la socket brute
+     * exige un HÔT NU et un port séparés. Pur et testé (RelayTargetTest).
+     * Accepte : « xxx.onion », « xxx.onion:80 », et l'écriture URL complète
+     * avec schéma + slash final (préfixe/suffixe retirés).
+     */
+    fun relayTarget(replicaOnion: String): Pair<String, Int> {
+        var s = replicaOnion.trim().lowercase()
+        s = s.removePrefix("http://").removeSuffix("/")
+        val host = s.substringBefore(":")
+        val port = s.substringAfter(":", "").toIntOrNull() ?: 80
+        require(host.endsWith(".onion")) { "adresse réplica invalide : ${replicaOnion.take(24)}…" }
+        return host to port
+    }
+
+    /**
      * v0.2.41 — DÉPÔT DIRECT D'ÉVÉNEMENTS (ADR-017, transport de replan) :
      * les MÊMES événements signés que le chemin journal ([WireEvent] — JSON
      * filaire identique à POST /client/event) partent par le canal direct

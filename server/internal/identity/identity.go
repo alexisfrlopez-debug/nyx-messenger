@@ -49,7 +49,12 @@ func LoadOrCreate(dataDir string) (*Identity, error) {
         if err := os.MkdirAll(dataDir, 0o700); err != nil {
                 return nil, err
         }
-        b, err := json.MarshalIndent(id, "", "  ")
+        // v0.2.44 — FIX COMPILATION (bug du changeset v0.2.42 jamais détecté :
+        // la flotte n'a pas été redéployée, le binaire v0.2.42 n'a jamais été
+        // construit) : « b, err := » ici rédéclarait les variables de la portée
+        // fonction (b ligne du ReadFile, err du generate) — « no new variables
+        // on left side of := ». Réaffectation simple.
+        b, err = json.MarshalIndent(id, "", "  ")
         if err != nil {
                 return nil, err
         }

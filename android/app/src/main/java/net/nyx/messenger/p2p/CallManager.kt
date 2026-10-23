@@ -81,6 +81,10 @@ object CallManager {
     private var video: CallVideo? = null
     private var myCsd: ByteArray = ByteArray(0)
 
+    /** v0.2.44 — sockets relais réplica vivantes (appuyées par le repli média) —
+     *  fermées par [end] pour ne jamais fuiter une moitié orpheline. */
+    private val relaySockets = java.util.Collections.synchronizedList(ArrayList<java.net.Socket>())
+
     /** Offre entrante en attente (signalisation arrivée avant le média). */
     private var pendingOffer: CallSignal? = null
     private var acceptedCid: String? = null
@@ -152,8 +156,11 @@ object CallManager {
     private suspend fun runOutgoing(r: NyxRepository, peer: String, alias: String, cid: String) {
         run {
             // 1. Sonnerie chez le pair (journal chiffré — ≤ 15 s de poll).
+            //    v0.2.44 — l'offre embarque le RÉPLICA RELAIS (repli média) :
+            //    l'appelé saura où se brancher si le direct n'arrive pas.
+            val relayHint = r.relayHintFor(peer) ?: ""
             val offered = r.sendCallSignal(
-                peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS()).encode()
+                peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS(), relayHint).encode()
             )
             if (offered.isFailure) {
                 end("réplica injoignable — appel impossible")
@@ -175,9 +182,25 @@ object CallManager {
             //    de propagation HSDir (~30-60 s) du pair qui vient de démarrer.
             var socket: java.net.Socket? = null
             val deadline = System.currentTimeMillis() + CONNECT_WINDOW_MS
+            val t0 = System.currentTimeMillis()
             var attempt = 0
+            // v0.2.44 — REPLI RELAIS RÉPLICA (session 65) : le direct onion→onion
+            // est chroniquement mort quand l'onion du pair est injoignable
+            // (points d'intro morts — terrain 23/10 : 35 min sans jamais devenir
+            // joignable) alors que téléphone↔réplica fonctionne TOUJOURS
+            // (journal + /health 375 ms). À mi-fenêtre, le canal relais est
+            // ouvert EN PARALLÈLE (le réplica tient chaque moitié jusqu'à
+            // l'appariement) ; si le direct échoue au terme des 150 s, le HELLO
+            // part par le relais — le décrochage aboutit enfin.
+            // relayHintFor : jamais l'onion du PAIR (chemin mort par définition).
+            val relayReplica = r.relayHintFor(peer)
+            var relaySocket: java.net.Socket? = null
+            var relayOpened = false
             while (socket == null && System.currentTimeMillis() < deadline) {
-                if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) return@run
+                if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) {
+                    runCatching { relaySocket?.close() }
+                    return@run
+                }
                 attempt++
                 // v0.2.28 — la cible RÉELLE est loguée (préfixe 16 car — le
                 // tor.log scrubbe les onions, le logcat app est la seule trace
@@ -194,7 +217,40 @@ object CallManager {
                     )
                     null
                 }
-                if (socket == null) delay(3_000)
+                if (socket == null) {
+                    if (!relayOpened && relayReplica != null &&
+                        System.currentTimeMillis() - t0 >= RELAY_OPEN_AFTER_MS) {
+                        relayOpened = true
+                        val rs = runCatching {
+                            P2pClient.connectViaRelay(relayReplica, cid, "caller")
+                        }.getOrNull()
+                        if (rs != null) {
+                            rs.soTimeout = 90_000
+                            relaySocket = rs
+                            relaySockets.add(rs)
+                            net.nyx.messenger.diag.DiagLog.i(
+                                "nyx-call",
+                                "relais réplica ouvert en parallèle — repli prêt (cid ${cid.take(8)}…)"
+                            )
+                        }
+                    }
+                    delay(3_000)
+                }
+            }
+            if (socket == null) {
+                // Direct épuisé : le RELAIS devient LE média.
+                socket = relaySocket
+                if (socket != null) {
+                    socket.soTimeout = 90_000
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-call",
+                        "média VIA RELAIS réplica — direct impossible en ${CONNECT_WINDOW_MS / 1000} s (cid ${cid.take(8)}…)"
+                    )
+                }
+            } else {
+                // Le direct a gagné : la moitié relais est libérée immédiatement.
+                runCatching { relaySocket?.close() }
+                synchronized(relaySockets) { relaySockets.remove(relaySocket) }
             }
             if (socket == null) {
                 runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
@@ -334,6 +390,15 @@ object CallManager {
                 _ui.value = CallUi(Phase.INCOMING, author, label, signal.cid,
                     message = "appel entrant…", phaseChangedAt = nowMs())
                 net.nyx.messenger.notify.ContactNotifier.incomingCall(author, label)
+                // v0.2.44 — REPLI RELAIS : l'appelant a annoncé un réplica
+                // relais dans l'offre → s'y brancher dès maintenant (la
+                // moitié patiente côté réplica jusqu'à l'appariement). Si le
+                // média direct n'arrive jamais, le HELLO de l'appelant sera
+                // lu ICI et l'appel se finalise par le relais — c'est le
+                // correctif terrain du « impossible de décrocher ».
+                if (signal.relay.isNotEmpty()) {
+                    relayIncomingWait(signal.relay, signal.cid, author)
+                }
                 // v0.2.20 : la CONNEXION média a pu arriver AVANT l'offre
                 // (course journal/poll — terrain v0.2.18) : l'adopter si gardée.
                 adoptWaitedConnection(signal.cid)
@@ -362,6 +427,69 @@ object CallManager {
                     }
                     Phase.ACTIVE, Phase.WAIT, Phase.OUTGOING -> if (_ui.value.peer == author) end("terminé")
                     else -> {}
+                }
+            }
+        }
+    }
+
+    /** v0.2.44 — MOITIÉ RELAIS côté appelé : connexion au réplica indiqué par
+     *  l'offre (rôle « callee »), puis attente du HELLO de l'appelant (il ne
+     *  l'envoie là-bas QUE si son direct échoue). HELLO authentifié comme le
+     *  fait P2pServer (signature + onion de l'offre) puis remise à la machine
+     *  à états existante ([onIncomingConnection]) — le média relais se
+     *  finalise donc EXACTEMENT comme un média direct. */
+    private fun relayIncomingWait(relayOnion: String, cid: String, expectedAuthor: String) {
+        scope.launch {
+            val sock = try {
+                P2pClient.connectViaRelay(relayOnion, cid, "callee")
+            } catch (e: Exception) {
+                net.nyx.messenger.diag.DiagLog.w(
+                    "nyx-call",
+                    "relais réplica indisponible (cid ${cid.take(8)}…) : ${e.message?.take(60)}"
+                )
+                return@launch
+            }
+            relaySockets.add(sock)
+            var handedOver = false
+            try {
+                // L'appelant tente le direct pendant CONNECT_WINDOW_MS (150 s)
+                // avant d'émettre son HELLO relais : cette lecture couvre sa
+                // fenêtre + la latence d'acceptation de l'appelé.
+                sock.soTimeout = (CONNECT_WINDOW_MS + 45_000L).toInt()
+                val frame = P2pProtocol.read(sock.getInputStream()) ?: return@launch
+                val hello = frame.takeIf { it.type == P2pProtocol.F_HELLO }
+                    ?.let { P2pProtocol.parseHello(it.payload) } ?: return@launch
+                if (hello.kind != "call" || hello.cid != cid ||
+                    !hello.onion.equals(expectedAuthor, ignoreCase = true)) {
+                    net.nyx.messenger.diag.DiagLog.w(
+                        "nyx-call", "HELLO relais incohérent (cid ${cid.take(8)}…) — ignoré"
+                    )
+                    return@launch
+                }
+                val verifier = P2pVerifier.get
+                val expected = P2pProtocol.helloSignedString("call", hello.onion, hello.cid)
+                if (verifier == null || !verifier(hello.onion, expected, hello.sig)) {
+                    net.nyx.messenger.diag.DiagLog.w(
+                        "nyx-call", "HELLO relais REFUSÉ (signature) de ${hello.onion.take(16)}…"
+                    )
+                    return@launch
+                }
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-call",
+                    "média via RELAIS réplica — HELLO de ${hello.onion.take(16)}… (cid ${cid.take(8)}…)"
+                )
+                // Propriété transférée à la machine à états ([onIncomingConnection]
+                // rejette/finalise/garde la connexion elle-même) — NE PAS fermer.
+                handedOver = true
+                synchronized(relaySockets) { relaySockets.remove(sock) }
+                onIncomingConnection(P2pCallConnection(sock, hello))
+            } catch (_: Exception) {
+                // TTL réplica, pair raccroché, ou le direct a gagné la course :
+                // fin silencieuse — la socket est fermée ci-dessous si ouverte.
+            } finally {
+                if (!handedOver) {
+                    runCatching { if (!sock.isClosed) sock.close() }
+                    synchronized(relaySockets) { relaySockets.remove(sock) }
                 }
             }
         }
@@ -622,6 +750,12 @@ object CallManager {
             waited.values.forEach { c -> runCatching { c.send(P2pProtocol.F_CALL_REJECT) }; runCatching { c.close() } }
             waited.clear()
         }
+        // v0.2.44 — moitiés relais orphelines (l'autre bout n'est jamais
+        // venu ou l'appel s'achève avant l'appariement).
+        synchronized(relaySockets) {
+            relaySockets.forEach { s -> runCatching { s.close() } }
+            relaySockets.clear()
+        }
         val peer = _ui.value.peer
         net.nyx.messenger.notify.ContactNotifier.cancelCall(peer)
         val wasActive = _ui.value.phase == Phase.ACTIVE
@@ -647,6 +781,10 @@ object CallManager {
     private const val CONNECT_WINDOW_MS = 150_000L // essais jusqu'à 150 s (HSDir)
     private const val CONNECT_ATTEMPT_MS = 12_000  // essai individuel (tor : 10-30 s)
     private const val WAITED_TTL_MS = 90_000L      // connexion gardée avant l'offre
+    // v0.2.44 — repli relais : ouverture du canal relais après 60 s de direct
+    // infructueux (assez tôt pour que l'appelé s'y branche dès son acceptation,
+    // assez tard pour laisser le direct une vraie chance en début de fenêtre).
+    private const val RELAY_OPEN_AFTER_MS = 60_000L
     // v0.2.26 — anti-état collant. v0.2.27 : WAIT 60 s → 180 s — l'appelé ne
     // doit PLUS raccrocher avant la fenêtre appelant (150 s) + HELLO/answer,
     // sinon il tue l'appel que l'appelant est en train d'établir (terrain :
