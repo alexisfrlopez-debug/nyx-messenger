@@ -28,8 +28,9 @@ object P2pProtocol {
     /** Port onion dédié au canal direct (2ᵉ directive Port= de ADD_ONION). */
     const val MEDIA_ONION_PORT = 47471
 
-    const val F_HELLO = 1        // authentification + intention (call|file)
+    const val F_HELLO = 1        // authentification + intention (call|file|events)
     const val F_FILE = 0x10      // fragment de fichier (corps chiffré E2E, b64)
+    const val F_EVENT = 0x18     // v0.2.41 — événement journal signé (JSON WireEvent)
     const val F_AUDIO = 0x14     // trame audio (AAC access unit brute)
     const val F_VIDEO = 0x16     // v0.2.20 — trame vidéo (access unit H.264 brute)
     const val F_CALL_ACCEPT = 0x12  // payload = csd de l'appelé (voir AcceptPayload)
@@ -66,12 +67,12 @@ object P2pProtocol {
      * fichier) ; vérification : onionToPubKey(onion) + contact accepté.
      */
     data class Hello(
-        val kind: String,      // "call" | "file"
+        val kind: String,      // "call" | "file" | "events" (v0.2.41)
         val onion: String,     // onion de l'EXPÉDITEUR (authentification)
         val alias: String,     // alias déclaré (cosmétique)
         val cid: String,       // appel : identifiant de session
         val csd: String,       // appel : csd-0 AAC de l'appelant (b64)
-        val count: Int,        // fichier : nombre de fragments annoncés
+        val count: Int,        // fichier/events : nombre d'unités annoncées
         val sig: String,       // signature ed25519 (b64) de [helloSignedString]
         val vcsd: String = "", // v0.2.20 : csd H.264 (SPS+PPS b64) si visio, "" sinon
     )
@@ -94,7 +95,7 @@ object P2pProtocol {
     fun parseHello(payload: ByteArray): Hello? {
         val s = runCatching { String(payload, Charsets.UTF_8) }.getOrNull() ?: return null
         val kind = MiniJson.str(s, "t")
-        if (kind != "call" && kind != "file") return null
+        if (kind != "call" && kind != "file" && kind != "events") return null
         val onion = MiniJson.str(s, "onion")?.lowercase()
         if (onion == null || !onion.endsWith(".onion") || onion.length < 50) return null
         return Hello(

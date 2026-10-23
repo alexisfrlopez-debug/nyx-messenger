@@ -390,8 +390,49 @@ object TestPlan {
         Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.40.md). */
-    fun items(): List<Item> = ITEMS_V0_2_40
+    /** v0.2.41 — items de validation (miroir de docs/releases/v0.2.41.md) :
+     *  TRANSPORT DE REPLAN P2P (ADR-017, demande opérateur : « connexion aux
+     *  replicas instables, il faudrait un 2e protocole de connexion qui
+     *  assure une redondance/stabilité/rapidité […] peut-être s'inspirer de
+     *  Briar pour une connexion P2P pur capable de prendre le relais quand
+     *  les 2 téléphones sont en ligne ») : messages + signalisation d'appel
+     *  livrables en DIRECT onion→onion (repli/anticipation selon la santé du
+     *  réplica) + ANTI-CHURN tor (plus de redémarrage agressif du démon —
+     *  cause racine de la cascade « SOCKS server general failure »). Les
+     *  validations critiques antérieures restent incluses. ATTENTION TERRAIN :
+     *  les 2 téléphones en v0.2.41 pour le chemin direct (un pair plus ancien
+     *  refuse le HELLO events — l'expéditeur retombe alors sur le journal,
+     *  comportement normal). */
+    val ITEMS_V0_2_41 = listOf(
+        Item("p2p-repli-message", "REPLAN P2P — MESSAGE (NOUVEAU v0.2.41, LES 2 TÉLÉPHONES en v0.2.41) : répliques COUPÉS (VM éteinte + répliques temporaires arrêtées) puis envoi d'un message texte pair-à-pair les 2 apps ouvertes → le log expéditeur montre « ✓ livré DIRECT P2P (réplica dégradé) » et le message ARRIVE chez le pair en ~5-20 s"),
+        Item("p2p-repli-appel", "REPLAN P2P — APPEL (LES 2 TÉLÉPHONES en v0.2.41) : répliques coupés, appel vocal pair-à-pair les 2 apps ouvertes → la sonnerie part en direct (« signalisation livrée DIRECT P2P » dans le log) et le MÉDIA s'établit (chemin média déjà P2P)"),
+        Item("p2p-sain", "COMPORTEMENT SAIN — répliques RÉTABLIS : les messages repassent par le journal (« ✓ déposé »), le poll réussit, plus de bascules en cascade ; les accusés ✓✓ reviennent"),
+        Item("antichurn-tor", "ANTI-CHURN TOR : sur réseau lent (timeouts 25 s visibles), le log ne montre PLUS de « redémarrage du démon tor » dans les ~10 min suivant un bootstrap — plus de cascade « SOCKS server general failure »"),
+        Item("dedup-direct", "DÉDOUBLONNAGE : un message livré en direct P2P puis re-livré par le journal (répliques rétablis) n'apparaît QU'UNE FOIS chez le pair (dédup eventId, porte commune)"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue v0.2.40) : à la publication de CETTE release, la version TEST en v0.2.40-test doit la détecter en ≤ 30 min, la télécharger via Tor, afficher la bannière « Nouvelle version 0.2.41 prête — installer » → L'INSTALLATION ABOUTIT (première validation réelle du correctif permission)"),
+        Item("maj-auto-carte", "MAJ AUTO — carte Paramètres visible dans le build TEST avec le texte « Canal TEST : … pré-releases incluses » ; « Vérifier maintenant » rafraîchit l'état ; anti-downgrade respecté"),
+        Item("maj-auto-standard", "MAJ AUTO CANAL STANDARD (validation continue v0.2.20) : le build NORMAL ignore les pré-releases — il ne propose QUE la dernière release validée (non-pré-release), APK -release.apk"),
+        Item("hsfetch-ok", "DIAG PERSISTANT (validation continue v0.2.39) : après un échec de connexion, le log montre « HSFETCH … — descripteur re-demandé aux HSDirs » SANS aucun « erreur Tor 513 »"),
+        Item("appel-decroche", "APPELS (validation continue v0.2.39, LES 2 TÉLÉPHONES à jour) : un appel passé ~1 min après le DÉMARRAGE de l'app de l'appelé DOIT établir le média ; plus aucune salve de « SOCKS server general failure »"),
+        Item("appel-repos", "APPELS après >2 min de fonctionnement des deux apps : le média s'établit dès la 1re ou 2e tentative"),
+        Item("replica-console", "Console v0.8.7 : le réplica temporaire découvert passe EN LIGNE quand le téléphone tourne depuis >2 min"),
+        Item("lastseen", "Console v0.8.7 : le « vu » du réplica temporaire affiche une date RÉELLE et non plus « 1970 »"),
+        Item("scroll-principal-v2", "ÉCRAN PRINCIPAL (validation continue v0.2.38) : la liste des conversations DÉFILE toujours — la bannière de mise à jour ne perturbe ni le défilement ni le plafond de la zone fixe"),
+        Item("scroll-toutes-fenetres", "TOUTES LES FENÊTRES (validation continue v0.2.38) : chat, contacts/blocages, réglages, profil, adresse, verrou, connexions, onboarding — chaque écran défile, clavier ouvert aussi"),
+        Item("fusion-replica", "Fusion : la carte « Réplica embarqué » dans les Paramètres du build NORMAL (validation continue v0.2.35/36)"),
+        Item("lisibilite-nuit", "LISIBILITÉ MODE « NUIT » : aucun texte noir/illisible sur le dégradé bleu nuit (validation continue v0.2.36)"),
+        Item("lisibilite-aube", "LISIBILITÉ MODE « AUBE » : aucun texte pâle/illisible sur ivoire (validation continue v0.2.36)"),
+        Item("esthetique", "Esthétique « Nyx, déesse de la nuit » : dégradé/lune/icône/aube (validation continue v0.2.36)"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible dans la ligne de titre MÊME CARTE REPLIÉE"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("blocage", "Blocage/déblocage : bloquer (pression longue) coupe TOUT du contact ; débloquer restaure l'état exact (validation continue)"),
+        Item("restauration3", "Régressions : restauration de sauvegarde chiffrée — alias + contacts reviennent, mot de passe demandé à l'import"),
+        Item("notif-message", "Régressions : notification à la réception d'un message, rien si la conversation est ouverte"),
+        Item("regressions-msg4", "Régressions : messages texte + accusés ✓✓ + média à vue limitée"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.41.md). */
+    fun items(): List<Item> = ITEMS_V0_2_41
 
 
     /**

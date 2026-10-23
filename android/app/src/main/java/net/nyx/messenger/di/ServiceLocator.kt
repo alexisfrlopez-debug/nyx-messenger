@@ -141,6 +141,11 @@ object ServiceLocator {
             net.nyx.messenger.p2p.P2pServer.fileSink = { author, body ->
                 repoRef.receiveDirectFragment(author, body)
             }
+            // v0.2.41 — transport de replan ADR-017 : ingestion des événements
+            // directs (messages + signalisation d'appel) par la porte commune.
+            net.nyx.messenger.p2p.P2pServer.eventSink = { author, events ->
+                repoRef.receiveDirectEvents(author, events)
+            }
             net.nyx.messenger.p2p.P2pServer.callSink = { conn ->
                 net.nyx.messenger.p2p.CallManager.onIncomingConnection(conn)
             }
@@ -270,6 +275,12 @@ object ServiceLocator {
             // v0.2.17 : compteur d'échecs de transport consécutifs (auto-guérison).
             var transportFails = 0
             var lastHealAt = 0L
+            // v0.2.41 — ANTI-CHURN (ADR-017 §2.4, cause racine des logs 23/10 :
+            // le heal tuait un démon FRAÎCHEMENT bootstrappé sur un réseau
+            // simplement lent — mort des points d'introduction → cascade
+            // « SOCKS server general failure »). On ne redémarre QUE si le
+            // démon est Ready depuis longtemps ET que TOUT échoue encore.
+            var readySinceMs = 0L
             while (true) {
                 val now = android.os.SystemClock.elapsedRealtime()
                 val tor = net.nyx.messenger.tor.TorManager.get(appContext())
@@ -277,9 +288,11 @@ object ServiceLocator {
                 if (ready && fastUntil == 0L) {
                     // Transition vers Ready (démarrage, retry, relance du démon).
                     fastUntil = now + FAST_WINDOW_MS
+                    readySinceMs = now // v0.2.41 — âge du bootstrap pour l'anti-churn
                     android.util.Log.i("nyx-poll", "tor prêt — reprise rapide du poll")
                 } else if (!ready) {
                     fastUntil = 0L      // tor retombe : la fenêtre n'a plus de sens
+                    readySinceMs = 0L   // v0.2.41 — idem pour l'âge du Ready
                 }
                 if (ready && now >= nextPollAt) {
                     val t0 = android.os.SystemClock.elapsedRealtime()
@@ -307,15 +320,27 @@ object ServiceLocator {
                             // déclenche que si TOUS les réplicas échouent.
                             if (transport) repository.markReplicaFailed("poll inbox : ${e.message?.take(80)}")
                             transportFails = if (transport) transportFails + 1 else 0
-                            if (transportFails >= HEAL_THRESHOLD &&
-                                now - lastHealAt > HEAL_COOLDOWN_MS
+                            // v0.2.41 — GARDE ANTI-CHURN (ADR-017 §2.4) : le
+                            // redémarrage du démon ne se déclenche PLUS sur un
+                            // démon fraîchement bootstrappé (Ready < 10 min —
+                            // il construit encore ses circuits, le réseau est
+                            // simplement lent) : le tuer cassait ses points
+                            // d'introduction et fabriquait la cascade « SOCKS
+                            // server general failure » des logs 23/10 01:06.
+                            // Décision pure partagée (TransportOrder, testée).
+                            val readyForMs = if (readySinceMs > 0) now - readySinceMs else 0L
+                            if (net.nyx.messenger.repo.TransportOrder.shouldHealTor(
+                                    transportFails, readyForMs, now - lastHealAt,
+                                    HEAL_THRESHOLD, HEAL_MIN_READY_MS, HEAL_COOLDOWN_MS
+                                )
                             ) {
                                 lastHealAt = android.os.SystemClock.elapsedRealtime()
                                 transportFails = 0
                                 android.util.Log.w(
                                     "nyx-tor-heal",
-                                    "$HEAL_THRESHOLD échecs de transport consécutifs en Tor Ready — " +
-                                        "redémarrage du démon tor (remède de la relance app, terrain 04:28)"
+                                    "$HEAL_THRESHOLD échecs de transport consécutifs " +
+                                        "(démon Ready depuis ${readyForMs / 1000} s) — " +
+                                        "redémarrage du démon tor"
                                 )
                                 tor.retry()   // stopNow borné + relance fraîche (v0.2.9)
                             }
@@ -430,8 +455,11 @@ object ServiceLocator {
     // v0.2.26 — purge locale des messages éphémères.
     private const val EPHEMERAL_SWEEP_MS = 30_000L
     // v0.2.17 — auto-guérison tor : seuil + cooldown.
-    private const val HEAL_THRESHOLD = 3
-    private const val HEAL_COOLDOWN_MS = 5 * 60_000L
+    private const val HEAL_THRESHOLD = 5
+    // v0.2.41 — ADR-017 §2.4 : un démon doit être Ready depuis ≥ 10 min avant
+    // qu'un redémarrage soit envisagé (anti-churn), et le cooldown passe à 10 min.
+    private const val HEAL_MIN_READY_MS = 10 * 60_000L
+    private const val HEAL_COOLDOWN_MS = 10 * 60_000L
 
     /** Clé de base SQLCipher : 32 octets aléatoires, scellés via KeystoreBox dès le 1er lancement. */
     private fun dbPassphrase(context: Context): ByteArray {

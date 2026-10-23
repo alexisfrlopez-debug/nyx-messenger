@@ -85,6 +85,62 @@ object P2pClient {
     }
 
     /**
+     * v0.2.41 — DÉPÔT DIRECT D'ÉVÉNEMENTS (ADR-017, transport de replan) :
+     * les MÊMES événements signés que le chemin journal ([WireEvent] — JSON
+     * filaire identique à POST /client/event) partent par le canal direct
+     * onion→onion quand le réplica est injoignable ou dégradé. HELLO
+     * « events » signé (selector = nombre d'événements), une trame F_EVENT
+     * par événement, demi-fermeture, ACK récapitulatif.
+     *
+     * Timeout volontairement COURT (20 s, sans récupération HSFETCH) : ce
+     * chemin est un REPLI dans un flux d'envoi — un pair hors ligne répond
+     * « SOCKS general failure » en ~1-5 s ; traîner 90 s (connect + HSFETCH
+     * + reconnect) gèlerait l'envoi pour rien. Renvoie true si le pair a
+     * accepté les [events.size] événements.
+     */
+    fun pushEvents(
+        peer: String,
+        events: List<net.nyx.messenger.net.WireEvent>,
+        alias: String,
+        timeoutMs: Int = 20_000,
+    ): Boolean {
+        if (events.isEmpty()) return true
+        val me = me ?: error("identité absente")
+        val sig = signer?.invoke(
+            P2pProtocol.helloSignedString("events", me, events.size.toString())
+        ) ?: error("signature indisponible")
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+        val socket = connect(peer, timeoutMs, descriptorRecovery = false)
+        try {
+            socket.getOutputStream().let { out ->
+                P2pProtocol.write(
+                    out, P2pProtocol.F_HELLO,
+                    P2pProtocol.encodeHello(
+                        P2pProtocol.Hello("events", me, alias, "", "", events.size, ""), sig
+                    )
+                )
+                for (ev in events) {
+                    P2pProtocol.write(
+                        out, P2pProtocol.F_EVENT,
+                        json.encodeToString(
+                            net.nyx.messenger.net.WireEvent.serializer(), ev
+                        ).toByteArray(Charsets.UTF_8)
+                    )
+                }
+            }
+            runCatching { socket.shutdownOutput() }
+            val frame = P2pProtocol.read(socket.getInputStream())
+            val acked = frame?.takeIf { it.type == P2pProtocol.F_ACK && it.payload.size >= 4 }
+                ?.let { f -> ((f.payload[0].toInt() and 0xFF) shl 24) or ((f.payload[1].toInt() and 0xFF) shl 16) or ((f.payload[2].toInt() and 0xFF) shl 8) or (f.payload[3].toInt() and 0xFF) }
+                ?: -1
+            android.util.Log.i("nyx-p2p", "dépôt direct événements : $acked/${events.size} ingérés par le pair")
+            return acked == events.size
+        } finally {
+            runCatching { socket.close() }
+        }
+    }
+
+    /**
      * Dépôt DIRECT d'un fichier : HELLO(file) signé, puis un F_FILE par
      * fragment (corps chiffré E2E identique au chemin journal), puis attente
      * de l'ACK récapitulatif. Renvoie true si le pair a bien reçu ET accepté

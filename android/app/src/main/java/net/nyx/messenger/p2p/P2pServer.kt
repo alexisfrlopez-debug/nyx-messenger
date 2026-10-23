@@ -31,6 +31,13 @@ object P2pServer {
     /** Injecté par ServiceLocator — ingestion d'un fragment direct (renvoie true = accepté). */
     @Volatile var fileSink: (suspend (author: String, bodyB64: String) -> Boolean)? = null
 
+    /**
+     * v0.2.41 — Injecté par ServiceLocator — ingestion d'un LOT d'événements
+     * directs (ADR-017). Renvoie le nombre d'événements ACCEPTÉS (0 = tout
+     * rejeté — l'expéditeur retombera sur le journal).
+     */
+    @Volatile var eventSink: (suspend (author: String, events: List<net.nyx.messenger.net.WireEvent>) -> Int)? = null
+
     /** Injecté par ServiceLocator — remise d'une connexion d'appel authentifiée. */
     @Volatile var callSink: ((conn: P2pCallConnection) -> Unit)? = null
 
@@ -96,6 +103,9 @@ object P2pServer {
         }
         if (hello.kind == "file") {
             Thread({ serveFile(sock, hello) }, "nyx-p2p-file").start()
+        } else if (hello.kind == "events") {
+            // v0.2.41 — dépôt direct d'événements (transport de replan ADR-017).
+            Thread({ serveEvents(sock, hello) }, "nyx-p2p-events").start()
         } else {
             val sink = callSink
             if (sink == null) {
@@ -141,6 +151,48 @@ object P2pServer {
             ((v ushr 24) and 0xFF).toByte(), ((v ushr 16) and 0xFF).toByte(),
             ((v ushr 8) and 0xFF).toByte(), (v and 0xFF).toByte()
         )
+
+    /**
+     * v0.2.41 — LOT d'événements signés (ADR-017) : chaque trame F_EVENT est
+     * un JSON WireEvent IDENTIQUE au filaire journal. Tout le lot part au
+     * [eventSink] (la porte commune re-vérifie CHAQUE signature, le
+     * destinataire, les verrous de contact et la dédup) puis ACK du nombre
+     * accepté. Un pair v0.2.18-0.2.40 n'émet jamais ce HELLO ; un serveur
+     * v0.2.18-0.2.40 le REFUSE (parseHello inconnu) — compat totale.
+     */
+    private fun serveEvents(sock: Socket, hello: P2pProtocol.Hello) {
+        var accepted = 0
+        val input = sock.getInputStream()
+        val out = sock.getOutputStream()
+        try {
+            val sink = eventSink
+                ?: run { P2pProtocol.write(out, P2pProtocol.F_ACK, intToBytes(0)); return }
+            val events = ArrayList<net.nyx.messenger.net.WireEvent>(hello.count.coerceAtMost(256))
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            while (events.size < hello.count) {
+                val frame = P2pProtocol.read(input) ?: break
+                if (frame.type != P2pProtocol.F_EVENT) break
+                val ev = runCatching {
+                    json.decodeFromString(
+                        net.nyx.messenger.net.WireEvent.serializer(),
+                        String(frame.payload, Charsets.UTF_8)
+                    )
+                }.getOrNull() ?: break
+                events.add(ev)
+            }
+            accepted = kotlinx.coroutines.runBlocking { sink(hello.onion, events) }
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-p2p", "dépôt direct événements : $accepted/${hello.count} ingérés"
+            )
+        } catch (e: Exception) {
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-p2p", "dépôt direct d'événements interrompu ($accepted/${hello.count}) : ${e.message}"
+            )
+        } finally {
+            runCatching { P2pProtocol.write(out, P2pProtocol.F_ACK, intToBytes(accepted)) }
+            runCatching { sock.close() }
+        }
+    }
 }
 
 /**

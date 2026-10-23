@@ -131,6 +131,9 @@ class NyxRepository(
      * suivant. Invoqué sur échec réseau du poll inbox et des dépôts.
      */
     fun markReplicaFailed(reason: String) {
+        // v0.2.41 — horodatage pour l'ordre adaptatif ADR-017 (direct d'abord
+        // quand le répliqué vient d'échouer par transport).
+        lastTransportFailAt = System.currentTimeMillis()
         if (replicas.size < 2) return
         val old = replicas.getOrNull(replicaIndex) ?: "?"
         val next = (replicaIndex + 1) % replicas.size
@@ -143,6 +146,22 @@ class NyxRepository(
             "réplica ${old.take(16)}… en échec ($reason) → bascule sur ${replicas[next].take(16)}…"
         )
     }
+
+    /**
+     * v0.2.41 — DÉGRADATION DU CHEMIN JOURNAL (ADR-017) : dernier échec de
+     * TRANSPORT vers un réplica (poll/dépôt). Tant qu'un échec date de moins
+     * de [RELAY_DEGRADED_WINDOW_MS], les envois partent DIRECT d'abord (le
+     * pair en ligne répond en ~5-15 s là où un réplica mourant consomme ses
+     * 25 s de timeout) — le journal reprend le premier rôle dès la fenêtre
+     * passée OU au premier succès de poll (remise à zéro).
+     */
+    @Volatile private var lastTransportFailAt = 0L
+
+    /** v0.2.41 — le chemin journal est-il dégradé (échec transport récent) ? */
+    fun relayDegraded(): Boolean =
+        net.nyx.messenger.repo.TransportOrder.relayDegraded(
+            lastTransportFailAt, System.currentTimeMillis(), RELAY_DEGRADED_WINDOW_MS
+        )
 
     /** Relais courant (reconstruit si le port SOCKS de tor a changé).
      *  v0.2.25 : suit [replicaIndex] (failover) au lieu du premier fixe. */
@@ -256,7 +275,23 @@ class NyxRepository(
                     // v0.2.26 : péremption locale cohérente avec celle du pair.
                     expireAt = if (ttlSeconds > 0) System.currentTimeMillis() + ttlSeconds * 1000 else 0L)
             )
-            android.util.Log.i("nyx-send", "   stocké local id=${id.take(12)}… seq=$seq → dépôt réplica")
+            android.util.Log.i("nyx-send", "   stocké local id=${id.take(12)}… seq=$seq → dépôt")
+            // v0.2.41 — FAILOVER TRANSPORT (ADR-017, « 2ᵉ protocole de
+            // connexion » de l'opérateur) : le dépôt journal reste le chemin
+            // PREMIER (durabilité multi-réplicas) MAIS si le réplica vient
+            // d'échouer par transport (dégradé), l'ordre s'INVERSE — le canal
+            // direct onion→onion livre en ~5-15 s un pair en ligne. En repli
+            // symétrique : un échec TRANSPORT du journal retente en direct.
+            // Exactement UN chemin réussi par envoi (jamais les deux).
+            var directTried = false
+            if (relayDegraded()) {
+                directTried = true
+                if (tryDirectPush(peer, signed)) {
+                    messageDao.updateState(id, STATE_SENT)
+                    android.util.Log.i("nyx-send", "   ✓ livré DIRECT P2P — réplica dégradé (seq=$seq)")
+                    return@runCatching
+                }
+            }
             postSigned(relay, me, signed, canonical, priv).fold(
                 onSuccess = {
                     messageDao.updateState(id, STATE_SENT)
@@ -264,6 +299,13 @@ class NyxRepository(
                     Unit
                 },
                 onFailure = { e ->
+                    // v0.2.41 — repli direct P2P : le pair peut être joignable
+                    // même réplica mort (les 2 téléphones en ligne, ADR-017).
+                    if (!directTried && tryDirectPush(peer, signed)) {
+                        messageDao.updateState(id, STATE_SENT)
+                        android.util.Log.i("nyx-send", "   ✓ livré DIRECT P2P après échec journal (seq=$seq) : ${e.message?.take(60)}")
+                        return@fold
+                    }
                     messageDao.updateState(id, STATE_FAILED)
                     android.util.Log.w("nyx-send", "   ✗ dépôt ÉCHOUÉ (seq=$seq) : ${e.message}")
                     throw e
@@ -271,6 +313,26 @@ class NyxRepository(
             )
         }
     }
+
+    /**
+     * v0.2.41 — TENTATIVE DE LIVRAISON DIRECTE (replan ADR-017) : pousse
+     * l'événement signé au pair par le canal onion→onion (même événement,
+     * même signature que le chemin journal — dédup par eventId côté pair).
+     * JAMAIS d'exception : false = pair injoignable, l'appelant poursuit par
+     * le journal ou échoue proprement. Timeout court (20 s, sans HSFETCH —
+     * la récupération de descripteur reste l'affaire du chemin appel).
+     */
+    private fun tryDirectPush(peer: String, signed: WireEvent): Boolean =
+        runCatching {
+            net.nyx.messenger.p2p.P2pClient.pushEvents(
+                peer, listOf(signed), identity.alias ?: ""
+            )
+        }.onFailure { e ->
+            android.util.Log.i(
+                "nyx-send",
+                "   · repli direct P2P indisponible (${e.message?.take(80)})"
+            )
+        }.getOrDefault(false)
 
     /**
      * v0.2.10 — réservation de séquence PERSISTÉE (table seq_state, v2).
@@ -353,6 +415,47 @@ class NyxRepository(
         }
         var inserted = 0
         for (ev in resp.events) {
+            // v0.2.41 — PORTE COMMUNE (ADR-017) : le poll et le canal direct
+            // P2P ingèrent les événements par la MÊME porte de validation.
+            if (ingestInboxEvent(ev, priv) == Ingest.NEW) inserted++
+        }
+        // v0.2.41 — poll RÉUSSI : le chemin journal redevient PREMIER (sortie
+        // de dégradation ADR-017).
+        lastTransportFailAt = 0L
+        pollStateDao.upsert(PollStateEntity(replicas.first(), resp.cursor))
+        // v0.2.15 : accusés en attente — tentative IMMÉDIATE (ce poll vient de
+        // prouver le réplica joignable, Tor chaud) ; en cas d'échec la boucle
+        // périodique repartira les accusés comme les annonces/acks.
+        runCatching { ensureReceiptsSent() }
+        inserted
+    }
+
+    /**
+     * v0.2.41 — Résultat d'ingestion d'un événement par la porte commune :
+     * le poll compte les [NEW] (comportement historique d'`inserted`), le
+     * canal direct P2P accepte tout sauf [REJECTED] (ACK à l'expéditeur).
+     */
+    private enum class Ingest {
+        /** Rejeté/détruit/ignoré (signature, politique, TTL, doublon d'annonce). */
+        REJECTED,
+        /** Appliqué SANS nouvel élément de conversation (accusé, suppression
+         *  distante, annonce réplica, signalisation d'appel, fragment > 0). */
+        APPLIED,
+        /** Nouvel élément de conversation (message stocké, invitation, ack,
+         *  fragment 0, annonce requalifiée) — compté par le poll. */
+        NEW
+    }
+
+    /**
+     * v0.2.41 — PORTE COMMUNE D'INGESTION (ADR-017) : traite UN événement
+     * entrant par le chemin inbox (poll répliqué) OU le canal direct P2P
+     * (onion→onion). EXtrait tel quel de la boucle de poll v0.2.10-0.2.40 :
+     * vérification de signature, déchiffrement, verrous de contact, blocage,
+     * TTL, dédup par eventId, notification. Le chemin direct re-vérifie en
+     * amont la signature du HELLO, l'auteur et le destinataire (cf.
+     * [receiveDirectEvents]) — TOUT le reste est PARTAGÉ.
+     */
+    private suspend fun ingestInboxEvent(ev: WireEvent, priv: ByteArray): Ingest {
             // v0.2.11 : l'auteur est normalisé (trim+minuscules) — la clé locale
             // (contacts/messages) doit matcher la clé utilisée à l'envoi.
             val author = ev.author.trim().lowercase()
@@ -362,14 +465,14 @@ class NyxRepository(
             val okSig = authorPub != null && verifySignature(canonical, ev.sig, authorPub)
             if (!okSig) {
                 android.util.Log.w("nyx-recv", "   signature invalide type=${ev.type} author=${author.take(16)}…")
-                continue
+                return Ingest.REJECTED
             }
 
             // 2. Déchiffrement (sealed box v0.1)
             val plain = cipher.decryptForSelf(priv, ev.body)?.toString(Charsets.UTF_8)
             if (plain == null) {
                 android.util.Log.w("nyx-recv", "   déchiffrement impossible type=${ev.type} author=${author.take(16)}…")
-                continue
+                return Ingest.REJECTED
             }
 
             // 3. Demande de contact (v0.2.10) + ACK (v0.2.12) : body chiffré
@@ -404,7 +507,7 @@ class NyxRepository(
                             "   ✓ accusé « $kind » de ${author.take(16)}… (${ids.size} msg)"
                         )
                     }
-                    continue
+                    return Ingest.APPLIED
                 }
                 // v0.2.19 : DEMANDE DE SUPPRESSION ("del") — traitée AVANT la
                 // branche invitation/ack (le corps "del" n'est ni l'un ni l'autre).
@@ -429,7 +532,7 @@ class NyxRepository(
                             )
                         }
                     }
-                    continue
+                    return Ingest.APPLIED
                 }
                 // v0.2.25 : ANNONCE DE RÉPLICA TEMPORAIRE — corps chiffré
                 // {"alias":…,"replica":"<onion>[:port]","ver":…} (cf. ReplicaCodec).
@@ -457,7 +560,9 @@ class NyxRepository(
                                 "de ${author.take(16)}…"
                         )
                     }
-                    continue
+                    // v0.2.41 — consommé dans les DEUX cas (l'annonce rejetée
+                    // est tracée ; ACK idempotent pour le chemin direct).
+                    return Ingest.APPLIED
                 }
                 val declared = Regex("\"alias\"\\s*:\\s*\"([^\"]*)\"").find(plain)
                     ?.groupValues?.get(1).orEmpty()
@@ -476,7 +581,7 @@ class NyxRepository(
                                 "nyx-recv",
                                 "   · ack « $ack » d'un pair inconnu ${author.take(16)}… — ignoré"
                             )
-                            continue
+                            return Ingest.REJECTED
                         }
                         // v0.2.14 : lien ARCHIVÉ chez moi (je l'ai supprimé, refusé,
                         // ou il m'a supprimé) — un ack arrivé APRÈS (en vol au moment
@@ -488,7 +593,7 @@ class NyxRepository(
                                 "nyx-recv",
                                 "   · ack « $ack » ignoré — lien archivé (${already.status}) pour ${author.take(16)}…"
                             )
-                            continue
+                            return Ingest.REJECTED
                         }
                         val newStatus = when (ack) {
                             "accepted" -> ContactStatus.ACCEPTED
@@ -526,7 +631,7 @@ class NyxRepository(
                             "removed" -> net.nyx.messenger.notify.ContactNotifier.removed(author, label)
                         }
                         android.util.Log.i("nyx-recv", "   ✓ ack « $ack » de ${author.take(16)}… ($label)")
-                        inserted++
+                        return Ingest.NEW
                     }
                     already == null -> {
                         // — INVITATION reçue (v0.2.10) : à accepter/refuser par
@@ -549,7 +654,7 @@ class NyxRepository(
                         )
                         net.nyx.messenger.notify.ContactNotifier.invitation(author, label)
                         android.util.Log.i("nyx-recv", "   ✓ demande de contact de ${author.take(16)}… ($label)")
-                        inserted++
+                        return Ingest.NEW
                     }
                     already.status == ContactStatus.PENDING -> {
                     // — v0.2.12 : AJOUT MUTUEL — nous avions invité ce pair (statut
@@ -568,7 +673,7 @@ class NyxRepository(
                         )
                     )
                     android.util.Log.i("nyx-recv", "   ✓ ajout mutuel de ${author.take(16)}… ($label) → ack reparti")
-                    inserted++
+                    return Ingest.NEW
                     }
                     else -> {
                         // Doublon d'annonce (relances) ou contact reçu sous v0.2.10/11
@@ -583,13 +688,16 @@ class NyxRepository(
                             contactDao.setStatus(author, ContactStatus.INCOMING)
                             net.nyx.messenger.notify.ContactNotifier.invitation(author, label)
                             android.util.Log.i("nyx-recv", "   ✓ annonce connue de ${author.take(16)}… → invitation reçue")
-                            inserted++
+                            return Ingest.NEW
                         } else {
                             android.util.Log.i("nyx-recv", "   · annonce déjà traitée de ${author.take(16)}… (${already.status})")
+                            return Ingest.REJECTED
                         }
                     }
                 }
-                continue
+                // v0.2.41 — le type « contact » est TOUJOURS consommé ci-dessus
+                // (chaque branche du when retourne) ; ce point n'est plus atteint.
+                return Ingest.REJECTED
             }
 
             // 3bis. v0.2.14 — MESSAGE : échange RÉSERVÉ aux contacts MUTUELS
@@ -612,7 +720,7 @@ class NyxRepository(
                     "nyx-recv",
                     "   ✗ msg de ${author.take(16)}… ignoré (pas un contact mutuel — statut: ${linkStatus ?: "aucun"})"
                 )
-                continue
+                return Ingest.REJECTED
             }
 
             // 3quinquies. v0.2.29 — BLOCAGE LOCAL (demande opérateur : « la
@@ -628,7 +736,7 @@ class NyxRepository(
                     "nyx-recv",
                     "   ✗ ${ev.type} de ${author.take(16)}… détruit (contact bloqué localement)"
                 )
-                continue
+                return Ingest.REJECTED
             }
 
             // 3ter. v0.2.17 — FRAGMENT DE FICHIER ? (corps « msg » déchiffré
@@ -638,8 +746,9 @@ class NyxRepository(
             val chunk = ChunkCodec.parse(plain)
             if (chunk != null) {
                 handleIncomingChunk(author, canonical, ev.ts, chunk)
-                if (chunk.index == 0) inserted++
-                continue
+                // v0.2.41 — fragment > 0 : appliqué (assemblage) mais non compté
+                // par le poll (comportement historique d'`inserted`).
+                return if (chunk.index == 0) Ingest.NEW else Ingest.APPLIED
             }
 
             // 3quater. v0.2.18 — SIGNALISATION D'APPEL ? (corps « msg »
@@ -655,13 +764,16 @@ class NyxRepository(
                 // en moins de 15 s — 120 s de marge est large.
                 if (ev.ts >= System.currentTimeMillis() / 1000 - 120) {
                     callSignalHandler?.invoke(author, signal)
+                    // v0.2.41 — consommé (remis au CallManager) : ACCEPTÉ pour le
+                    // chemin direct — c'est le chemin critique des appels (ADR-017).
+                    return Ingest.APPLIED
                 } else {
                     android.util.Log.i(
                         "nyx-recv",
                         "   · signalisation d'appel périmée de ${author.take(16)}… — ignorée"
                     )
+                    return Ingest.REJECTED
                 }
-                continue
             }
 
             // 4. Stockage local — v0.2.15 : rcptPending=1 = accusé « delivered »
@@ -671,7 +783,7 @@ class NyxRepository(
             // est déjà dépassé (poll très en retard) n'est ni stocké ni notifié.
             if (ev.ttl > 0 && System.currentTimeMillis() / 1000 >= ev.ts + ev.ttl) {
                 android.util.Log.i("nyx-recv", "   · éphémère déjà expiré de ${author.take(16)}… — ignoré")
-                continue
+                return Ingest.REJECTED
             }
             val id = eventIdOf(canonical)
             val isNew = messageDao.byId(id) == null
@@ -699,15 +811,52 @@ class NyxRepository(
                 val alias = contactDao.get(author)?.alias ?: (author.take(10) + "…")
                 net.nyx.messenger.notify.MessageNotifier.messageReceived(author, alias, plain)
             }
-            inserted++
-        }
-        pollStateDao.upsert(PollStateEntity(replicas.first(), resp.cursor))
-        // v0.2.15 : accusés en attente — tentative IMMÉDIATE (ce poll vient de
-        // prouver le réplica joignable, Tor chaud) ; en cas d'échec la boucle
-        // périodique repartira les accusés comme les annonces/acks.
-        runCatching { ensureReceiptsSent() }
-        inserted
+            return Ingest.NEW
     }
+
+    /**
+     * v0.2.41 — RÉCEPTION DIRECTE D'UN LOT D'ÉVÉNEMENTS (canal P2P onion→onion,
+     * ADR-017 — « 2ᵉ protocole de connexion » de l'opérateur). Le HELLO a déjà
+     * authentifié l'expéditeur (signature ed25519 de sa clé d'identité + contact
+     * accepté/pending) ; CHAQUE événement est re-vérifié INDIVIDUELLEMENT puis
+     * ingéré par la porte commune [ingestInboxEvent] — les verrous, le TTL, la
+     * dédup par eventId et les notifications sont PARTAGÉS avec l'inbox. Renvoie
+     * le nombre d'événements ACCEPTÉS (l'expéditeur ne sollicite le journal que
+     * si ce compte ≠ taille du lot).
+     */
+    suspend fun receiveDirectEvents(helloAuthor: String, events: List<WireEvent>): Int =
+        withContext(Dispatchers.IO) {
+            val me = identity.onionAddress ?: return@withContext 0
+            val priv = runCatching { identity.secretKey() }.getOrNull()
+                ?: return@withContext 0
+            var accepted = 0
+            for (ev in events) {
+                val author = ev.author.trim().lowercase()
+                // Anti-mixage : l'événement doit venir du MÊME onion que le HELLO
+                // (le lot est monographique — pas de cheval de Troie multi-pairs).
+                if (author != helloAuthor.trim().lowercase()) {
+                    android.util.Log.w("nyx-p2p", "événement direct auteur ≠ HELLO — rejeté (${author.take(16)}…)")
+                    continue
+                }
+                // Destinataire : seuls NOS événements nous sont remis (miroir de
+                // l'inbox du répliqué — un lot tiers est rejeté en bloc).
+                if ((ev.to ?: "").trim().lowercase() != me) {
+                    android.util.Log.w("nyx-p2p", "événement direct adressé ailleurs — rejeté")
+                    continue
+                }
+                // Signature individuelle (même vérification que l'inbox).
+                val canonical = MessageCipher.canonical(
+                    ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body
+                )
+                val authorPub = runCatching { OnionCodec.onionToPubKey(author) }.getOrNull()
+                if (authorPub == null || !verifySignature(canonical, ev.sig, authorPub)) {
+                    android.util.Log.w("nyx-p2p", "événement direct signature invalide — rejeté")
+                    continue
+                }
+                if (ingestInboxEvent(ev, priv) != Ingest.REJECTED) accepted++
+            }
+            accepted
+        }
 
     private fun verifySignature(canonical: String, sigB64: String, pub: ByteArray): Boolean {
         // Vérification ed25519 réelle via libsodium — protège contre un réplica
@@ -1379,7 +1528,6 @@ class NyxRepository(
     suspend fun sendCallSignal(peerLower: String, json: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val relay = relay() ?: error("aucun réplica configuré")
                 val me = identity.onionAddress ?: error("identité absente")
                 val priv = identity.secretKey()
                 val peerPub = OnionCodec.onionToPubKey(peerLower)
@@ -1391,7 +1539,32 @@ class NyxRepository(
                     to = peerLower, body = body, sig = ""
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
-                postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
+                val relay = relay()
+                // v0.2.41 — FAILOVER SIGNALISATION D'APPEL (ADR-017) : la
+                // sonnerie/l'offre/réponse est le chemin LE PLUS critique de
+                // l'appel (« impossible de décrocher » quand le réplica
+                // échoue) — même repli adaptatif que l'envoi de message :
+                // direct d'abord si dégradé, journal sinon, direct en repli.
+                var directTried = false
+                if (relay == null || relayDegraded()) {
+                    directTried = true
+                    if (tryDirectPush(peerLower, signed)) {
+                        android.util.Log.i("nyx-call", "signalisation livrée DIRECT P2P (op ${json.take(40)}…)")
+                        return@runCatching
+                    }
+                }
+                val posted = postSigned(relay ?: error("aucun réplica configuré"), me, signed, canonical, priv)
+                if (posted.isSuccess) return@runCatching
+                if (!directTried && tryDirectPush(peerLower, signed)) {
+                    android.util.Log.i(
+                        "nyx-call",
+                        "signalisation livrée DIRECT P2P après échec journal : " +
+                            "${posted.exceptionOrNull()?.message?.take(60)}"
+                    )
+                    return@runCatching
+                }
+                posted.getOrThrow()
             }
         }
 
@@ -2199,5 +2372,12 @@ class NyxRepository(
         const val AT_TRANSFER = 0   // fragments en vol (dans un sens ou l'autre)
         const val AT_READY = 1      // fichier assemblé et vérifié (localPath valide)
         const val AT_FAILED = 2     // transfert abandonné (dépôt impossible)
+        /**
+         * v0.2.41 — Fenêtre de DÉGRADATION du chemin journal (ADR-017) : un
+         * échec de transport vers un réplica datant de moins de 3 min fait
+         * passer les envois en « direct d'abord » (pair joignable en ~5-15 s
+         * quand le réplica mourant consomme ses 25 s de timeout).
+         */
+        const val RELAY_DEGRADED_WINDOW_MS = 3 * 60_000L
     }
 }

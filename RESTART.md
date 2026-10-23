@@ -44,6 +44,26 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 62 — REÇUES 2026-10-23, ENREGISTRÉES AVANT
+> TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
+>
+> 1. **CONNEXION AUX RÉPLICAS INSTABLES + 2ᵉ PROTOCOLE DE CONNEXION
+>    (REDONDANCE)** — verbatim opérateur : « logs envoyés / connexion aux
+>    replicas instables, il faudrait un 2e protocole de connexion qui
+>    assure une redondance/stabilité/rapidité de connexion tout en
+>    respectant les impératifs de sécurité (peut-être s'inspirer de Briar
+>    pour une connexion P2P pur capable de prendre le relais quand les
+>    2 téléphones sont en ligne) » → (a) analyser les NOUVEAUX logs
+>    v0.2.40-test (3 téléphones + console, racine Drive 20261023-01:07-08)
+>    pour objectiver l'instabilité résiduelle ; (b) concevoir et livrer un
+>    transport de REPLAN : P2P direct entre pairs quand les 2 téléphones
+>    sont en ligne (inspiration Briar : LAN WiFi/Bluetooth, voire liaison
+>    directe Tor pair-à-pair onion→onion) capable de PRENDRE LE RELAIS de
+>    l'onion répliqué en cas d'échec/latence — SANS compromettre
+>    l'anonymat ni l'E2E (nouvel ADR obligatoire, specs d'abord §9) ;
+>    l'onion v3 répliqué reste le transport PREMIER, le P2P est un repli
+>    opt-in (même modèle qu'ADR-014).
+
 > 🔴 **INSTRUCTIONS SESSION 61 — REÇUES 2026-10-23, ENREGISTRÉES AVANT
 > TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
 >
