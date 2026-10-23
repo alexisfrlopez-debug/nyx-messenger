@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(version 0.2.40 du 23 octobre 2026), la compare honnêtement aux "
+         "(version 0.2.41 du 23 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
          "dans le cadre du cahier des charges initial : anonymat intégral, "
@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.40 · Console v0.8.7 · Serveur v0.2.35 "
+              ["Versions livrées", "Messagerie v0.2.41 · Console v0.8.7 · Serveur v0.2.35 "
                                    "(23 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -587,13 +587,15 @@ def build_story():
               ["Appareil", "Sauvegarde chiffrée + clé de récupération nyx1", "v0.2.3"],
               ["Appareil", "Effacement d'urgence", "v0.2.x"],
               ["Appareil", "MISE À JOUR AUTOMATIQUE : le build TEST suit chaque release publiée sur GitHub (pré-releases incluses, vérification toutes les 30 min), le build standard suit les releases validées (non-pré-release, 6 h) ; détection + téléchargement via Tor, bannière « Nouvelle version prête — installer », installation confirmée par l'utilisateur ; correctif v0.2.40 : la permission d'installation (absente depuis v0.2.20) est enfin déclarée — Android 8+ bloquait silencieusement la mise à jour", "v0.2.20 · v0.2.40"],
+              ["Appareil", "TRANSPORT DE REPLAN P2P (ADR-017) : si le réplica est injoignable ou dégradé, les messages texte et la signalisation d\'appel partent en DIRECT pair-à-pair (onion vers onion à travers Tor, inspiration Briar) — le pair en ligne les reçoit en ~5-15 s par la même porte de validation que son inbox (signature, verrous, dédoublonnage) ; ordre adaptatif : journal d\'abord quand le réplica est sain, direct d\'abord quand il est dégradé ; anti-churn tor : le démon n\'est plus redémarré sur un simple réseau lent (seuil 5 échecs, démon prêt depuis ≥ 10 min, repos 10 min) — fin de la cascade « SOCKS server general failure » qui tuait les appels", "v0.2.41"],
+              ["Appareil", "TRANSPORT DE REPLAN P2P (ADR-017) : si le réplica est injoignable ou dégradé, les messages texte et la signalisation d'appel partent en DIRECT pair-à-pair (onion vers onion à travers Tor, inspiration Briar) — le pair en ligne les reçoit en ~5-15 s par la même porte de validation que son inbox (signature, verrous, dédoublonnage) ; ordre adaptatif : journal d'abord quand le réplica est sain, direct d'abord quand il est dégradé ; anti-churn tor : le démon n'est plus redémarré sur un simple réseau lent (seuil 5 échecs, démon prêt depuis ≥ 10 min, repos 10 min) — fin de la cascade « SOCKS server general failure » qui tuait les appels", "v0.2.41"],
               ["Diagnostic", "Plan de test intégré, journal persistant, export de logs", "v0.2.33"],
               ["Administration", "Console nyx-admin : flotte, déploiement et mise à jour "
                                  "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH) ; v0.8.7 : correctif de syntaxe HSFETCH (adresse nue) — le réplica téléphoné passe enfin EN LIGNE après redémarrage de l'app", "v0.8.7"],
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.40 / v0.8.7).",
+                  "(version v0.2.41 / v0.8.7).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -752,7 +754,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.40) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.41) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -900,6 +902,18 @@ def build_story():
                "passage : la permission d'installation REQUEST_INSTALL_PACKAGES, "
                "absente du manifest depuis la v0.2.20, est enfin déclarée — "
                "Android 8+ rejetait silencieusement toute installation."],
+              ["7ᵉ édition", "23 octobre 2026", "Messagerie v0.2.41 · "
+               "Console v0.8.7 · Serveur v0.2.35",
+               "Transport de replan P2P (demande opérateur : « 2e "
+               "protocole de connexion… s\'inspirer de Briar ») : messages "
+               "et signalisation d\'appel livrables en direct onion→onion "
+               "quand les 2 téléphones sont en ligne et que les réplicas "
+               "sont instables — redondance, stabilité et rapidité sans "
+               "compromettre l\'anonymat (tout reste dans Tor, ADR-017) ; "
+               "anti-churn tor : le démon n\'est plus redémarré sur un "
+               "réseau simplement lent — cause racine de la cascade « SOCKS "
+               "server general failure » qui rendait les appels "
+               "indécrochables ; 378 tests JVM."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -1039,7 +1053,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.40 / v0.8.7 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.41 / v0.8.7 · AGPL-3.0</div>
 </div>
 </body>
 </html>
