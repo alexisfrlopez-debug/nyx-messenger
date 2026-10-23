@@ -116,17 +116,42 @@ func (c *Control) PublishOnion(ed25519PrivB64 string, targetPort int) (string, e
         return c.PublishOnionPorts(ed25519PrivB64, 80, targetPort)
 }
 
+// ErrOnionCollision — v0.2.37 : ADD_ONION a reçu « 550 Onion address
+// collision », c'est-à-dire que le service porté par CETTE clé est DÉJÀ
+// vivant dans ce démon tor (il a survécu à l'arrêt du process précédent
+// grâce à Flags=Detach). L'appelant doit l'ADOPTER : ses points
+// d'introduction et son descripteur HSDir sont TOUJOURS vivants — le
+// re-créer (DEL+ADD) rouvrirait une fenêtre de descripteur orphelin.
+var ErrOnionCollision = errors.New("collision onion 550 : service déjà vivant (Detach) — à adopter")
+
 // PublishOnionPorts — variante à ports explicites : Port=<virtPort> (côté
 // client Tor) → 127.0.0.1:<targetPort>. Utilisée pour l'onion d'ADMIN
 // (9091 → 9091, distinct de l'onion client 80 → httpPort — APPLI_ADMIN.md §2).
+//
+// v0.2.37 — Flags=Detach + ADOPTION DE COLLISION. AVANT : ADD_ONION sans
+// Detach → le service mourait INSTANTANÉMENT à la fermeture de la connexion
+// contrôle, donc à CHAQUE « systemctl stop nyx-server » du déploiement 1-clic
+// console (SshDeployer.updateNode). Orphelin pendant 1-3 min : l'ANCIEN
+// descripteur restait servi par les HSDirs (points d'intro morts) → les
+// clients Tor qui le fetchaient dans cette fenêtre le CACHAIENT jusqu'à
+// ~24 h (hs_cache.c — cause racine terrain 23/10 19:0x : Blackview v0.2.44
+// incapable de joindre le réplica après un déploiement 19:03:17 alors que
+// le Xiaomi, cache vierge, le joignait en 227 ms). AVEC Detach : le service
+// survit au stop/start du process, le nouveau ADD_ONION entre en collision
+// 550 → [ErrOnionCollision] → l'appelant ADOPTE le service vivant (même
+// clé, mêmes ports — la config n'a pas changé) : déploiement SANS interruption.
 func (c *Control) PublishOnionPorts(ed25519PrivB64 string, virtPort, targetPort int) (string, error) {
         if strings.TrimSpace(ed25519PrivB64) == "" {
                 return "", errors.New("clé privée onion vide")
         }
-        cmd := fmt.Sprintf("ADD_ONION ED25519-V3:%s FLAGS=DiscardPK Port=%d,127.0.0.1:%d",
+        cmd := fmt.Sprintf("ADD_ONION ED25519-V3:%s Flags=Detach,DiscardPK Port=%d,127.0.0.1:%d",
                 ed25519PrivB64, virtPort, targetPort)
         resp, err := c.cmd(cmd)
         if err != nil {
+                if resp != nil && resp.Code == 550 &&
+                        strings.Contains(strings.ToLower(strings.Join(resp.Lines, " ")), "collision") {
+                        return "", ErrOnionCollision
+                }
                 return "", err
         }
         sid := resp.Values["ServiceID"]

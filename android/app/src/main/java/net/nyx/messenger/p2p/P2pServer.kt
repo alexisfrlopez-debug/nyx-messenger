@@ -41,12 +41,59 @@ object P2pServer {
     /** Injecté par ServiceLocator — remise d'une connexion d'appel authentifiée. */
     @Volatile var callSink: ((conn: P2pCallConnection) -> Unit)? = null
 
+    /** Socket serveur courant (v0.2.45 — sonde de vie + relance). */
+    private var serverSocket: ServerSocket? = null
+
+    /**
+     * v0.2.45 — LE BACKEND EST-IL VRAIMENT VIVANT ? Même cause racine que
+     * [net.nyx.messenger.replica.EmbeddedReplica.alive] (terrain 23/10 +
+     * rejeu sandbox) : le port média 47471 restait publié côté tor alors que
+     * le socket local refusait les connexions (« errno 115 misc », appels et
+     * auto-sondes en « general failure »). Une connexion TCP locale est le
+     * seul verdict honnête — l'auto-réparation sur accept() en exception ne
+     * couvre PAS la mort silencieuse du socket.
+     */
+    fun alive(): Boolean {
+        val p = localPort
+        if (p <= 0 || !started) return false
+        return try {
+            Socket().use { s ->
+                s.soTimeout = 1_500
+                s.connect(java.net.InetSocketAddress("127.0.0.1", p), 1_500)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * v0.2.45 — RELANCE SI MORT : ferme le zombie, rebinde un port NEUF.
+     * Renvoie le nouveau port local (0 si échec) — l'appelant (TorManager)
+     * republie l'onion car le mapping 47471 → port local a CHANGÉ.
+     */
+    @Synchronized
+    fun restartIfDead(): Int {
+        if (alive()) return localPort
+        net.nyx.messenger.diag.DiagLog.w(
+            "nyx-p2p",
+            "écouteur direct MORT (port $localPort refuse les connexions locales) — relance"
+        )
+        runCatching { serverSocket?.close() }
+        serverSocket = null
+        started = false
+        localPort = 0
+        start()
+        return localPort
+    }
+
     /** Démarre l'écouteur (idempotent) — thread démon, aucune IOException fatale. */
     @Synchronized
     fun start() {
         if (started) return
         try {
             val server = ServerSocket(0, 16, InetAddress.getLoopbackAddress())
+            serverSocket = server
             localPort = server.localPort
             started = true
             val t = Thread({
@@ -64,7 +111,18 @@ object P2pServer {
                         }
                         return@Thread
                     }
-                    Thread({ handle(sock) }, "nyx-p2p-conn").start()
+                    try {
+                        Thread({ handle(sock) }, "nyx-p2p-conn").start()
+                    } catch (e: Throwable) {
+                        // v0.2.45 — Thread.start() peut lever une Error (OOM)
+                        // NON attrapée par « catch Exception » : l'écouteur
+                        // mourait sans trace, port publié mais mort côté tor.
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-p2p", "thread de connexion impossible (${e.javaClass.simpleName}) — " +
+                                "connexion rejetée, écouteur maintenu"
+                        )
+                        runCatching { sock.close() }
+                    }
                 }
             }, "nyx-p2p-listen")
             t.isDaemon = true

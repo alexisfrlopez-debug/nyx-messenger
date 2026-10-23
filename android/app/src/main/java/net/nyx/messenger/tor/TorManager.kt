@@ -81,6 +81,9 @@ class TorManager private constructor(context: Context) {
     private var publicationWatchdog: Job? = null
     /** Boucle de sondes périodiques de NOTRE onion publiée (un seul à la fois). */
     private var probeWatchdog: Job? = null
+
+    /** v0.2.45 — chien de garde des backends locaux (réplica + P2P, sonde loopback 60 s). */
+    private var backendWatchdog: Job? = null
     /** Échecs consécutifs des sondes (seuil → alerte journalisée, PAS de republication). */
     @Volatile private var probeFails = 0
 
@@ -426,13 +429,16 @@ class TorManager private constructor(context: Context) {
                 } else {
                     // v0.2.37/v0.2.43 — HSFETCH D'ABORD (la cause n°1 reste le
                     // descripteur périmé : cache client jusqu'à 24 h, HSDirs en
-                    // cours de propagation). Classification v0.2.43 (fin des
-                    // fausses explications) :
-                    //  - « SOCKS server general failure » = un descripteur est
-                    //    servi mais l'INTRODUCE échoue — le plus souvent NOTRE
-                    //    PROPRE cache client périmé (points d'intro d'une session
-                    //    précédente) : faux négatif CONNU, pas une panne du service ;
-                    //  - « Host unreachable » = pas de descripteur servit par les
+                    // cours de propagation). Classification v0.2.45 — CORRIGÉE
+                    // par la preuve terrain 23/10 + rejeu sandbox
+                    // (scripts/tor_deadbackend.py) :
+                    //  - « SOCKS server general failure » = le rendezvous Tor a
+                    //    ABOUTI mais le flux s'est fait REFUSER au DERNIER
+                    //    MAILLON — le plus souvent un descripteur ORPHELIN côté
+                    //    HSDir (nœud distant redémarré sans Detach, ex.
+                    //    déploiement) OU un backend local mort ; la variante
+                    //    « cache client périmé » reste possible ;
+                    //  - « Host unreachable » = pas de descripteur servi par les
                     //    HSDirs (propagation en cours, ou réseau mobile hostile).
                     net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor",
@@ -452,6 +458,23 @@ class TorManager private constructor(context: Context) {
                         continue
                     }
                     probeFails++
+                    // v0.2.45 — VERDICT LOCAL (cause racine terrain 23/10) : la sonde
+                    // externe échoue → nos backends LOCAUX acceptent-ils encore les
+                    // connexions ? Un échec externe + backend local vivant = réseau/
+                    // descripteur ; un backend local mort = le service Tor est sain
+                    // mais les mappings pointent vers un port mort (relancé par le
+                    // chien de garde startBackendWatchdog dans les 60 s).
+                    runCatching {
+                        val replicaAlive = net.nyx.messenger.replica.EmbeddedReplica.alive()
+                        val p2pAlive = net.nyx.messenger.p2p.P2pServer.alive()
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-tor", "verdict auto-sonde : backends locaux " +
+                                "(réplica=${if (replicaAlive) "vivant" else "MORT"}, " +
+                                "p2p=${if (p2pAlive) "vivant" else "MORT"}) — " +
+                                if (replicaAlive || p2pAlive) "échec réseau/descripteur, service local OK"
+                                else "backends locaux morts — relance en cours (chien de garde)"
+                        )
+                    }
                     net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor",
                         "auto-sonde ÉCHOUÉE après HSFETCH — tentative $probeFails/" +
@@ -485,6 +508,58 @@ class TorManager private constructor(context: Context) {
 
     /** Résultat d'une salve de sondes. */
     private data class ProbeResult(val total: Int, val failed: Int, val detail: String)
+
+    /**
+     * v0.2.45 — CHIEN DE GARDE DES BACKENDS LOCAUX. CAUSE RACINE terrain 23/10
+     * (prouvée par rejeu tor sandbox, scripts/tor_deadbackend.py) : les sockets
+     * du réplica temporaire (port 80) et de l'écouteur P2P (port 47471) peuvent
+     * mourir SILENCIEUSEMENT — le service onion, lui, reste parfaitement sain
+     * (INTRODUCE2 reçus, rendezvous ouverts) et sert des mappings vers des
+     * ports locaux MORTS : chaque flux entrant reçoit « Connection refused » →
+     * END misc → « SOCKS server general failure » chez TOUS les pairs, et ce
+     * diagnostic a été CONFONDU avec « points d'introduction morts » pendant
+     * plusieurs sessions. La vérification est une simple connexion TCP sur
+     * 127.0.0.1 (le seul verdict honnête) ; en cas de mort : relance de
+     * l'écouteur (nouveau port) PUIS republication — le rafraîchissement
+     * collision-550 (v0.2.43) met à jour les mappings si le port a changé.
+     */
+    private fun startBackendWatchdog() {
+        backendWatchdog?.cancel()
+        backendWatchdog = scope.launch {
+            delay(BACKEND_PROBE_FIRST_MS)
+            while (isActive) {
+                if (_state.value is TorState.Ready && onionPublishedAddress != null) {
+                    var healed = false
+                    runCatching {
+                        val replicaPort = net.nyx.messenger.replica.EmbeddedReplica.localPort
+                        if (replicaPort > 0 &&
+                            net.nyx.messenger.BuildConfig.EMBEDDED_REPLICA &&
+                            !net.nyx.messenger.replica.EmbeddedReplica.alive()
+                        ) {
+                            net.nyx.messenger.replica.EmbeddedReplica.restartIfDead()
+                            healed = true
+                        }
+                        if (net.nyx.messenger.p2p.P2pServer.localPort > 0 &&
+                            !net.nyx.messenger.p2p.P2pServer.alive()
+                        ) {
+                            net.nyx.messenger.p2p.P2pServer.restartIfDead()
+                            healed = true
+                        }
+                    }
+                    if (healed) {
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-tor",
+                            "backend local relancé (réplica=${net.nyx.messenger.replica.EmbeddedReplica.localPort}, " +
+                                "p2p=${net.nyx.messenger.p2p.P2pServer.localPort}) — republication onion " +
+                                "pour recâbler les mappings"
+                        )
+                        runCatching { publishOwnOnion() }
+                    }
+                }
+                delay(BACKEND_PROBE_INTERVAL_MS)
+            }
+        }
+    }
 
     /** Sonde notre propre onion : port média (P2P) + port 80 (réplica embarqué). */
     private suspend fun probeSelf(published: String): ProbeResult {
@@ -588,6 +663,14 @@ class TorManager private constructor(context: Context) {
         // publication au bootstrap (« publication onion différée ») n'est plus
         // définitif : réessai toutes les 30 s tant que tor est Ready.
         startPublicationWatchdog()
+        // v0.2.45 : chiens de garde des BACKENDS LOCAUX (réplica temporaire +
+        // écouteur P2P). Terrain 23/10 (prouvé au sandbox) : ces sockets peuvent
+        // mourir SILENCIEUSEMENT alors que tor et le process vivent — l'onion
+        // reste publié avec des mappings vers des ports MORTS, tous les flux
+        // entrants reçoivent « Connection refused »/END misc et les pairs voient
+        // « SOCKS server general failure ». La sonde est LOCALE (2 connexions
+        // loopback) : coût nul, fréquence 60 s.
+        startBackendWatchdog()
     }
 
     fun reportFailure(reason: String) {
@@ -733,6 +816,10 @@ class TorManager private constructor(context: Context) {
         // v0.2.37 — délai de guérison après HSFETCH (le fetch + le stockage du
         // descripteur + la selection d'un point d'intro frais prennent ~10-15 s).
         private const val PROBE_HSFETCH_SETTLE_MS = 15_000L
+
+        /** v0.2.45 — chien de garde backends : 1re sonde à 45 s, puis 60 s (loopback, coût nul). */
+        private const val BACKEND_PROBE_FIRST_MS = 45_000L
+        private const val BACKEND_PROBE_INTERVAL_MS = 60_000L
         // v0.2.37 — pause DEL_ONION → ADD_ONION : le terrain v0.2.36 (12:41:52)
         // a montré la collision 550 quand les deux commandes s'enchaînent en
         // <100 ms (tor n'a pas fini de libérer le service : assertion non

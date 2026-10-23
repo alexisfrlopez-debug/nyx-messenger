@@ -107,6 +107,15 @@ object ServiceLocator {
                 database.seqStateDao(), database.peerProfileDao(), database.attachmentDao(),
                 database.delPendingDao()
             )
+            // v0.2.45 — GUÉRISON DU CACHE DESCRIPTEUR : le repo déclenche un
+            // HSFETCH (contournement du cache client tor, v0.2.37) après 2 échecs
+            // réseau consécutifs du même réplica — cause racine terrain 23/10 :
+            // déploiement serveur → descripteur orphelin servi par les HSDirs →
+            // caché ~24 h côté client → timeouts 25 s en boucle. Injecté ici
+            // (le repo n'a pas le Context → TorManager).
+            repository.descriptorRefresher = { onion ->
+                net.nyx.messenger.tor.TorManager.get(context).forceDescriptorRefresh(onion)
+            }
 
             // v0.2.14 : notifications système du cycle de vie des contacts
             // (invitation avec actions Accepter/Refuser, refus, suppression).

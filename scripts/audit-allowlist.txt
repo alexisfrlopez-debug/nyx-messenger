@@ -40,3 +40,11 @@ android/app/src/main/AndroidManifest.xml:android.permission.REQUEST_INSTALL_PACK
 # appel direct — l'analyseur DEAD-KT ne voit pas les annotations.
 android/app/src/test/java/net/nyx/messenger/tor/TorControlClientTest.kt:startFakeControlPort
 android/app/src/test/java/net/nyx/messenger/tor/TorControlClientTest.kt:stopFakeControlPort
+
+# v0.2.45 — BackendLivenessTest (contrat de la sonde locale alive() — cause
+# racine terrain 23/10 prouvée au sandbox) : setUp/tearDown sont des méthodes
+# @Before/@After invoquées par JUnit4 via annotations, jamais par appel
+# direct — l'analyseur DEAD-KT ne voit pas les annotations (même précédent
+# que TorControlClientTest v0.2.34).
+android/app/src/test/java/net/nyx/messenger/replica/BackendLivenessTest.kt:setUp
+android/app/src/test/java/net/nyx/messenger/replica/BackendLivenessTest.kt:tearDown

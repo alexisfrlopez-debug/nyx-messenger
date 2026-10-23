@@ -343,7 +343,7 @@
     <string name="update_banner_downloading">Téléchargement de la mise à jour %1$s…</string>
 
     <!-- v0.2.20 — plan de tests (versions test uniquement) -->
-    <string name="testplan_title">Plan de tests v0.2.40</string>
+    <string name="testplan_title">Plan de tests v0.2.45</string>
     <string name="testplan_desc">Appuyez sur un test une fois effectué : le résultat est journalisé (nyx-test) et part dans l\'export de logs — il sert à valider la mise en production.</string>
     <string name="testplan_progress">%1$d / %2$d test(s) fait(s)</string>
     <string name="testplan_reset">Tout réinitialiser</string>

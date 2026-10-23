@@ -1,11 +1,13 @@
 package net.nyx.messenger.repo
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -59,6 +61,15 @@ class NyxRepository(
     // injoignable au moment de l'action — reparties par la boucle périodique).
     private val delPendingDao: DelPendingDao,
 ) {
+    /**
+     * v0.2.45 — GUÉRISON DU CACHE DESCRIPTEUR : HSFETCH (contournement du cache
+     * client tor, mécanique v0.2.37 [TorManager.forceDescriptorRefresh]).
+     * Injecté par ServiceLocator (qui seul détient le Context → TorManager) —
+     * même patron que [net.nyx.messenger.p2p.P2pVerifier.get]. Null en test JVM.
+     */
+    @Volatile
+    var descriptorRefresher: ((onion: String) -> Result<Unit>)? = null
+
     /** Réplicas de rattachement — v0.1 le premier configuré ; v0.2.25 : rotation (failover round-robin, cf. markReplicaFailed).
      *  @JvmField : évite le clash JVM du setter généré avec [setReplicas]. */
     @JvmField
@@ -149,6 +160,36 @@ class NyxRepository(
         // v0.2.41 — horodatage pour l'ordre adaptatif ADR-017 (direct d'abord
         // quand le répliqué vient d'échouer par transport).
         lastTransportFailAt = System.currentTimeMillis()
+        // v0.2.45 — GUÉRISON DU CACHE DESCRIPTEUR : 2 échecs CONSÉCUTIFS du même
+        // réplica = symptôme terrain 23/10 19:0x (déploiement serveur 19:03:17 →
+        // ADD_ONION sans Detach → descripteur ORPHELIN servi par les HSDirs →
+        // le client le CACHE jusqu'à ~24 h → timeouts 25 s en boucle alors que
+        // le serveur est sain et qu'un autre appareil au cache vierge le joint
+        // en 227 ms). On force HSFETCH (contournement du cache client, mécanique
+        // v0.2.37) pour que le PROCHAIN poll récupère le descripteur frais.
+        // Cooldown 5 min/réplica : un HSFETCH est une commande contrôle — inutile
+        // de spammmer si le réplica est réellement en panne.
+        if (replicas.size >= 1) {
+            val failed = replicas.getOrNull(replicaIndex)
+            val refresher = descriptorRefresher
+            if (failed != null && refresher != null) {
+                val n = (consecutiveFails[failed] ?: 0) + 1
+                consecutiveFails[failed] = n
+                val lastFetch = lastDescriptorHealAt[failed] ?: 0L
+                if (net.nyx.messenger.repo.DescriptorHeal.shouldHeal(
+                        n, lastFetch, System.currentTimeMillis(), DESCRIPTOR_HEAL_COOLDOWN_MS
+                    )
+                ) {
+                    lastDescriptorHealAt[failed] = System.currentTimeMillis()
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-repo", "réplica ${failed.take(16)}… : ${n} échecs réseau consécutifs " +
+                            "→ HSFETCH de guérison (descripteur re-demandé — un déploiement/« redémarrage » du nœud " +
+                            "laisse un descripteur orphelin servi par les HSDirs, caché ~24 h côté client)"
+                    )
+                    CoroutineScope(Dispatchers.IO).launch { refresher(failed) }
+                }
+            }
+        }
         if (replicas.size < 2) return
         val old = replicas.getOrNull(replicaIndex) ?: "?"
         val next = (replicaIndex + 1) % replicas.size
@@ -171,6 +212,15 @@ class NyxRepository(
      * passée OU au premier succès de poll (remise à zéro).
      */
     @Volatile private var lastTransportFailAt = 0L
+
+    /** v0.2.45 — échecs réseau CONSÉCUTIFS par réplica (déclencheur HSFETCH de guérison). */
+    private val consecutiveFails = HashMap<String, Int>()
+
+    /** v0.2.45 — dernier HSFETCH de guérison par réplica (cooldown anti-spam). */
+    private val lastDescriptorHealAt = HashMap<String, Long>()
+
+    /** v0.2.45 — cooldown de la guérison HSFETCH : 5 min par réplica. */
+    private val DESCRIPTOR_HEAL_COOLDOWN_MS = 5 * 60_000L
 
     /** v0.2.41 — le chemin journal est-il dégradé (échec transport récent) ? */
     fun relayDegraded(): Boolean =
@@ -225,6 +275,12 @@ class NyxRepository(
             noteReplica(activeReplica) { s ->
                 if (rep.ok) s.copy(lastOkAt = now)
                 else s.copy(lastFailAt = now, lastFailReason = rep.detail ?: "échec")
+            }
+            // v0.2.45 : un succès réinitialise les échecs consécutifs de CE
+            // réplica (le décompte de la guérison HSFETCH ne doit pas survivre
+            // à une reconnexion réussie).
+            if (rep.ok) {
+                activeReplica?.let { consecutiveFails.remove(it) }
             }
             _lastProbe.value = ReplicaProbeReport(rep.ok, rep.ms, rep.detail, now)
             return rep.ok

@@ -19,6 +19,7 @@ import (
         "context"
         "crypto/ed25519"
         "encoding/base64"
+        "errors"
         "flag"
         "fmt"
         "log"
@@ -26,6 +27,7 @@ import (
         "os"
         "os/signal"
         "path/filepath"
+        "strings"
         "sync/atomic"
         "syscall"
         "time"
@@ -44,7 +46,7 @@ import (
 // version — alignée sur les releases GitHub depuis la v0.2.35 (session 55 :
 // figée à « 0.2.0 » depuis l'origine, /admin/status ne distinguait pas un
 // nœud ancien d'un nœud à jour — axe inscrit à la fiche de présentation).
-const version = "0.2.36"
+const version = "0.2.37"
 
 var defaultCookiePaths = []string{
         "/run/tor/control.authcookie",
@@ -331,12 +333,23 @@ func main() {
                         }
                         sid, err := ctrl.PublishOnion(scalar, cfg.HTTPPort)
                         if err != nil {
-                                log.Printf("[tor] client: publication onion: %v — nouvel essai dans 10 s", err)
-                                ctrl.Close()
-                                time.Sleep(10 * time.Second)
-                                continue
+                                if errors.Is(err, tor.ErrOnionCollision) {
+                                        // v0.2.37 — ADOPTION : le service (même clé, mêmes
+                                        // ports) a survécu à l'arrêt du process précédent via
+                                        // Flags=Detach — points d'intro et descripteur
+                                        // TOUJOURS vivants. Le déploiement 1-clic
+                                        // (systemctl stop/start) devient SANS interruption.
+                                        sid = id.Onion
+                                        log.Printf("✔ ONION CLIENT adopté (déjà vivant — Detach) : %s → 127.0.0.1:%d", sid, cfg.HTTPPort)
+                                } else {
+                                        log.Printf("[tor] client: publication onion: %v — nouvel essai dans 10 s", err)
+                                        ctrl.Close()
+                                        time.Sleep(10 * time.Second)
+                                        continue
+                                }
+                        } else {
+                                log.Printf("✔ ONION CLIENT publié : %s (attendu %s) → 127.0.0.1:%d", sid, id.Onion, cfg.HTTPPort)
                         }
-                        log.Printf("✔ ONION CLIENT publié : %s (attendu %s) → 127.0.0.1:%d", sid, id.Onion, cfg.HTTPPort)
                         // Connexion contrôle MAINTENUE : tor détruirait le service sinon (bug n°2).
                         ctrl.Watch()
                         log.Printf("[tor] client: connexion contrôle fermée — re-publication dans 5 s")
@@ -451,12 +464,19 @@ func main() {
                                 }
                                 sid, err := ctrl.PublishOnionPorts(adminIdentity.AdminPrivKeyB64(), adminPort, adminPort)
                                 if err != nil {
-                                        log.Printf("[tor] admin: publication onion: %v — nouvel essai dans 10 s", err)
-                                        ctrl.Close()
-                                        time.Sleep(10 * time.Second)
-                                        continue
+                                        if errors.Is(err, tor.ErrOnionCollision) {
+                                                // v0.2.37 — ADOPTION (miroir de l'onion client).
+                                                sid = strings.TrimSuffix(adminIdentity.Onion, ".onion")
+                                                log.Printf("✔ ONION ADMIN adopté (déjà vivant — Detach) : %s.onion (→ 127.0.0.1:%d)", sid, adminPort)
+                                        } else {
+                                                log.Printf("[tor] admin: publication onion: %v — nouvel essai dans 10 s", err)
+                                                ctrl.Close()
+                                                time.Sleep(10 * time.Second)
+                                                continue
+                                        }
+                                } else {
+                                        log.Printf("✔ ONION ADMIN publié : %s.onion (→ 127.0.0.1:%d) — à déclarer dans la console nyx-admin", sid, adminPort)
                                 }
-                                log.Printf("✔ ONION ADMIN publié : %s.onion (→ 127.0.0.1:%d) — à déclarer dans la console nyx-admin", sid, adminPort)
                                 // Connexion contrôle MAINTENUE (bug n°2) : Watch() bloque jusqu'à
                                 // la coupure, puis la boucle re-publie après 5 s.
                                 ctrl.Watch()

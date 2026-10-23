@@ -447,8 +447,22 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.44.md). */
-    fun items(): List<Item> = ITEMS_V0_2_44
+    val ITEMS_V0_2_45 = listOf(
+        Item("guerison-cache", "GUÉRISON CACHE DESCRIPTEUR (NOUVEAU v0.2.45, L'ITEM DÉCISIF — le cas Blackview/5G du 23/10) : après installation de v0.2.45 sur un téléphone qui bouclait en « Connect timed out 25 s » vers le réplica de flotte, le DIAG PERSISTANT montre « réplica … : N échecs réseau consécutifs → HSFETCH de guérison » PUIS un « GET /health OK » / poll OK en ~2-3 min (au lieu de ~24 h de cache client empoisonné) — la carte réplica repasse ONLINE"),
+        Item("serveur-detach", "SERVEUR 0.2.37 DÉPLOYÉ SANS FENÊTRE ORPHELINE (NOUVEAU v0.2.45) : « Mettre à jour le nœud » (console, binaire 0.2.37) → pendant et après le déploiement, les téléphones NE perdent PAS le réplica (aucune tempête de timeouts de plusieurs minutes) ; le log serveur (journalctl) montre « ✔ ONION CLIENT adopté (déjà vivant — Detach) » ; la carte flotte repasse EN LIGNE en ≤ 1 min"),
+        Item("backend-watchdog", "CHIEN DE GARDE BACKENDS (NOUVEAU v0.2.45) : après un échec d'auto-sonde, le diag journalise le verdict « backends locaux (réplica=vivant, p2p=vivant) » ; si un backend meurt (cas rare), « backend local relancé … — republication onion pour recâbler les mappings » apparaît en ≤ 60 s et les pairs se reconnectent"),
+        Item("appel-decroche-relais", "APPEL DÉCROCHÉ VIA RELAIS (v0.2.44, TOUJOURS EN ATTENTE — les 2 téléphones en v0.2.44+ + serveur 0.2.36+ déployé) : appels alors que l'onion du pair est injoignable → ~60 s « relais réplica ouvert en parallèle », ~150 s « média VIA RELAIS réplica » → LA CONVERSATION S'ÉTABLIT ET L'AUDIO COULE"),
+        Item("appel-direct-dabord", "APPEL DIRECT D'ABORD : onion du pair joignable → média direct AVANT 60 s, PAS de « média VIA RELAIS » — le relais ne consomme jamais un appel sain"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie d'appel passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("conflux-zero", "TOR SANS CONFLUX (validation continue v0.2.44) : AUCUN « path restriction type 2 » dans le tor.log au bootstrap"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min, la télécharge via Tor, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
+    /** Items de la release courante (miroir de docs/releases/v0.2.45.md). */
+    fun items(): List<Item> = ITEMS_V0_2_45
 
 
     /**

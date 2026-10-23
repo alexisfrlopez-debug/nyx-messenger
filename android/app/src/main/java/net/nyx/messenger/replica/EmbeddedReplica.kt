@@ -75,12 +75,59 @@ object EmbeddedReplica {
     private var ownOnion: String = ""
     private var versionName: String = "0.2.39"
 
+    /**
+     * v0.2.45 — LE BACKEND EST-IL VRAIMENT VIVANT ? (cause racine terrain
+     * 23/10, PROUVÉE par rejeu tor sandbox — scripts/tor_deadbackend.py : un
+     * socket fermé donne EXACTEMENT la signature « Connection refused » +
+     * « errno 115 misc » + END misc + « SOCKS server general failure » vue
+     * sur les 2 téléphones alors que leur service Tor était sain : INTRODUCE2
+     * reçus, circuits rendezvous ouverts). L'écouteur peut mourir
+     * silencieusement (thread tué par une Error non-Exception — Thread.start()
+     * sous pression mémoire — rien n'est journalisé) : une vraie connexion
+     * TCP locale est le seul verdict qui ne ment pas.
+     */
+    fun alive(): Boolean {
+        val p = localPort
+        if (p <= 0 || !started) return false
+        return try {
+            java.net.Socket().use { s ->
+                s.soTimeout = 1_500
+                s.connect(java.net.InetSocketAddress("127.0.0.1", p), 1_500)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * v0.2.45 — RELANCE SI MORT : ferme l'éventuel socket zombie, rebinde un
+     * port NEUF et repart. Renvoie le nouveau port local (0 si échec).
+     * [restarted] signale une relance (l'appelant — TorManager — doit
+     * republier l'onion : le mapping port 80 → port local a CHANGÉ).
+     */
+    @Synchronized
+    fun restartIfDead(): Int {
+        if (alive()) return localPort
+        net.nyx.messenger.diag.DiagLog.w(
+            "nyx-replica",
+            "réplica temporaire MORT (port $localPort refuse les connexions locales) — relance de l'écouteur"
+        )
+        runCatching { server?.close() }
+        server = null
+        started = false
+        localPort = 0
+        val d = db ?: return 0
+        start(d, ownOnion, versionName)
+        return localPort
+    }
+
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val rate = ReplicaQuota.RateLimiter()
     private val appendMutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
         CoroutineExceptionHandler { _, e ->
-            android.util.Log.w("nyx-replica", "coroutine réplica terminée : ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-replica", "coroutine réplica terminée : ${e.message}")
         })
     /** Dépôts hors séquence en attente (miroir journal.pending côté Go — mémoire). */
     private val pending = HashMap<String, ArrayDeque<WireEvent>>()
@@ -102,22 +149,41 @@ object EmbeddedReplica {
             server = s
             started = true
             val t = Thread({
-                android.util.Log.i("nyx-replica", "réplica temporaire prêt (local $localPort, port 80 onion)")
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-replica", "réplica temporaire prêt (local $localPort, port 80 onion)"
+                )
                 while (true) {
                     val sock: Socket = try {
                         s.accept()
                     } catch (e: Exception) {
-                        if (started) android.util.Log.w("nyx-replica", "écouteur interrompu : ${e.message}")
+                        if (started) net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-replica", "écouteur interrompu : ${e.message}"
+                        )
                         return@Thread
                     }
-                    Thread({ handle(sock) }, "nyx-replica-conn").start()
+                    try {
+                        Thread({ handle(sock) }, "nyx-replica-conn").start()
+                    } catch (e: Throwable) {
+                        // v0.2.45 — Thread.start() peut lever OutOfMemoryError
+                        // (Error, NON attrapée par « catch Exception ») : le
+                        // thread d'écoute mourait SANS trace et le port restait
+                        // « publié » côté tor alors que plus rien n'écoutait —
+                        // signature terrain « general failure » prouvée au
+                        // sandbox. On journalise (DiagLog = SURVIT à l'export)
+                        // et on continue d'accepter.
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-replica", "thread de connexion impossible (${e.javaClass.simpleName}: " +
+                                "${e.message}) — connexion rejetée, écouteur maintenu"
+                        )
+                        runCatching { sock.close() }
+                    }
                 }
             }, "nyx-replica-listen")
             t.isDaemon = true
             t.start()
             startPurgeLoop()
         } catch (e: Exception) {
-            android.util.Log.w("nyx-replica", "démarrage réplica impossible : ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-replica", "démarrage réplica impossible : ${e.message}")
         }
     }
 
@@ -127,7 +193,7 @@ object EmbeddedReplica {
             while (isActive) {
                 delay(10 * 60_000L)
                 runCatching { purge() }
-                    .onFailure { android.util.Log.w("nyx-replica", "purge échouée : ${it.message}") }
+                    .onFailure { net.nyx.messenger.diag.DiagLog.w("nyx-replica", "purge échouée : ${it.message}") }
             }
         }
     }
@@ -153,7 +219,7 @@ object EmbeddedReplica {
         }
         dao.upsertState(ReplicaStateEntity(1, now))
         if (removed > 0) {
-            android.util.Log.i("nyx-replica", "purge : $removed événements expirés (TTL ${ReplicaQuota.TTL_MS / 3600_000} h)")
+            net.nyx.messenger.diag.DiagLog.i("nyx-replica", "purge : $removed événements expirés (TTL ${ReplicaQuota.TTL_MS / 3600_000} h)")
         }
     }
 
@@ -172,13 +238,13 @@ object EmbeddedReplica {
             val (code, jsonResp) = route(req)
             respond(sock, code, jsonResp)
             if (req.path != "/health") {
-                android.util.Log.i(
+                net.nyx.messenger.diag.DiagLog.i(
                     "nyx-replica",
                     "${req.method} ${req.path} → $code (${android.os.SystemClock.elapsedRealtime() - t0} ms)"
                 )
             }
         } catch (e: Exception) {
-            android.util.Log.w("nyx-replica", "requête interrompue : ${e.message}")
+            net.nyx.messenger.diag.DiagLog.w("nyx-replica", "requête interrompue : ${e.message}")
         } finally {
             runCatching { sock.close() }
         }
@@ -448,5 +514,20 @@ object EmbeddedReplica {
         server = null
         localPort = 0
         scope.cancel()
+    }
+
+    /** v0.2.45 — hook de test JVM ([BackendLivenessTest]) : substitue le socket. */
+    fun rebindForTest(s: ServerSocket) {
+        server = s
+        localPort = s.localPort
+        started = true
+    }
+
+    /** v0.2.45 — hook de test JVM : remet l'état à zéro (sans toucher au scope). */
+    fun resetForTest() {
+        runCatching { server?.close() }
+        server = null
+        started = false
+        localPort = 0
     }
 }
