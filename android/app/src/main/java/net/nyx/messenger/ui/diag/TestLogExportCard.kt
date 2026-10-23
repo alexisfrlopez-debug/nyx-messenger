@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,13 +47,20 @@ import java.util.Locale
  * BuildConfig.TEST_BUILD) : carte d'export de logs en tête de l'écran
  * conversations.
  *
- * v0.2.38 — REPLIÉE PAR DÉFAUT (retour opérateur : « l'écran principal de la
- * messagerie ne défile pas ») : la carte déployée (~170 dp : titre + gros
- * bouton rouge 72 dp + partage) écrasait la zone d'onglets sur les écrans
- * compacts. Désormais une LIGNE compacte (titre + état + ▶) ; le contenu
- * (gros bouton rouge + partage + état détaillé) s'ouvre au clic. L'état
- * courant (collecte…/envoi…/déposé/erreur) reste visible DANS la ligne même
- * repliée — l'opérateur voit le résultat sans déplier.
+ * v0.2.38 — REPLIÉE PAR DÉFAUT : ligne compacte (titre + état + ▶) ; le
+ * contenu (gros bouton rouge + partage + état détaillé) s'ouvre au clic.
+ *
+ * v0.2.42 — LIGNES TOUJOURS LISIBLES (retour opérateur : « le bouton d'envoi
+ * de logs devient illisible une fois les logs envoyés ») : CAUSE — le statut
+ * « ✔ Déposé dans le Drive : nyx-logs-v0.2.40-test-20261023-071120.txt »
+ * (60+ caractères) s'affichait DANS la ligne compacte SANS contrainte de
+ * largeur (pas de weight → largeur intrinsèque) : le titre était écrasé à
+ * zéro et le texte débordait de la carte. CORRECTIFS :
+ *  1. le statut de la ligne compacte est COURT (« ✔ Envoyés » / « ✗ Échec ») ;
+ *  2. il est CONTRAINT au reste de la ligne (weight + ellipsis + aligné à
+ *     droite) — le titre garde toujours sa largeur complète ;
+ *  3. le détail complet (nom du fichier déposé) n'apparaît qu'en vue dépliée,
+ *     sur sa propre ligne multi-lignes.
  *
  * Un appui = pipeline complet :
  *   1. collecte des logs (logcat + en-tête diagnostic, cf. LogCollector) ;
@@ -77,7 +85,8 @@ fun TestLogExportCard() {
         colors = CardDefaults.cardColors(containerColor = Color(0xFFB71C1C).copy(alpha = 0.08f))
     ) {
         Column(Modifier.padding(12.dp)) {
-            // v0.2.38 — ligne d'en-tête compacte TOUJOURS visible (repli/dépli).
+            // v0.2.42 — ligne d'en-tête compacte : titre TOUJOURS entier, statut
+            // COURT contraint au reste (weight + ellipsis), flèche en dernier.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -88,9 +97,18 @@ fun TestLogExportCard() {
                     stringResource(R.string.debug_card_title),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.weight(1f)
+                    maxLines = 1
                 )
-                status?.let {
+                Spacer(Modifier.width(8.dp))
+                // Statut court de la ligne compacte — jamais le nom de fichier
+                // (c'est LUI qui rendait la ligne illisible, cf. doc classe).
+                val shortStatus = when {
+                    status == null -> null
+                    ok == true -> stringResource(R.string.debug_status_short_done)
+                    ok == false -> stringResource(R.string.debug_status_short_failed)
+                    else -> status
+                }
+                shortStatus?.let {
                     Text(
                         it,
                         style = MaterialTheme.typography.labelSmall,
@@ -100,10 +118,12 @@ fun TestLogExportCard() {
                             null -> MaterialTheme.colorScheme.onSurface
                         },
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.width(8.dp))
                 }
+                if (shortStatus == null) Spacer(Modifier.weight(1f))
                 Text(if (expanded) "▼" else "▶", style = MaterialTheme.typography.labelSmall)
             }
             if (expanded) {
@@ -151,9 +171,12 @@ fun TestLogExportCard() {
                     if (running) stringResource(R.string.debug_button_running)
                     else stringResource(R.string.debug_button),
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
                 )
             }
+            // v0.2.42 — état DÉTAILLÉ (nom de fichier complet) uniquement en
+            // vue dépliée, multi-lignes possibles, largeur contrainte.
             status?.let {
                 Spacer(Modifier.height(6.dp))
                 Text(

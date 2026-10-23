@@ -25,14 +25,22 @@ type Identity struct {
 }
 
 // LoadOrCreate — charge l'identité ou en génère une nouvelle.
+// v0.2.42 : ne régénère QUE si le fichier n'existe pas. Toute autre erreur
+// de lecture (EIO, permissions, montage en cours) est FATALE : régénérer
+// écraserait l'identité — adresse onion du nœud, journal, pairs — de manière
+// IRRÉVERSIBLE (retour d'audit session 63 : « clé perdue = identité perdue »).
 func LoadOrCreate(dataDir string) (*Identity, error) {
         p := filepath.Join(dataDir, "identity.json")
-        if b, err := os.ReadFile(p); err == nil {
+        b, err := os.ReadFile(p)
+        if err == nil {
                 var id Identity
                 if err := json.Unmarshal(b, &id); err != nil {
                         return nil, err
                 }
                 return &id, nil
+        }
+        if !os.IsNotExist(err) {
+                return nil, fmt.Errorf("identity.json illisible — refus de régénérer (l'identité serait perdue): %w", err)
         }
         id, err := generate()
         if err != nil {

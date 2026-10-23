@@ -231,14 +231,20 @@ func (s *Server) verify(pubB64, tsS, nonceB64, sigB64 string, r *http.Request) (
 
 // readBody — lit le corps une fois et le remet à disposition des handlers
 // (le hachage de la chaîne canonique et le décodage JSON l'exigent tous deux).
+// v0.2.42 — corps BORNÉ à 1 Mo (retour d'audit session 63) : sans limite, un
+// attaquant connaissant une clé publique admin (elles ne sont pas secrètes
+// par principe) faisait lire un corps géant en mémoire AVANT que la
+// vérification ed25519 n'échoue.
+const maxAdminBody = 1 << 20
+
 func readBody(r *http.Request) []byte {
         if r.Body == nil {
                 return nil
         }
-        b, err := io.ReadAll(r.Body)
+        b, err := io.ReadAll(io.LimitReader(r.Body, maxAdminBody+1))
         _ = r.Body.Close()
-        if err != nil {
-                b = nil
+        if err != nil || int64(len(b)) > maxAdminBody {
+                b = nil // corps > 1 Mo ou illisible → traité comme vide (signature échouera)
         }
         r.Body = io.NopCloser(strings.NewReader(string(b)))
         return b

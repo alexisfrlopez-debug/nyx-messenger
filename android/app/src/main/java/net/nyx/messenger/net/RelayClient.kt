@@ -71,6 +71,10 @@ class RelayClient private constructor(
 
     private val base = "http://$replicaOnion"
 
+    /** En-tête UA neutre posé sur CHAQUE requête (interceptor unique). */
+    private fun request(url: String) =
+        okhttp3.Request.Builder().url(url).header("User-Agent", USER_AGENT)
+
     /** Rapport d'une sonde /health (v0.2.5 — affiché sur l'écran Connexions). */
     data class HealthReport(val ok: Boolean, val ms: Long, val detail: String?)
 
@@ -83,7 +87,7 @@ class RelayClient private constructor(
     suspend fun healthDetailed(): HealthReport = withContext(Dispatchers.IO) {
         val t0 = android.os.SystemClock.elapsedRealtime()
         try {
-            client.newCall(Request.Builder().url("$base/health").build()).execute().use { resp ->
+            client.newCall(request("$base/health").build()).execute().use { resp ->
                 val ms = android.os.SystemClock.elapsedRealtime() - t0
                 val ok = resp.isSuccessful
                 if (ok) {
@@ -109,7 +113,7 @@ class RelayClient private constructor(
         runCatching {
             val body = json.encodeToString(WireEvent.serializer(), event)
                 .toRequestBody("application/json".toMediaType())
-            val req = Request.Builder().url("$base/client/event").post(body).build()
+            val req = request("$base/client/event").post(body).build()
             client.newCall(req).execute().use { resp ->
                 // v0.2.10 : le corps d'erreur du réplica (ex. « seq 3 en attente
                 // (attendu 2) ») est remonté dans le message — il alimente
@@ -140,7 +144,7 @@ class RelayClient private constructor(
      */
     suspend fun inbox(to: String, after: Long, limit: Int = 32, auth: String? = null): InboxResponse = withContext(Dispatchers.IO) {
         val authPart = auth?.let { "&auth=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: ""
-        val req = Request.Builder().url("$base/client/inbox?to=$to&after=$after&limit=$limit$authPart").build()
+        val req = request("$base/client/inbox?to=$to&after=$after&limit=$limit$authPart").build()
         client.newCall(req).execute().use { resp ->
             check(resp.code == 200) { "GET /client/inbox → HTTP ${resp.code}" }
             json.decodeFromString(InboxResponse.serializer(), resp.body!!.string())
@@ -149,7 +153,7 @@ class RelayClient private constructor(
 
     /** GET /client/alias?name=… — disponibilité d'un pseudonyme (v0.1.2). */
     suspend fun resolveAlias(name: String): AliasResolve = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url("$base/client/alias?name=$name").build()
+        val req = request("$base/client/alias?name=$name").build()
         client.newCall(req).execute().use { resp ->
             check(resp.code == 200) { "GET /client/alias → HTTP ${resp.code}" }
             json.decodeFromString(AliasResolve.serializer(), resp.body!!.string())
@@ -161,7 +165,7 @@ class RelayClient private constructor(
      * null si l'auteur n'a pas de profil public (404 — cas normal).
      */
     suspend fun profile(author: String): ProfileResponse? = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url("$base/client/profile?author=$author").build()
+        val req = request("$base/client/profile?author=$author").build()
         client.newCall(req).execute().use { resp ->
             if (resp.code == 404) return@use null
             check(resp.code == 200) { "GET /client/profile → HTTP ${resp.code}" }
@@ -170,6 +174,15 @@ class RelayClient private constructor(
     }
 
     companion object {
+        /**
+         * v0.2.42 — USER-AGENT NEUTRE (retour d'audit session 63) : OkHttp
+         * envoie par défaut « okhttp/4.x », une empreinte client identifiable
+         * et corrélable côté serveur (version de bibliothèque = version de
+         * l'app). Un UA unique et CONSTANT ne distingue plus les versions
+         * ni les appareils — cohérent avec l'impératif d'anonymat.
+         */
+        private const val USER_AGENT = "Nyx/1"
+
         /** Fabrique explicite : un réplica + le proxy Tor. */
         fun forReplica(onion: String, socksPort: Int = 9050): RelayClient =
             RelayClient(onion, socksPort = socksPort)

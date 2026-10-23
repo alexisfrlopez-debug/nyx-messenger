@@ -94,9 +94,16 @@ object CallManager {
         watchdogGlobal()
     }
 
-    /** v0.2.26 — filet de sécurité GLOBAL : aucune phase ne peut durer plus de
-     *  [GLOBAL_CALL_CAP_MS] (terrain v0.2.25 : un état « en appel » collé rendait
-     *  l'appareil sourd à toute offre entrante — « offre ignorée (déjà en appel) »). */
+    /** v0.2.42 — filet de sécurité GLOBAL : cap PAR PHASE. Les phases
+     *  transitoires (OUTGOING/INCOMING/WAIT…) restent bornées à 4 min (anti-
+     *  état-collé v0.2.25 — un état « en appel » collé rendait l'appareil
+     *  sourd à toute offre entrante) mais ACTIVE est bornée à 2 H : l'ancien
+     *  cap global de 4 min RACCROCHAIT DE FORCE TOUT APPEL EN COURS (retour
+     *  terrain session 63). Un appel actif légitime peut durer ; un ACTIVE
+     *  collé sans média reste nettoyé après 2 h. */
+    private fun phaseCapMs(phase: Phase): Long =
+        if (phase == Phase.ACTIVE) ACTIVE_CALL_CAP_MS else GLOBAL_CALL_CAP_MS
+
     private fun watchdogGlobal() {
         scope.launch {
             while (true) {
@@ -104,11 +111,11 @@ object CallManager {
                 val st = _ui.value
                 if (st.phase != Phase.IDLE && st.phase != Phase.ENDED &&
                     st.phaseChangedAt > 0 &&
-                    nowMs() - st.phaseChangedAt > GLOBAL_CALL_CAP_MS
+                    nowMs() - st.phaseChangedAt > phaseCapMs(st.phase)
                 ) {
                     android.util.Log.w(
                         "nyx-call",
-                        "garde-fou global : ${st.phase} depuis > ${GLOBAL_CALL_CAP_MS / 1000} s — fin forcée"
+                        "garde-fou global : ${st.phase} depuis > ${phaseCapMs(st.phase) / 1000} s — fin forcée"
                     )
                     end("appel interrompu (délai)")
                 }
@@ -645,5 +652,6 @@ object CallManager {
     // sinon il tue l'appel que l'appelant est en train d'établir (terrain :
     // « décrocher » puis rien — l'appelé finissait AVANT l'appelant).
     private const val WAIT_WATCHDOG_MS = 180_000L  // WAIT sans média → fin (BYE au pair)
-    private const val GLOBAL_CALL_CAP_MS = 240_000L // aucune phase > 4 min (filet global)
+    private const val GLOBAL_CALL_CAP_MS = 240_000L // phases transitoires > 4 min (filet global)
+    private const val ACTIVE_CALL_CAP_MS = 7_200_000L // v0.2.42 : ACTIVE > 2 h (anti-collé uniquement)
 }

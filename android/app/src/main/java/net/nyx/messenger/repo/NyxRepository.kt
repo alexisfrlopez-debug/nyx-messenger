@@ -400,8 +400,15 @@ class NyxRepository(
         val relay = relay() ?: return@withContext 0
         val me = identity.onionAddress ?: return@withContext 0
         val priv = identity.secretKey()
-
-        val cursor = pollStateDao.get(replicas.first())?.cursor ?: 0L
+        // v0.2.42 — CURSEUR PAR RÉPLICA INTERROGÉ (retour d'audit session 63) :
+        // il était TOUJOURS lu/écrit sous la clé `replicas.first()` alors que
+        // le relais suit [replicaIndex] (failover v0.2.25). Les `gid` n'étant
+        // pas alignés entre réplicas (le réplica embarqué numérote
+        // localement), appliquer à un réplica le curseur d'un autre pouvait
+        // SAUTER DÉFINITIVEMENT des événements (réplica « en avance ») — la
+        // table PollStateEntity(replicaOnion, cursor) le permettait déjà.
+        val activeReplica = activeReplica ?: replicas.first()
+        val cursor = pollStateDao.get(activeReplica)?.cursor ?: 0L
         // v0.2.19 : preuve d'identité du demandeur (signature NYX-INBOX) — le
         // réplica embarqué (toutes versions depuis v0.2.35) l'exige, le serveur Go l'ignore (paramètre
         // inconnu). Le MÊME client parle aux deux.
@@ -422,7 +429,9 @@ class NyxRepository(
         // v0.2.41 — poll RÉUSSI : le chemin journal redevient PREMIER (sortie
         // de dégradation ADR-017).
         lastTransportFailAt = 0L
-        pollStateDao.upsert(PollStateEntity(replicas.first(), resp.cursor))
+        // v0.2.42 — curseur persisté SOUS LE RÉPLICA INTERROGÉ (cf. en-tête
+        // de pollInboxLocked) — plus de saut d'événements au failover.
+        pollStateDao.upsert(PollStateEntity(activeReplica, resp.cursor))
         // v0.2.15 : accusés en attente — tentative IMMÉDIATE (ce poll vient de
         // prouver le réplica joignable, Tor chaud) ; en cas d'échec la boucle
         // périodique repartira les accusés comme les annonces/acks.

@@ -282,7 +282,21 @@ func main() {
         addr := fmt.Sprintf("127.0.0.1:%d", cfg.HTTPPort)
         log.Printf("✔ API en écoute sur %s (onion:80 → ici)", addr)
         go func() {
-                if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
+                // v0.2.42 — TIMEOUTS SERVEUR (retour d'audit session 63) : un
+                // http.Server nu n'a AUCUN timeout — un client lent (slowloris)
+                // peut tenir des descripteurs de connexion indéfiniment, surtout
+                // à travers Tor où les connexions sont persistantes par nature.
+                // Header rapide (10 s), corps/read généreux via Tor (120 s),
+                // idle modéré (180 s).
+                apiHTTP := &http.Server{
+                        Addr: addr,
+                        Handler: srv.Handler(),
+                        ReadHeaderTimeout: 10 * time.Second,
+                        ReadTimeout: 120 * time.Second,
+                        WriteTimeout: 180 * time.Second,
+                        IdleTimeout: 180 * time.Second,
+                }
+                if err := apiHTTP.ListenAndServe(); err != nil {
                         log.Fatalf("http: %v", err)
                 }
         }()
@@ -398,7 +412,16 @@ func main() {
                 adminAddr := fmt.Sprintf("127.0.0.1:%d", adminPort)
                 go func() {
                         log.Printf("✔ API admin en écoute sur %s (onion admin:9091 → ici)", adminAddr)
-                        if err := http.ListenAndServe(adminAddr, adminSrv.Handler()); err != nil {
+                        // v0.2.42 — timeouts serveur (miroir de l'API client).
+                        adminHTTP := &http.Server{
+                                Addr: adminAddr,
+                                Handler: adminSrv.Handler(),
+                                ReadHeaderTimeout: 10 * time.Second,
+                                ReadTimeout: 60 * time.Second,
+                                WriteTimeout: 90 * time.Second,
+                                IdleTimeout: 120 * time.Second,
+                        }
+                        if err := adminHTTP.ListenAndServe(); err != nil {
                                 log.Fatalf("http admin: %v", err)
                         }
                 }()

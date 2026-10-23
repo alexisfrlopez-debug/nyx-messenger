@@ -198,6 +198,10 @@
     <string name="debug_uploading">Envoi vers le dossier de travail Drive…</string>
     <string name="debug_done">✔ Déposé dans le Drive : %1$s</string>
     <string name="debug_failed">✗ Échec : %1$s</string>
+    <!-- v0.2.42 — statuts COURTS pour la ligne compacte de la carte débogage
+         (le nom de fichier complet rendait la ligne illisible après envoi) -->
+    <string name="debug_status_short_done">✔ Envoyés</string>
+    <string name="debug_status_short_failed">✗ Échec</string>
     <string name="debug_no_credentials">✗ Ce build n\'embarque pas de credentials Drive (test-upload.properties absent au moment de la compilation).</string>
     <string name="debug_share">PARTAGER LES LOGS (sans Drive)</string>
     <string name="debug_share_running">COLLECTE… CHOISISSEZ UNE CIBLE</string>
