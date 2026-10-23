@@ -47,6 +47,15 @@ class TorManager private constructor(context: Context) {
     private var keyProvider: (() -> ByteArray?)? = null
 
     /**
+     * v0.2.43 — Port média du DERNIER enregistrement réussi de CE processus tor
+     * (0 = enregistré sans port média). Sert à l'adoption de collision : si le
+     * service existant a été enregistré SANS le port média (écouteur P2P pas
+     * encore lié à l'époque) et qu'on en demande un maintenant, il faut un
+     * rafraîchissement propre (DEL+pause+ADD) plutôt qu'une adoption aveugle.
+     */
+    @Volatile private var registeredMediaPort: Int = 0
+
+    /**
      * v0.2.29 — Adresse onion RÉELLEMENT PUBLIÉE (ADD_ONION réussi) ou null.
      *
      * CAUSE RACINE « host unreachable » (terrain v0.2.28) : l'annonce du
@@ -60,9 +69,10 @@ class TorManager private constructor(context: Context) {
      *  - l'annonce du réplica temporaire (ServiceLocator) est sautée si null ;
      *  - le watchdog [publicationWatchdog] REPUBLIE tant que ce champ est
      *    null alors que tor est Ready (fin de l'échec à vie) ;
-     *  - le watchdog de sondes [probeWatchdog] force une RÉPUBLICATION
-     *    (DEL_ONION + ADD_ONION — points d'introduction frais + descripteur
-     *    rechargé) quand notre propre onion devient injoignable.
+     *  - v0.2.43 : le watchdog de sondes [probeWatchdog] ne déclenche PLUS de
+     *    republication forcée (la sonde de notre propre onion est INDICATIVE :
+     *    le cache client peut servir notre ANCIEN descripteur jusqu'à 24 h —
+     *    terrain 22-23/10 + expérimentation tor, session 64).
      */
     @Volatile var onionPublishedAddress: String? = null
         private set
@@ -71,7 +81,7 @@ class TorManager private constructor(context: Context) {
     private var publicationWatchdog: Job? = null
     /** Boucle de sondes périodiques de NOTRE onion publiée (un seul à la fois). */
     private var probeWatchdog: Job? = null
-    /** Échecs consécutifs des sondes (2 → républication forcée). */
+    /** Échecs consécutifs des sondes (seuil → alerte journalisée, PAS de republication). */
     @Volatile private var probeFails = 0
 
     /**
@@ -216,14 +226,53 @@ class TorManager private constructor(context: Context) {
                 }
             }
             val key = keyProvider?.invoke() ?: error("identité absente (onboarding ?)")
+            // Cohérence clé ↔ adresse (miroir de l'avertissement du serveur Go) :
+            // la clé privée ed25519 contient la clé publique à [32..64). Si tor et
+            // notre OnionCodec divergent, c'est un invariant cassé (voir error()).
+            val expected = net.nyx.messenger.crypto.OnionCodec.pubKeyToOnion(key.copyOfRange(32, 64))
+            val expectedSid = expected.removeSuffix(".onion")
             TorControlClient(cfg.controlPort).use { control ->
                 control.authenticate(cfg.cookieFile)
-                val sid = control.publishOnionEd25519V3(key, target, mediaPort)
+                // v0.2.43 — COLLISION 550 = SERVICE DÉJÀ VIVANT → ADOPTION, pas échec.
+                // CAUSE RACINE session 64 (terrain 22-23/10 + EXPÉRIMENTATION tor réelle,
+                // scripts tor_repro_*) : ADD_ONION Flags=Detach survit à la fermeture de
+                // la connexion contrôle et CONTINUE d'établir ses points d'intro et
+                // d'uploader son descripteur (47 × « 200 OK HS descriptor stored » en
+                // laboratoire). Une collision (« erreur Tor 550 — Onion address
+                // collision ») signifie donc « déjà publié dans CE démon tor », PAS un
+                // échec. Le terrain v0.2.42 la traitait en échec : le watchdog
+                // republicait toutes les 30 s → collision à chaque fois → état
+                // « onion NON publiée » FANTÔME (le service servait réellement) +
+                // assertion interne tor (hs_service_add_ephemeral) à chaque tentative.
+                val sid = try {
+                    control.publishOnionEd25519V3(key, target, mediaPort)
+                } catch (e: IllegalStateException) {
+                    val msg = e.message ?: ""
+                    if (!msg.contains("collision")) throw e
+                    if (mediaPort > 0 && registeredMediaPort != mediaPort) {
+                        // L'enregistrement existant (fait SANS port média — écouteur
+                        // P2P non lié à l'époque) est INCOMPLET : rafraîchissement
+                        // propre DEL_ONION + pause + ADD (le service nous appartient,
+                        // pas de course possible : onionMutex sérialise tout).
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-tor", "collision 550 : service existant SANS port média — " +
+                                "rafraîchissement DEL+ADD (ports=80→$target, média→$mediaPort)"
+                        )
+                        control.unpublish(expectedSid)
+                        delay(REPUBLISH_PAUSE_MS) // anti-collision 550 (v0.2.37)
+                        control.publishOnionEd25519V3(key, target, mediaPort)
+                    } else {
+                        // Service déjà enregistré AVEC les bons ports : on l'ADOPTTE —
+                        // il est vivant, ses uploads suivent leur cours ; le traiter
+                        // en échec était la boucle sans fin du terrain.
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-tor", "collision 550 : service déjà vivant (Detach) — ADOPTION " +
+                                "de $expected (les uploads tor continuent)"
+                        )
+                        expectedSid
+                    }
+                }
                 onionServiceId = sid
-                // Cohérence clé ↔ adresse (miroir de l'avertissement du serveur Go) :
-                // la clé privée ed25519 contient la clé publique à [32..64). Si tor et
-                // notre OnionCodec divergent, c'est un invariant cassé (voir error()).
-                val expected = net.nyx.messenger.crypto.OnionCodec.pubKeyToOnion(key.copyOfRange(32, 64))
                 val published = "$sid.onion"
                 check(published.equals(expected, ignoreCase = true)) {
                     "ServiceID tor ($published) ≠ adresse calculée ($expected)"
@@ -253,6 +302,7 @@ class TorManager private constructor(context: Context) {
                 // v0.2.29 — l'adresse est PUBLIÉE : les annonces de réplica et
                 // le watchdog s'appuient désormais sur un état RÉEL (plus rien
                 // de « supposé ») — cf. [onionPublishedAddress].
+                registeredMediaPort = mediaPort
                 onionPublishedAddress = published
                 startProbeWatchdog(published)
                 published
@@ -317,7 +367,13 @@ class TorManager private constructor(context: Context) {
                         "nyx-tor",
                         "watchdog : tor Ready mais onion NON publiée — republication"
                     )
-                    runCatching { publishOwnOnion() }
+                    // v0.2.43 — PLUS de runCatching autour (miroir du correctif
+                    // probeWatchdog) : publishOwnOnion renvoie un Result, l'envelopper
+                    // d'un second rendait onFailure INATTEIGNABLE — « onion service
+                    // publié : Failure(…550 collision) » était journalisé via la
+                    // branche SUCCÈS (terrain 23/10 09:12:56) et l'adoption de
+                    // collision ne pouvait jamais opérer.
+                    publishOwnOnion()
                         .onSuccess { net.nyx.messenger.diag.DiagLog.i("nyx-tor", "onion service publié : $it") }
                         .onFailure { net.nyx.messenger.diag.DiagLog.w("nyx-tor", "publication onion différée : ${it.message}") }
                 }
@@ -368,10 +424,16 @@ class TorManager private constructor(context: Context) {
                     }
                     probeFails = 0
                 } else {
-                    // v0.2.37 — HSFETCH D'ABORD : la cause n°1 est le descripteur
-                    // périmé (cache client ou HSDir pas encore à jour). On force la
-                    // re-demande puis on attend un cycle de fetch (~15 s) AVANT de
-                    // compter l'échec — la sonde suivante dira si c'est guéri.
+                    // v0.2.37/v0.2.43 — HSFETCH D'ABORD (la cause n°1 reste le
+                    // descripteur périmé : cache client jusqu'à 24 h, HSDirs en
+                    // cours de propagation). Classification v0.2.43 (fin des
+                    // fausses explications) :
+                    //  - « SOCKS server general failure » = un descripteur est
+                    //    servi mais l'INTRODUCE échoue — le plus souvent NOTRE
+                    //    PROPRE cache client périmé (points d'intro d'une session
+                    //    précédente) : faux négatif CONNU, pas une panne du service ;
+                    //  - « Host unreachable » = pas de descripteur servit par les
+                    //    HSDirs (propagation en cours, ou réseau mobile hostile).
                     net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor",
                         "auto-sonde ÉCHOUÉE (${probe.failed}/${probe.total}) : $published — " +
@@ -393,37 +455,27 @@ class TorManager private constructor(context: Context) {
                     net.nyx.messenger.diag.DiagLog.w(
                         "nyx-tor",
                         "auto-sonde ÉCHOUÉE après HSFETCH — tentative $probeFails/" +
-                            "$PROBE_FAILS_BEFORE_REPUBLISH (${reprobe.detail})"
+                            "$PROBE_FAILS_BEFORE_ALERT (${reprobe.detail})"
                     )
-                    if (probeFails >= PROBE_FAILS_BEFORE_REPUBLISH) {
-                        net.nyx.messenger.diag.DiagLog.w(
-                            "nyx-tor",
-                            "RÉPUBLICATION DERNIER RECOURS de $published (" +
-                                "$PROBE_FAILS_BEFORE_REPUBLISH échecs malgré HSFETCH — " +
-                                "descripteur probablement jamais propagé)"
-                        )
+                    if (probeFails >= PROBE_FAILS_BEFORE_ALERT) {
                         probeFails = 0
-                        runCatching { unpublishOwnOnion() }
-                        delay(REPUBLISH_PAUSE_MS) // laisse à tor le temps de libérer le service (anti-collision 550)
-                        runCatching { publishOwnOnion() }
-                            .onSuccess { net.nyx.messenger.diag.DiagLog.i("nyx-tor", "onion re-publiée : $it") }
-                            .onFailure {
-                                val msg = it.message ?: ""
-                                if (msg.contains("collision")) {
-                                    // v0.2.37 — collision = le service EXISTE ENCORE (Detach) : il
-                                    // continue de servir — pas une panne, on garde la boucle vivante.
-                                    net.nyx.messenger.diag.DiagLog.w(
-                                        "nyx-tor", "re-publication : collision (service déjà vivant — " +
-                                            "on le garde, il sert toujours) : $msg"
-                                    )
-                                    onionPublishedAddress = published
-                                    startProbeWatchdog(published)
-                                } else {
-                                    net.nyx.messenger.diag.DiagLog.w("nyx-tor", "re-publication échouée : $msg")
-                                    startProbeWatchdog(published) // repart sur l'ancienne adresse (même clé)
-                                }
-                            }
-                        return@launch // cette boucle meurt — publishOwnOnion a relancé la sienne
+                        // v0.2.43 — PLUS DE RÉPUBLICATION FORCÉE. Terrain 22-23/10 +
+                        // expérimentation (tor_repro_*) : le DEL_ONION+ADD_ONION du
+                        // dernier recours TUAIT des points d'introduction VIVANTS,
+                        // rouvrait une fenêtre de descripteur périmé pour TOUS les
+                        // pairs, et courait contre le publicationWatchdog (collision
+                        // 550 en boucle + assertion tor). tor re-téléverse
+                        // périodiquement ses descripteurs et ré-établir ses points
+                        // d'intro TOUT SEUL — l'app n'a rien à casser ici. Les canaux
+                        // SORTANTS (réplication, appels sortants, annonces) restent
+                        // fonctionnels même quand l'onion ENTRANT est injoignable.
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-tor", "ONION INJOIGNABLE DEPUIS $PROBE_FAILS_BEFORE_ALERT " +
+                                "salves malgré HSFETCH : $published (${reprobe.detail}). " +
+                                "AUCUNE republication forcée (v0.2.43 : elle cassait plus " +
+                                "qu'elle ne réparait — collisions 550 + churn de descripteurs). " +
+                                "tor poursuit ses uploads en autonomie ; sonde indicative seulement."
+                        )
                     }
                 }
                 delay(PROBE_INTERVAL_MS)
@@ -669,16 +721,15 @@ class TorManager private constructor(context: Context) {
         // v0.2.29 — watchdogs de publication : réessai de publication toutes les
         // 30 s tant que l'onion n'est pas publiée ; sondes de notre propre
         // onion 2 min après publication puis toutes les 10 min — depuis la
-        // v0.2.37, un échec déclenche d'abord HSFETCH (descripteur périmé)
-        // et seules 4 salves persistantes (~40 min) mènent à la republication.
+        // v0.2.37, un échec déclenche d'abord HSFETCH (descripteur périmé).
+        // v0.2.43 — la sonde est désormais INDICATIVE : 4 salves persistantes
+        // (~40 min) produisent une ALERTE JOURNALISÉE (plus aucune republication
+        // forcée — terrain 22-23/10 : elle tuait des points d'intro vivants et
+        // déclenchait des collisions 550 en boucle avec le publicationWatchdog).
         private const val PUBLICATION_RETRY_MS = 30_000L
         private const val PROBE_FIRST_DELAY_MS = 2 * 60_000L
         private const val PROBE_INTERVAL_MS = 10 * 60_000L
-        // v0.2.37 — 2 → 4 : la republication tue les points d'intro vivants et
-        // ouvre une fenêtre de descripteur périmé pour TOUS les pairs ; elle ne
-        // se déclenche désormais qu'après 4 échecs PERSISTANTS malgré HSFETCH
-        // (~40 min d'indisponibilité réelle confirmée).
-        private const val PROBE_FAILS_BEFORE_REPUBLISH = 4
+        private const val PROBE_FAILS_BEFORE_ALERT = 4
         // v0.2.37 — délai de guérison après HSFETCH (le fetch + le stockage du
         // descripteur + la selection d'un point d'intro frais prennent ~10-15 s).
         private const val PROBE_HSFETCH_SETTLE_MS = 15_000L

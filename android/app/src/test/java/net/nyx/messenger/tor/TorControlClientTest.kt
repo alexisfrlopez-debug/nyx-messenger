@@ -180,4 +180,59 @@ class TorControlClientTest {
             c.hsfetch("trop-court")
         }
     }
+
+    /**
+     * v0.2.43 — CONTRAT « COLLISION 550 » (cause racine session 64, terrain
+     * 22-23/10 : « erreur Tor 550 — Onion address collision » traitée en
+     * ÉCHEC par le watchdog → boucle de republication sans fin + état « non
+     * publié » FANTÔME alors que le service était VIVANT — expérimentation
+     * tor réelle : ADD_ONION Detach survit à la fermeture de la connexion
+     * contrôle et continue ses uploads).
+     *
+     * TorManager doit pouvoir reconnaître la collision au message de
+     * l'IllegalStateException : « control port : erreur Tor 550 — Onion
+     * address collision ». Ce test fixe le CONTRAT côté client contrôle :
+     * une réponse 550 de tor produit une exception dont le message contient
+     * « collision » — si le formatage du message change, l'adoption de
+     * collision (TorManager v0.2.43) re-deviendrait du code mort.
+     */
+    @Test
+    fun `collision 550 produit une exception contenant collision`() {
+        // Serveur dédié : ADD_ONION répond 550 Onion address collision.
+        val ss = ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())
+        val t = Thread {
+            while (!ss.isClosed) {
+                val client = try { ss.accept() } catch (_: java.io.IOException) { return@Thread }
+                client.use { s ->
+                    val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.US_ASCII))
+                    val writer = java.io.OutputStreamWriter(s.getOutputStream(), Charsets.US_ASCII)
+                    while (true) {
+                        val line = reader.readLine() ?: return@use
+                        when {
+                            line.startsWith("AUTHENTICATE") -> writer.write("250 OK\r\n")
+                            line.startsWith("ADD_ONION") -> writer.write("550 Onion address collision\r\n")
+                            else -> writer.write("250 OK\r\n")
+                        }
+                        writer.flush()
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
+        try {
+            TorControlClient(ss.localPort).use { c ->
+                val ex = kotlin.runCatching {
+                    c.publishOnionEd25519V3(key64, targetPort = 34747, mediaPort = 33739)
+                }.exceptionOrNull()
+                assertTrue("ADD_ONION en collision doit lever (pas retourner)", ex != null)
+                assertTrue(
+                    "Le message doit contenir « collision » (contrat d'adoption TorManager " +
+                        "v0.2.43) — reçu : ${ex?.message}",
+                    ex?.message?.contains("collision") == true
+                )
+            }
+        } finally {
+            runCatching { ss.close() }
+            runCatching { t.interrupt() }
+        }
+    }
 }

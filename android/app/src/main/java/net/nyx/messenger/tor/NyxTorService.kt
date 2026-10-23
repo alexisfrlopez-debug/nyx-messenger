@@ -273,6 +273,34 @@ class NyxTorService : Service() {
                 android.util.Log.w("nyx-tor", "tor.log contenait des octets NUL (corruption) — tronqué")
             }
         }
+        // 3. v0.2.43 — RÉINITIALISATION PÉRIODIQUE DE L'ÉTAT GUARDS (une fois par
+        //    version d'app). Terrain 22-23/10 (Blackview, tor 0.4.9.14) : « All
+        //    current guards excluded by path restriction type 2; using an
+        //    additional guard » DÈS LA PREMIÈRE SECONDE de chaque bootstrap —
+        //    l'état persisté (fichier `state` du DataDirectory) accumule des
+        //    exclusions de guards (path-bias sur réseau mobile) qui survient à
+        //    TOUTES les sessions et force tor à re-sélectionner sans fin. Le
+        //    fichier `state` ne contient RIEN d'essentiel (guards, compteurs de
+        //    bande passante) : le supprimer au changement de version redonne un
+        //    état guards PROPRE (premier bootstrap ~10 s plus lent, sans risque).
+        run {
+            val prefs = getSharedPreferences("nyx-tor-hygiene", MODE_PRIVATE)
+            val versionKey = "guards-reset-version"
+            val currentVersion = net.nyx.messenger.BuildConfig.VERSION_NAME
+            if (prefs.getString(versionKey, "") != currentVersion) {
+                val stateFile = File(dataDir, "state")
+                if (stateFile.isFile) {
+                    runCatching { stateFile.delete() }
+                    android.util.Log.w(
+                        "nyx-tor",
+                        "état guards tor réinitialisé (changement de version " +
+                            "$currentVersion — terrain 23/10 : guards exclus par « path " +
+                            "restriction type 2 » dès le 1er bootstrap) — état propre reconstruit"
+                    )
+                }
+                prefs.edit().putString(versionKey, currentVersion).apply()
+            }
+        }
     }
 
     /** Lecture complète tolérante (fichier plus court que le tampon). */
