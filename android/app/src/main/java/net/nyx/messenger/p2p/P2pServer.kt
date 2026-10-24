@@ -1,6 +1,6 @@
 package net.nyx.messenger.p2p
 
-import java.net.InetAddress
+import net.nyx.messenger.net.Loopback
 import java.net.ServerSocket
 import java.net.Socket
 
@@ -92,23 +92,34 @@ object P2pServer {
     fun start() {
         if (started) return
         try {
-            val server = ServerSocket(0, 16, InetAddress.getLoopbackAddress())
+            // v0.2.47 — BIND IPv4 EXPLICITE (cause racine sessions 41→68, preuve
+            // AOSP : voir net/Loopback.kt) : getLoopbackAddress() = ::1 sur Android
+            // alors que l'ADD_ONION cible 127.0.0.1 → média P2P DIRECT n'a JAMAIS
+            // été joignable (« décrochage impossible » — le média exigeait l'onion
+            // entrant du pair, dont le backend refusait toute connexion).
+            val server = Loopback.serverSocket(backlog = 16)
             serverSocket = server
             localPort = server.localPort
             started = true
             val t = Thread({
-                net.nyx.messenger.diag.DiagLog.i("nyx-p2p", "écouteur direct prêt (local $localPort)")
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-p2p",
+                    "écouteur direct prêt (local ${Loopback.bindAddress.hostAddress}:$localPort)"
+                )
                 while (true) {
                     val sock: Socket = try {
                         server.accept()
                     } catch (e: Exception) {
-                        if (started) {
-                            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "écouteur interrompu : ${e.message}")
-                            // Recrée l'écouteur (le port peut avoir changé) —
-                            // la republication onion suivra au prochain Ready.
-                            started = false
-                            start()
-                        }
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-p2p", "écouteur interrompu : ${e.message}"
+                        )
+                        // v0.2.47 — AUTO-RELANCE SEULEMENT SI ON EST ENCORE
+                        // PROPRIÉTAIRE du socket publié : le close() du chien de
+                        // garde (restartIfDead) réveille AUSSI ce thread — relancer
+                        // alors créait un DOUBLE écouteur (terrain 24/10 05:22:38 :
+                        // deux « écouteur direct prêt » à 1 ms d'écart, ports
+                        // 42899/44763, socket orphelin + churn de descripteur).
+                        selfHealIfStillOwner(server)
                         return@Thread
                     }
                     try {
@@ -130,6 +141,24 @@ object P2pServer {
         } catch (e: Exception) {
             net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "démarrage écouteur impossible : ${e.message}")
         }
+    }
+
+    /**
+     * v0.2.47 — AUTO-RELANCE GARANTIE PROPRIÉTAIRE : appelée par le thread
+     * d'écoute dont l'accept() vient de lever. Ne relance QUE si le socket mort
+     * est TOUJOURS celui publié dans [serverSocket] (sinon le chien de garde —
+     * ou un arrêt — a déjà remplacé l'écouteur : ne rien toucher). Sérialisée
+     * avec start/restartIfDead (@Synchronized) pour lever toute course.
+     */
+    @Synchronized
+    private fun selfHealIfStillOwner(dead: ServerSocket) {
+        if (!started) return                          // arrêt volontaire en cours
+        if (serverSocket !== dead) return             // déjà remplacé — pas à nous
+        net.nyx.messenger.diag.DiagLog.w(
+            "nyx-p2p", "auto-relance (socket fermé, propriétaire confirmé) — nouveau port"
+        )
+        started = false
+        start()
     }
 
     /** Traite une connexion entrante — HELLO obligatoire en première trame. */

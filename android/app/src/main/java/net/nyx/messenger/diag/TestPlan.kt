@@ -478,7 +478,23 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_46
+    val ITEMS_V0_2_47 = listOf(
+        Item("bind-ipv4-preuve", "BIND IPv4 — LA PREUVE DANS L'EXPORT (NOUVEAU v0.2.47, ITEM DÉCISIF — cause racine des sessions 41→68 : getLoopbackAddress() = ::1 sur Android alors que tor cible 127.0.0.1) : l'export de logs montre « réplica temporaire prêt (local 127.0.0.1:PORT, port 80 onion) » et « écouteur direct prêt (local 127.0.0.1:PORT) » — ET PLUS JAMAIS la boucle « réplica temporaire MORT → relance → onion publié » toutes les 60 s (45 occurrences dans le seul export du 24/10)"),
+        Item("onion-entrant-direct", "OIGNON ENTRANT VIVANT POUR LA PREMIÈRE FOIS (NOUVEAU v0.2.47) : la sonde console DIRECTE du réplica embarqué passe — carte « EN LIGNE » directe (pas seulement VIA LIEN INVERSÉ) avec version/événements/latence RÉELS ; l'auto-sonde média « auto-sonde média OK : …:47471 joignable » apparaît dans le DIAG (elle échouait depuis toujours — « SOCKS server general failure »)"),
+        Item("appel-direct-media", "APPEL DIRECT AVEC MÉDIA (NOUVEAU v0.2.47 — le test décisif du décrochage) : appel entre les 2 téléphones v0.2.47, l'appelé décroche → le média s'établit EN DIRECT (onion du pair enfin joignable) AVANT tout repli — l'audio coule immédiatement, PAS de bascule relais à 60 s ; si l'onion du pair est injoignable (réseau hostile), le repli relais v0.2.44+ prend le relais comme avant"),
+        Item("double-ecouteur", "PLUS DE DOUBLE ÉCOUTEUR P2P (v0.2.47) : à une relance de chien de garde, UN SEUL « écouteur direct prêt » suit le « MORT » (le terrain 24/10 montrait deux « prêt » à 1 ms d'écart — socket orphelin + churn de descripteur) ; « auto-relance (socket fermé, propriétaire confirmé) » n'apparaît que si la fermeture vient d'ailleurs"),
+        Item("lien-inverse-console", "LIEN INVERSÉ — LA CARTE CONSOLE (v0.2.46, continue) : téléphone allumé + serveur 0.2.38 déployé → même onion entrant mort, la carte passe à « EN LIGNE (VIA LIEN INVERSÉ) » — le repli doit rester silencieux tant que le direct marche (v0.2.47 : le direct doit maintenant marcher)"),
+        Item("guerison-cache", "GUÉRISON CACHE DESCRIPTEUR (v0.2.45, continue) : après 2 échecs réseau consécutifs du même réplica, le DIAG montre « → HSFETCH de guérison » puis réplica ONLINE en ~2-3 min"),
+        Item("serveur-detach", "SERVEUR DÉPLOYÉ SANS FENÊTRE ORPHELINE (v0.2.37+, continue) : « Mettre à jour le nœud » (console v0.8.12, binaire 0.2.38) → les téléphones NE perdent PAS le réplica pendant le déploiement"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie d'appel passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("conflux-zero", "TOR SANS CONFLUX (validation continue) : AUCUN « path restriction type 2 » dans le tor.log au bootstrap"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
+    fun items(): List<Item> = ITEMS_V0_2_47
 
 
     /**

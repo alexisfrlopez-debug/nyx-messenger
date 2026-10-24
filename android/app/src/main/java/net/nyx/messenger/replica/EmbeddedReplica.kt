@@ -20,8 +20,8 @@ import net.nyx.messenger.crypto.OnionCodec
 import net.nyx.messenger.data.db.NyxDatabase
 import net.nyx.messenger.data.db.ReplicaEventEntity
 import net.nyx.messenger.data.db.ReplicaStateEntity
+import net.nyx.messenger.net.Loopback
 import net.nyx.messenger.net.WireEvent
-import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 
@@ -144,13 +144,20 @@ object EmbeddedReplica {
         ownOnion = ownOnionAddress
         versionName = appVersion
         try {
-            val s = ServerSocket(0, 16, InetAddress.getLoopbackAddress())
+            // v0.2.47 — BIND IPv4 EXPLICITE : InetAddress.getLoopbackAddress()
+            // retourne ::1 sur Android (source AOSP — voir net/Loopback.kt) alors
+            // que l'ADD_ONION cible 127.0.0.1 → « Connection refused » pour CHAQUE
+            // flux entrant de tor depuis la première version (cause racine des
+            // sessions 41→68 : « oignon entrant injoignable » console + média
+            // d'appel jamais établi). Boucle de mort du chien de garde en boucle
+            // (relance → port neuf → republication → re-mort) éteinte à la racine.
+            val s = Loopback.serverSocket(backlog = 16)
             localPort = s.localPort
             server = s
             started = true
             val t = Thread({
                 net.nyx.messenger.diag.DiagLog.i(
-                    "nyx-replica", "réplica temporaire prêt (local $localPort, port 80 onion)"
+                    "nyx-replica", "réplica temporaire prêt (local ${Loopback.bindAddress.hostAddress}:$localPort, port 80 onion)"
                 )
                 while (true) {
                     val sock: Socket = try {
