@@ -375,11 +375,11 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.41 · Console v0.8.7 · Serveur v0.2.35 "
-                                   "(23 octobre 2026)"],
+              ["Versions livrées", "Messagerie v0.2.47 · Console v0.8.11 · Serveur v0.2.38 "
+                                   "(24 octobre 2026)"],
           ],
           [0.28, 0.72],
-          caption="Tableau 1 — Fiche d'identité du projet Nyx au 23 octobre 2026.")
+          caption="Tableau 1 — Fiche d'identité du projet Nyx au 24 octobre 2026.")
 
     # ================= 2. Comment ça marche =================
     p2 = Paragraph(
@@ -507,12 +507,20 @@ def build_story():
                  "signalisation transitent par le réseau Nyx (donc survivent à "
                  "l'écran d'accueil), puis le flux média emprunte une connexion "
                  "directe chiffrée entre les deux services onion — aucun relais "
-                 "tierce n'y participe. La version v0.2.34 corrige un défaut "
-                 "historique de publication du service onion du téléphone "
-                 "(service détruit à sa naissance par Tor) qui empêchait le média "
-                 "de s'établir ; la correction est verrouillée par un test de "
-                 "régression automatique et en cours de revalidation sur le "
-                 "terrain.", S["body"]))
+                 "tierce n'y participe. Trois étapes ont consolidé cette "
+                 "mécanique : le repli relais v0.2.44 fait transiter le média "
+                 "par le réplica de flotte quand la connexion directe échoue "
+                 "(l'appel aboutit même sur un réseau dégradé), NYX-LINK "
+                 "(ADR-018, v0.2.46) permet de recevoir des appels entrants "
+                 "sans être joignable depuis l'extérieur grâce à un lien "
+                 "sortant persistant, et la v0.2.47 corrige enfin la cause "
+                 "racine historique : depuis les premières versions, le service "
+                 "onion du téléphone écoutait sur l'adresse IPv6 ::1 alors que "
+                 "sa publication visait 127.0.0.1 — tor recevait « connexion "
+                 "refusée » sur chaque flux entrant, ce qui rendait le média "
+                 "direct (et donc le décrochage) impossible ; le correctif, "
+                 "verrouillé par des tests de liaison IPv4, attend la "
+                 "confirmation terrain.", S["body"]))
 
     h2_block(story, "3.5 Résilience et disponibilité",
              Paragraph(
@@ -527,7 +535,14 @@ def build_story():
                  "l'application héberge alors un petit réplica, annonce son "
                  "adresse aux contacts de façon chiffrée, et la console "
                  "d'administration agrège ces annonces pour les afficher dans la "
-                 "flotte.", S["body"]))
+                 "flotte. Cette infrastructure est auto-réparatrice : les "
+                 "backends locaux sont sondés par des chiens de garde (relance "
+                 "automatique sur port neuf avec republication de l'onion, "
+                 "v0.2.45), un cache de descripteur périmé est purgé par une "
+                 "récupération forcée qui replonge un contact bloqué depuis "
+                 "~24 heures vers ~2-3 minutes (v0.2.45), et côté serveur le "
+                 "service onion survit au redéploiement du nœud (v0.2.37) — plus "
+                 "de « fenêtre orpheline » pendant les mises à jour.", S["body"]))
 
     h2_block(story, "3.6 Sécurité sur l'appareil",
              Paragraph(
@@ -539,7 +554,8 @@ def build_story():
                  "(SQLCipher) ; une fonction d'<b>effacement d'urgence</b> détruit "
                  "identité et messages en une action. Les mises à jour de "
                  "l'application se vérifient et s'installent depuis l'application "
-                 "elle-même, et les builds de test embarquent un plan de test et "
+                 "elle-même (chaîne à trois maillons insensible au quota partagé "
+                 "de l'API GitHub via Tor, v0.2.42), et les builds de test embarquent un plan de test et "
                  "un journal de diagnostic persistant qui survit au redémarrage "
                  "du processus — conçus pour fiabiliser la correction des "
                  "anomalies terrain.", S["body"]))
@@ -554,7 +570,11 @@ def build_story():
                  "des commandes signées sur un canal d'administration séparé "
                  "(onion d'admin avec authentification client Tor). Surtout, elle "
                  "industrialise l'exploitation : <b>déploiement d'un nouveau "
-                 "réplica en un clic</b> via SSH, <b>mise à jour du nœud en un clic</b> à identité conservée, sonde du réplica téléphoné auto-réparée (v0.8.7), boîte à outils de maintenance "
+                 "réplica en un clic</b> via SSH, <b>mise à jour du nœud en un clic</b> "
+                 "à identité conservée, sonde du réplica téléphoné auto-réparée "
+                 "(v0.8.7), binaire serveur embarqué identifié et affiché AVANT "
+                 "tout clic de mise à jour (v0.8.10 : impossible de redéployer "
+                 "une version ancienne par erreur), boîte à outils de maintenance "
                  "en un clic (diagnostic, réparation, durcissement, tests de bout "
                  "en bout — 12 blocs éprouvés), et terminal SSH intégré. C'est "
                  "une pièce maîtresse du projet : sans elle, administrer une "
@@ -575,7 +595,10 @@ def build_story():
               ["Médias", "Photos, vidéos, fichiers en chunks chiffrés", "v0.2.x"],
               ["Médias", "Notes vocales (enregistrement + lecteur)", "v0.2.x"],
               ["Médias", "Limite de vues : permanent / vue unique / 1 relecture", "v0.2.28"],
-              ["Appels", "Appels audio et vidéo P2P onion-vers-onion", "v0.2.x (consolidé v0.2.34)"],
+              ["Appels", "Appels audio et vidéo P2P onion-vers-onion ; v0.2.44 : "
+                 "repli relais média par le réplica de flotte quand le direct "
+                 "échoue ; v0.2.47 : média direct réparé (cause racine IPv6 ::1, "
+                 "voir §3.4)", "v0.2.x · v0.2.34 · v0.2.44 · v0.2.47"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -586,16 +609,27 @@ def build_story():
               ["Appareil", "Verrou biométrique / code, base SQLCipher", "v0.2.x"],
               ["Appareil", "Sauvegarde chiffrée + clé de récupération nyx1", "v0.2.3"],
               ["Appareil", "Effacement d'urgence", "v0.2.x"],
-              ["Appareil", "MISE À JOUR AUTOMATIQUE : le build TEST suit chaque release publiée sur GitHub (pré-releases incluses, vérification toutes les 30 min), le build standard suit les releases validées (non-pré-release, 6 h) ; détection + téléchargement via Tor, bannière « Nouvelle version prête — installer », installation confirmée par l'utilisateur ; correctif v0.2.40 : la permission d'installation (absente depuis v0.2.20) est enfin déclarée — Android 8+ bloquait silencieusement la mise à jour", "v0.2.20 · v0.2.40"],
-              ["Appareil", "TRANSPORT DE REPLAN P2P (ADR-017) : si le réplica est injoignable ou dégradé, les messages texte et la signalisation d\'appel partent en DIRECT pair-à-pair (onion vers onion à travers Tor, inspiration Briar) — le pair en ligne les reçoit en ~5-15 s par la même porte de validation que son inbox (signature, verrous, dédoublonnage) ; ordre adaptatif : journal d\'abord quand le réplica est sain, direct d\'abord quand il est dégradé ; anti-churn tor : le démon n\'est plus redémarré sur un simple réseau lent (seuil 5 échecs, démon prêt depuis ≥ 10 min, repos 10 min) — fin de la cascade « SOCKS server general failure » qui tuait les appels", "v0.2.41"],
+              ["Appareil", "MISE À JOUR AUTOMATIQUE : le build TEST suit chaque release publiée sur GitHub (pré-releases incluses, vérification toutes les 30 min), le build standard suit les releases validées (non-pré-release, 6 h) ; détection + téléchargement via Tor, bannière « Nouvelle version prête — installer », installation confirmée par l'utilisateur ; correctif v0.2.40 : la permission d'installation (absente depuis v0.2.20) est enfin déclarée — Android 8+ bloquait silencieusement la mise à jour ; v0.2.42 : chaîne de secours à trois maillons (API → flux Atom → assets) contre le quota GitHub partagé par les IP de sortie Tor, reprise de téléchargement HTTP Range + vérification SHA-256", "v0.2.20 · v0.2.40 · v0.2.42"],
               ["Appareil", "TRANSPORT DE REPLAN P2P (ADR-017) : si le réplica est injoignable ou dégradé, les messages texte et la signalisation d'appel partent en DIRECT pair-à-pair (onion vers onion à travers Tor, inspiration Briar) — le pair en ligne les reçoit en ~5-15 s par la même porte de validation que son inbox (signature, verrous, dédoublonnage) ; ordre adaptatif : journal d'abord quand le réplica est sain, direct d'abord quand il est dégradé ; anti-churn tor : le démon n'est plus redémarré sur un simple réseau lent (seuil 5 échecs, démon prêt depuis ≥ 10 min, repos 10 min) — fin de la cascade « SOCKS server general failure » qui tuait les appels", "v0.2.41"],
+              ["Résilience", "NYX-LINK — LE LIEN INVERSÉ (ADR-018) : appels et "
+                 "signalisation entrants sans joignabilité entrante du téléphone "
+                 "(lien sortant persistant vers le réplica, qui relaie) — "
+                 "défense CGNAT/Doze", "v0.2.46"],
+              ["Résilience", "AUTO-RÉPARATION : chiens de garde des backends locaux "
+                 "(sonde TCP loopback, relance port neuf + republication onion) "
+                 "et HSFETCH de guérison du cache descripteur (reconnexion en "
+                 "~2-3 min au lieu de ~24 h après un descripteur orphelin)",
+                 "v0.2.45"],
+              ["Résilience", "Serveur sans fenêtre orpheline : le service onion survit "
+                 "au redéploiement du nœud (Flags=Detach + adoption de "
+                 "collision à l'identique)", "serveur v0.2.37"],
               ["Diagnostic", "Plan de test intégré, journal persistant, export de logs", "v0.2.33"],
               ["Administration", "Console nyx-admin : flotte, déploiement et mise à jour "
-                                 "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH) ; v0.8.7 : correctif de syntaxe HSFETCH (adresse nue) — le réplica téléphoné passe enfin EN LIGNE après redémarrage de l'app", "v0.8.7"],
+                                 "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH) ; v0.8.7 : correctif de syntaxe HSFETCH (adresse nue) — le réplica téléphoné passe enfin EN LIGNE après redémarrage de l'app ; v0.8.10 : binaire serveur embarqué affiché AVANT le clic de mise à jour ; v0.8.11 : binaire v0.2.37 embarqué + classification des échecs de sonde corrigée", "v0.8.11"],
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.41 / v0.8.7).",
+                  "(version v0.2.47 / v0.8.11).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -738,9 +772,11 @@ def build_story():
                "conversations ; la console de bureau est réservée à l'administration."],
               ["Un seul appareil par identité", "Pas de synchronisation multi-appareils ; "
                "le transfert passe par la sauvegarde chiffrée et la clé nyx1."],
-              ["Appels en consolidation", "Le correctif v0.2.34 (publication onion du "
-               "téléphone) est livré et verrouillé par test, mais en revalidation "
-               "terrain au 22/10/2026."],
+              ["Appels en revalidation terrain", "La cause racine historique des appels "
+               "sans média (écoute du service onion sur ::1 au lieu de "
+               "127.0.0.1 sur Android) est identifiée et corrigée en v0.2.47 ; "
+               "le direct, le repli relais (v0.2.44) et le lien inversé "
+               "NYX-LINK (v0.2.46) attendent la confirmation terrain."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -754,7 +790,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.41) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.47) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -771,7 +807,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "22 octobre 2026. Les horizons reprennent la roadmap officielle "
+                 "24 octobre 2026. Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
     table(story,
@@ -779,13 +815,13 @@ def build_story():
           [
               ["Latence supérieure", "Connexions directes client-client (push P2P "
                "onion) en plus du dépôt répliqué ; polling adaptatif",
-               "v0.2.x en cours", "Partiellement livré"],
+               "v0.2.x en cours", "Livré (ADR-017 v0.2.41, ADR-018 v0.2.46)"],
               ["Pas de groupes", "Groupes par sender keys (puis MLS), pièces "
                "jointes de groupe", "v0.3", "Conception actée (ADR)"],
-              ["Appels en consolidation", "Revalidation terrain du correctif "
-               "Detach + télémétrie auto-sondes ; relais TURN (ADR-014) pour les "
-               "réseaux hostiles", "v0.2.34 puis phase 2", "Correctif livré, "
-               "validation en cours"],
+              ["Appels en revalidation", "Confirmation terrain du correctif IPv6 "
+               "(v0.2.47) et du repli relais (v0.2.44) ; relais TURN (ADR-014) "
+               "pour les réseaux hostiles", "v0.2.44-v0.2.47 puis phase 2",
+               "Correctifs livrés, validation terrain en cours"],
               ["Android uniquement", "Étude d'un client bureau (le noyau réseau "
                "et les codecs sont déjà multiplateformes par conception)",
                "Post-v1.0 (à l'étude)", "Hors périmètre v1"],
@@ -914,6 +950,19 @@ def build_story():
                "réseau simplement lent — cause racine de la cascade « SOCKS "
                "server general failure » qui rendait les appels "
                "indécrochables ; 378 tests JVM."],
+              ["8ᵉ édition", "24 octobre 2026", "Messagerie v0.2.47 · "
+               "Console v0.8.11 · Serveur v0.2.38",
+               "Rattrapage de six versions : chaîne de mise à jour "
+               "anti-quota GitHub (v0.2.42), publication onion stabilisée "
+               "(v0.2.43), repli relais média des appels par le réplica "
+               "(v0.2.44), guérison du cache descripteur + serveur sans "
+               "fenêtre orpheline (v0.2.45), NYX-LINK le lien inversé "
+               "(v0.2.46) ; v0.2.47 : la cause racine historique est enfin "
+               "corrigée  — le service onion du téléphone écoutait sur IPv6 "
+               "::1 pendant que sa publication visait 127.0.0.1, si bien que "
+               "« oignon entrant injoignable » et « décrochage impossible » "
+               "n'étaient qu'un seul et même défaut depuis les premières "
+               "versions ; 486 tests JVM."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -1053,7 +1102,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.41 / v0.8.7 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.47 / v0.8.11 · AGPL-3.0</div>
 </div>
 </body>
 </html>
