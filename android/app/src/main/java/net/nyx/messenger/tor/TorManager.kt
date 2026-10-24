@@ -88,6 +88,27 @@ class TorManager private constructor(context: Context) {
     @Volatile private var probeFails = 0
 
     /**
+     * v0.2.49 — LA SONDE A-T-ELLE DÉJÀ RÉUSSI depuis le dernier enregistrement
+     * du service ? Terrain 24/10 11:07 (Xiaomi v0.2.48) : ADD_ONION immédiat au
+     * bootstrap alors que les MICRODESCRIPTEURS des relais choisis comme points
+     * d'introduction ne sont pas encore téléchargés → les 10 lancements de
+     * circuits intro sont REFUSÉS instantanément (« Unable to launch intro
+     * circuit to node ») → descripteur JAMAIS téléversé (0/3 intro) → l'onion
+     * reste mort dehors pendant que tor attend son retry interne de 5 min
+     * (INTRO_CIRC_RETRY_PERIOD). Distingue ce cas (service jamais servi) du cas
+     * sain-puis-injoignable (v0.2.43 : la republication y tuait des points
+     * d'intro VIVANTS — interdit) : on ne relance QUE si la sonde n'a JAMAIS
+     * réussi depuis l'enregistrement.
+     */
+    @Volatile private var probeEverSucceeded = false
+
+    /** v0.2.49 — salves consécutives « jamais servi » (sonde jamais réussie + Host unreachable). */
+    @Volatile private var neverServedSalves = 0
+
+    /** v0.2.49 — relances du service déjà effectuées pour cet enregistrement. */
+    @Volatile private var serviceRelaunches = 0
+
+    /**
      * v0.2.34 — Sérialisation publish/unpublish (terrain 22/10 02:52:41 :
      * trois connexions contrôle ouvertes LA MÊME SECONDE, deux ADD_ONION avec
      * la même clé en concurrence → tor 551 « Onion Service private key
@@ -276,6 +297,11 @@ class TorManager private constructor(context: Context) {
                     }
                 }
                 onionServiceId = sid
+                // v0.2.49 — nouvel enregistrement : les compteurs « jamais servi »
+                // repartent de zéro (une relance éventuelle est de nouveau permise).
+                probeEverSucceeded = false
+                neverServedSalves = 0
+                serviceRelaunches = 0
                 val published = "$sid.onion"
                 check(published.equals(expected, ignoreCase = true)) {
                     "ServiceID tor ($published) ≠ adresse calculée ($expected)"
@@ -425,6 +451,20 @@ class TorManager private constructor(context: Context) {
                     if (probeFails > 0) {
                         net.nyx.messenger.diag.DiagLog.i("nyx-tor", "auto-sonde : $published de nouveau joignable")
                     }
+                    // v0.2.49 — PREMIÈRE RÉUSSITE depuis l'enregistrement : le
+                    // descripteur est RÉELLEMENT servi par les HSDirs. Marqueur
+                    // terrain distinct de l'enregistrement (« onion publié » à
+                    // l'ADD_ONION ne prouve QUE le service enregistré — terrain
+                    // 24/10 : un service enregistré peut rester muet dehors
+                    // tant que ses circuits d'intro ne s'établissent pas).
+                    if (!probeEverSucceeded) {
+                        probeEverSucceeded = true
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-tor", "onion CONFIRMÉ servi par les HSDirs : $published " +
+                                "(auto-sonde OK — points d’intro établis, descripteur téléversé)"
+                        )
+                    }
+                    neverServedSalves = 0
                     probeFails = 0
                 } else {
                     // v0.2.37/v0.2.43 — HSFETCH D'ABORD (la cause n°1 reste le
@@ -464,9 +504,11 @@ class TorManager private constructor(context: Context) {
                     // descripteur ; un backend local mort = le service Tor est sain
                     // mais les mappings pointent vers un port mort (relancé par le
                     // chien de garde startBackendWatchdog dans les 60 s).
+                    var replicaAlive = false
+                    var p2pAlive = false
                     runCatching {
-                        val replicaAlive = net.nyx.messenger.replica.EmbeddedReplica.alive()
-                        val p2pAlive = net.nyx.messenger.p2p.P2pServer.alive()
+                        replicaAlive = net.nyx.messenger.replica.EmbeddedReplica.alive()
+                        p2pAlive = net.nyx.messenger.p2p.P2pServer.alive()
                         net.nyx.messenger.diag.DiagLog.i(
                             "nyx-tor", "verdict auto-sonde : backends locaux " +
                                 "(réplica=${if (replicaAlive) "vivant" else "MORT"}, " +
@@ -480,6 +522,59 @@ class TorManager private constructor(context: Context) {
                         "auto-sonde ÉCHOUÉE après HSFETCH — tentative $probeFails/" +
                             "$PROBE_FAILS_BEFORE_ALERT (${reprobe.detail})"
                     )
+                    // v0.2.49 — SERVICE « JAMAIS SERVI » : la sonde n'a JAMAIS réussi
+                    // depuis l'enregistrement + « Host unreachable » (= AUCUN
+                    // descripteur servi par les HSDirs, pas un descripteur périmé)
+                    // + backends locaux vivants = le descripteur n'a probablement
+                    // JAMAIS été téléversé (points d'intro refusés au bootstrap,
+                    // ex. microdescripteurs manquants — terrain 24/10 11:07 Xiaomi :
+                    // 0/3 intro pendant 4+ min, 30 lancements refusés, puis plus
+                    // AUCUNE tentative : tor attend son retry interne de 5 min).
+                    // → RELANCE DU SERVICE (DEL_ONION + ADD_ONION, même clé = même
+                    // adresse) : tor re-sélectionne DES MAINTENANT 5 points d'intro
+                    // (les microdescripteurs sont arrivés entre-temps) au lieu
+                    // d'attendre le retry passif. SÛR contrairement au dernier
+                    // recours v0.2.43 interdit : ici AUCUN point d'intro vivant ne
+                    // peut être tué — pas de descripteur servi = pas de client qui
+                    // l'utilise ; et la publication avait dépassé la fenêtre de
+                    // propagation normale (1re salve à +2 min, HSFETCH + re-sonde
+                    // écoulées).
+                    if (!probeEverSucceeded && (replicaAlive || p2pAlive) &&
+                        reprobe.detail.contains("Host unreachable")
+                    ) {
+                        neverServedSalves++
+                        if (neverServedSalves >= NEVER_SERVED_SALVES_BEFORE_RELUNCH) {
+                            if (serviceRelaunches < MAX_SERVICE_RELAUNCHES) {
+                                serviceRelaunches++
+                                val attempt = serviceRelaunches
+                                probeFails = 0
+                                neverServedSalves = 0
+                                net.nyx.messenger.diag.DiagLog.w(
+                                    "nyx-tor", "onion JAMAIS SERVI depuis l’enregistrement " +
+                                        "(${reprobe.detail}) — RELANCE DU SERVICE (DEL+ADD) " +
+                                        "$attempt/$MAX_SERVICE_RELAUNCHES : nouvelle sélection " +
+                                        "de points d’intro immédiate (cause typique : circuits " +
+                                        "d’intro refusés au bootstrap, microdescripteurs tor pas " +
+                                        "encore téléchargés → descripteur jamais téléversé)"
+                                )
+                                // HORS du coroutine watchdog : la republication
+                                // relance CE watchdog (cancel) — la relance doit
+                                // survivre à sa propre annulation.
+                                scope.launch { relaunchOwnOnionService() }
+                                delay(PROBE_INTERVAL_MS) // la republication relancera ce watchdog
+                                continue
+                            }
+                            // Relances épuisées : on retombe sur l'alerte conservative.
+                        } else {
+                            // 1re salve « jamais servi » : re-sonde RAPIDE (le retry
+                            // intro tor = 5 min ; la fenêtre de propagation normale
+                            // est déjà largement passée à ce stade) au lieu d'attendre
+                            // 10 min — si le service s'établit entre-temps, la salve
+                            // suivante voit « onion CONFIRMÉ » et tout rentre seul.
+                            delay(NEVER_SERVED_RETRY_MS)
+                            continue
+                        }
+                    }
                     if (probeFails >= PROBE_FAILS_BEFORE_ALERT) {
                         probeFails = 0
                         // v0.2.43 — PLUS DE RÉPUBLICATION FORCÉE. Terrain 22-23/10 +
@@ -603,6 +698,42 @@ class TorManager private constructor(context: Context) {
     }
 
     suspend fun unpublishOwnOnion() = onionMutex.withLock { unpublishOwnOnionLocked() }
+
+    /**
+     * v0.2.49 — RELANCE DU SERVICE ONION (DEL_ONION + ADD_ONION avec la MÊME
+     * clé d'identité = MÊME adresse) : dernier recours exclusif du cas
+     * « descripteur JAMAIS servi » (cf. [probeEverSucceeded] — les circuits
+     * d'introduction refusés au bootstrap, ex. microdescripteurs pas encore
+     * téléchargés, laissent le service muet dehors pendant que tor attend son
+     * retry passif de 5 min). La ré-enregistrement force tor à re-sélectionner
+     * immédiatement 5 points d'intro — les microdescripteurs étant arrivés
+     * entre-temps, les circuits s'établissent et le descripteur part enfin
+     * vers les HSDirs. Terrain 24/10 11:07 : Xiaomi v0.2.48 — 30 lancements
+     * refusés instantanément à l'enregistrement, PUIS AUCUNE tentative pendant
+     * toute la fenêtre de test (4 min 30) = appels impossibles à décrocher
+     * depuis l'appelant (« SOCKS: Host unreachable » — descripteur absent).
+     *
+     * Différence CRUCIALE avec la republication forcée interdite en v0.2.43 :
+     * ici le service ne sert RIEN (aucun descripteur aux HSDirs) — il n'y a
+     * AUCUN point d'intro vivant à tuer et AUCUN pair à pénaliser ; la fenêtre
+     * de propagation périmée qu'on rouvre n'existe pas (rien n'était servi).
+     * Appelée UNIQUEMENT par le probeWatchdog dans l'état « jamais servi ».
+     */
+    private suspend fun relaunchOwnOnionService() {
+        onionMutex.withLock {
+            unpublishOwnOnionLocked()
+            delay(REPUBLISH_PAUSE_MS) // anti-collision 550 (v0.2.37)
+            publishOwnOnionLocked(null)
+        }.onSuccess {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-tor", "service onion relancé : $it (nouvelle sélection de points d’intro en cours — sondes à suivre)"
+            )
+        }.onFailure {
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-tor", "relance du service onion ÉCHOUÉE : ${it.message} — le watchdog de publication reprend (30 s)"
+            )
+        }
+    }
 
     private suspend fun unpublishOwnOnionLocked() {
         val cfg = config ?: return
@@ -821,6 +952,12 @@ class TorManager private constructor(context: Context) {
         private const val PROBE_FIRST_DELAY_MS = 2 * 60_000L
         private const val PROBE_INTERVAL_MS = 10 * 60_000L
         private const val PROBE_FAILS_BEFORE_ALERT = 4
+        /** v0.2.49 — salves « jamais servi » avant relance du service (DEL+ADD). */
+        private const val NEVER_SERVED_SALVES_BEFORE_RELUNCH = 2
+        /** v0.2.49 — re-sonde rapide dans l'état « jamais servi » (retry intro tor = 5 min, on sonde AVANT). */
+        private const val NEVER_SERVED_RETRY_MS = 60_000L
+        /** v0.2.49 — relances max du service par enregistrement (au-delà : alerte conservative). */
+        private const val MAX_SERVICE_RELAUNCHES = 2
         // v0.2.37 — délai de guérison après HSFETCH (le fetch + le stockage du
         // descripteur + la selection d'un point d'intro frais prennent ~10-15 s).
         private const val PROBE_HSFETCH_SETTLE_MS = 15_000L

@@ -514,7 +514,28 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_48
+    val ITEMS_V0_2_49 = listOf(
+        Item("build-propre", "BUILD PROPRE PREUVE PAR MARQUEUR — ITEM DÉCISIF n°1 (NOUVEAU v0.2.49) : l'export de CHAQUE téléphone contient « câblage v0.2.49 vérifié : tirage NYX-LINK flotte seule, verrou média ACCEPTED||PENDING, HSFETCH normalisé, relance service jamais servi » (preuve que le dex contient bien les correctifs — l'APK v0.2.48 du 08:12 était un build MIXTE : la « reprise » sur mtimes ambiguës avait packagé des artefacts périmés, 3 correctifs sur 5 ABSENTS du dex, l'audit 26/26 ne voyait rien) ; SYMÉTRIQUEMENT, plus AUCUN symptôme périmé : plus de « HSFETCH … échoué : adresse onion invalide (65 ≠ 56) » et le canal inversé ne tire JAMAIS vers l'onion d'un pair"),
+        Item("onion-confirme", "ONION VRAIMENT SERVI APRÈS CHAQUE DÉMARRAGE (NOUVEAU v0.2.49) : après « onion publié : <addr> », l'export montre « onion CONFIRMÉ servi par les HSDirs : <addr> (auto-sonde OK…) » en ≤ ~3 min ; si un démarrage a perdu la course aux microdescripteurs (circuits d'intro refusés au bootstrap), l'export montre « onion JAMAIS SERVI … — RELANCE DU SERVICE (DEL+ADD) » PUIS « onion CONFIRMÉ » (auto-guérison au lieu d'attendre le retry passif tor de 5 min — terrain 24/10 11:07 : Xiaomi 0/3 intro pendant TOUTE la fenêtre de test = cause profonde des appels impossibles)"),
+        Item("appel-authentifie", "APPEL AUTHENTIFIÉ CHEZ L'APPELÉ — ITEM DÉCISIF n°2 (v0.2.48, reporté) : appel entre les 2 téléphones v0.2.49, l'appelé décroche → l'export de L'APPELÉ montre « appel entrant authentifié de <pair>… (cid …) » (le HELLO call accepté — JAMAIS vu depuis la v0.2.18 : le verrou contact du média était plus strict que celui de la sonnerie) ; la cause de TOUT refus est journalisée (signature ou contact)"),
+        Item("media-45s", "MÉDIA DIRECT ÉTABLI (v0.2.48, reporté) : « média essai 1 (45 s) → <pair>…:47471 » puis l'audio COULE EN DIRECT sans bascule relais"),
+        Item("micro-permission", "MICRO DEMANDÉ ET OUVERT (v0.2.48, reporté) : le premier clic Appeler/Décrocher affiche la demande système → ACCORDEZ-LA ; l'appelé ET l'appelant s'entendent ; si refusée/occupée, le DIAG dit exactement quoi et l'appel reste audible dans le sens qui marche"),
+        Item("visio-camera", "VISIO SANS « no looper » (v0.2.48, reporté) : appel visio → « caméra active (visio en émission) » dans le DIAG (HandlerThread dédié « nyx-cam »)"),
+        Item("depot-direct-pair", "DÉPÔT DIRECT AU PAIR PLUS JAMAIS REFUSÉ (v0.2.48, reporté) : « dépôt direct événements : 1/1 ingérés par le pair » ; plus de « HELLO events REFUSÉ … : contact non établi » pour un pair PENDING"),
+        Item("hsfetch-port", "HSFETCH DE GUÉRISON OPÉRATIONNEL (v0.2.48, reporté) : plus JAMAIS « HSFETCH … échoué : adresse onion invalide (65 ≠ 56) »"),
+        Item("tirage-flotte", "TIRAGE NYX-LINK SANS 404 NI VERS-LE-PAIR (v0.2.48, reporté) : le canal tire UNIQUEMENT vers un réplica de FLOTTE — plus de « canal en échec vers <pair>… » du tout : c'est le correctif de la « connexion aux réplicas un peu longue » du terrain 24/10 11:0x"),
+        Item("sonde-muette", "SONDES SANS BRUIT (v0.2.48, reporté) : « connexion muette fermée (sonde de joignabilité…) » en INFO"),
+        Item("bind-ipv4-preuve", "BIND IPv4 (v0.2.47, ACQUIS — continue) : « réplica temporaire prêt (local 127.0.0.1:PORT) » + « écouteur direct prêt (local 127.0.0.1:PORT) » + AUCUN MORT en boucle"),
+        Item("serveur-detach", "SERVEUR DÉPLOYÉ SANS FENÊTRE ORPHELINE (v0.2.37+, continue) : nœud 0.2.38 confirmé terrain 24/10 06:42"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie d'appel passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("conflux-zero", "TOR SANS CONFLUX (validation continue) : AUCUN « path restriction type 2 » dans le tor.log au bootstrap"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
+    fun items(): List<Item> = ITEMS_V0_2_49
 
 
     /**

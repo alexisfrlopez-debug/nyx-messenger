@@ -83,18 +83,26 @@ build_one() { # build_one <Flavor> <glob-sortie-attendue>
   # v0.2.39 — PIPELINE REPRISABLE : le bac à sable tue les runs > 10 min
   # (sessions 58/59/60 — chaque reprise REFAISAIT les 2 variants depuis le
   # début : Standard ~5 min + Diag ~5,5 min + audit + contrôles > budget).
-  # Si l'APK /tmp existe et est PLUS RÉCENT que toute entrée du source
-  # (android/app/src + build.gradle.kts), un run précédent l'a déjà produit
-  # — on reprend SANS refaire gradlew (les contrôles d'autonomie restent
-  # intégralement exécutés sur l'APK repris).
-  local CACHED_APK="/tmp/nyx-apk-$FLAVOR.apk" NEWER_SRC
+  # v0.2.49 — REPRISE PAR EMPREINTE (remplace la comparaison mtime — INCIDENT
+  # DU 08:12 : l'APK v0.2.48 livré était un build MIXTE. Deux fichiers
+  # enregistrés À LA MÊME SECONDE (TorManager.kt 07:26:55 IN/OUT du snapshot
+  # ambigu) + un run tué par l'OOM daemon → la reprise sur mtime a jugé
+  # « source inchangé » un APK compilé AVANT les correctifs
+  # ServiceLocator/NyxRepository/TorManager : 3 des 5 correctifs de la
+  # v0.2.48 étaient ABSENTS du dex livré (preuve terrain : « HSFETCH …
+  # 65 ≠ 56 » = signature de l'ANCIEN code, tirage du canal vers l'onion
+  # d'un pair = ancien câblage) alors que l'audit 26/26 PASSAIT — il vérifie
+  # des propriétés, pas le contenu compilé. La reprise n'est plus fondée
+  # que sur l'EMPREINTE SHA-256 du contenu source, complète et ordinale.
+  local CACHED_APK="/tmp/nyx-apk-$FLAVOR.apk" CACHED_SHA="/tmp/nyx-apk-$FLAVOR.srcsha" FP
+  FP=$(find android/app/src android/app/build.gradle.kts -type f -print0 2>/dev/null \
+        | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
+  if [ -f "$CACHED_APK" ] && [ -f "$CACHED_SHA" ] && [ "$(cat "$CACHED_SHA" 2>/dev/null)" = "$FP" ]; then
+    echo "APK $FLAVOR déjà construit (empreinte source identique $FP) — REPRISE : $CACHED_APK"
+    return 0
+  fi
   if [ -f "$CACHED_APK" ]; then
-    NEWER_SRC=$(find android/app/src android/app/build.gradle.kts -type f -newer "$CACHED_APK" 2>/dev/null | head -1)
-    if [ -z "$NEWER_SRC" ]; then
-      echo "APK $FLAVOR déjà construit (source inchangé) — REPRISE : $CACHED_APK"
-      return 0
-    fi
-    echo "source modifié après l'APK $FLAVOR ($NEWER_SRC) — rebuild complet"
+    echo "empreinte source ≠ APK $FLAVOR en cache — rebuild complet (incident 08:12 : jamais de reprise sur mtime)"
   fi
   ( cd android && ./gradlew ":app:assemble${FLAVOR}Release" --console=plain -q --no-daemon \
       -Dorg.gradle.jvmargs="-Xmx1408m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
@@ -102,6 +110,7 @@ build_one() { # build_one <Flavor> <glob-sortie-attendue>
   FOUND=$(ls -t $OUT 2>/dev/null | head -1)
   [ -n "$FOUND" ] && [ -f "$FOUND" ] || { echo "${RED}APK $FLAVOR introuvable après build ($OUT)${NC}"; exit 1; }
   cp "$FOUND" "/tmp/nyx-apk-$FLAVOR.apk"
+  echo "$FP" > "$CACHED_SHA"
   # v0.2.35 — anti-splits : mémorise le NOMBRE d'APK produits par CE variant
   # (le contrôle d) de check_apk ne doit PAS compter /tmp — tous les variants
   # s'y accumulent en mode séquentiel — mais le compte du BUILD de CE variant).
@@ -115,6 +124,32 @@ APK_STD=/tmp/nyx-apk-Standard.apk
 APK_TEST=/tmp/nyx-apk-Diag.apk
 echo "APK standard : $APK_STD ($(du -h "$APK_STD" | cut -f1))"
 echo "APK test     : $APK_TEST ($(du -h "$APK_TEST" | cut -f1))"
+
+# ---------- 2bis. GARDE-FOU ANTI-BUILD-MIXTE (v0.2.49) ----------
+# L'incident du 08:12 (APK v0.2.48 mixte : 3 correctifs sur 5 absents du dex,
+# l'audit 26/26 passait car il vérifie des propriétés) ne doit JAMAIS se
+# reproduire : le MARQUEUR DE CÂBLAGE émis par ServiceLocator au démarrage
+# est une chaîne LITTÉRALE de la version courante — elle n'existe dans le
+# dex que si les fichiers câblage (ServiceLocator/NyxRepository/TorManager)
+# de CETTE version sont compilés dedans. Absent = APK périmé/mixte = CRIT.
+VERSION_NAME=$(grep -m1 'versionName = "' android/app/build.gradle.kts | sed 's/.*versionName = "\([^"]*\)".*/\1/')
+MARKER="câblage v$VERSION_NAME vérifié"
+echo "${YLW}── Garde-fou dex : marqueur « $MARKER » ──${NC}"
+# DUMP UNE FOIS dans un fichier — le pipe `unzip -p | grep -q` est RACEUX :
+# grep -q ferme le tube dès le premier match → SIGPIPE chez unzip → pipefail
+# transforme un MATCH en échec (MÊME leçon que le contrôle « Tor embarqué »
+# v0.2.18 — appliquée à ce garde-fou dès sa première exécution).
+DEX_DUMP="/tmp/nyx-dex-dump.marker"
+for A in "$APK_STD" "$APK_TEST"; do
+  unzip -p "$A" 'classes*.dex' > "$DEX_DUMP" 2>/dev/null
+  if grep -aq -- "$MARKER" "$DEX_DUMP"; then
+    echo "  ${GRN}✓${NC} marqueur présent : $(basename "$A")"
+  else
+    echo "  ${RED}✗ CRIT — marqueur « $MARKER » ABSENT du dex de $(basename "$A") : APK périmé ou mixte (incident 08:12) — LIVRAISON BLOQUÉE${NC}"
+    exit 1
+  fi
+done
+rm -f "$DEX_DUMP"
 
 # ---------- 3. vérification d'autonomie (les 2 APK) ----------
 BT="$ANDROID_HOME/build-tools/34.0.0"

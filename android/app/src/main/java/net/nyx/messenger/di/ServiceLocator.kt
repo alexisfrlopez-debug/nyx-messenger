@@ -216,6 +216,25 @@ object ServiceLocator {
                     // flotte).
                     repository.fleetReplica
                 }
+                // v0.2.49 — MARQUEUR DE BUILD VÉRIFIABLE (terrain 24/10 11:0x :
+                // l'APK v0.2.48 du 08:12 était un build MIXTE — la « reprise »
+                // du pipeline sur mtimes ambigus a packagé des artefacts
+                // périmés : les correctifs TorManager (HSFETCH 65 ≠ 56),
+                // ServiceLocator (verrou média + tirage flotte) et NyxRepository
+                // (fleetReplica) étaient ABSENTS du dex livré, seuls les fichiers
+                // d'appel étaient à jour ; l'audit 26/26 passait car il vérifie
+                // des propriétés, pas le contenu compilé). Cette ligne est la
+                // PREUVE terrain que le câblage complet de CETTE version tourne :
+                // une chaîne LITTÉRALE (jamais interpolée — les morceaux
+                // interpolés ne survivent pas à R8 en un seul tenant) présente
+                // dans le dex SI ET SEULEMENT SI ce fichier est compilé ; le
+                // pipeline de build la VÉRIFIE dans le dex avant toute livraison
+                // (scripts/build-apk.sh, garde-fou v0.2.49) et l'export de logs
+                // la montre à chaque démarrage.
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-boot",
+                    "câblage v0.2.49 vérifié : tirage NYX-LINK flotte seule, verrou média ACCEPTED||PENDING, HSFETCH normalisé, relance service jamais servi"
+                )
                 net.nyx.messenger.net.LinkChannel.socksProvider = {
                     // -1 tant que Tor n'est pas prêt (le canal dort, pas de
                     // churn d'erreurs au bootstrap) ; le port réel ensuite.

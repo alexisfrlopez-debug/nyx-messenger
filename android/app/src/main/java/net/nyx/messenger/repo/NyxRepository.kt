@@ -125,8 +125,8 @@ class NyxRepository(
      * un TIREUR, il n'implémente pas les routes /link (tirage) : 404 « route
      * inconnue » + backoff 10 s à chaque cycle avant de retomber sur le nœud
      * de flotte). Les
-     * serveurs de flotte ne sont jamais dans le carnet de contacts ; les deux
-     * formats de clé (nu et .onion) sont essayés — un nœud de flotte est
+     * serveurs de flotte ne sont jamais dans le carnet de contacts ; les trois
+     * formats de clé (nu, .onion et .onion:80) sont essayés — un nœud de flotte est
      * absent du carnet par construction. Null = pas de flotte connue → le
      * canal dort.
      */
@@ -136,7 +136,13 @@ class NyxRepository(
             runCatching {
                 kotlinx.coroutines.runBlocking {
                     contactDao.get(key) == null &&
-                        contactDao.get("$key.onion") == null
+                        contactDao.get("$key.onion") == null &&
+                        // v0.2.49 — 3e format défensif « .onion:80 » : une adresse
+                        // de réplica COMPLÈTE ne peut plus passer pour une flotte
+                        // (jamais observé stocké — l'UI valide et les événements
+                        // portent le nu ou le « .onion » — mais le coût est nul
+                        // et l'incident du 08:12 a appris à ne rien supposer).
+                        contactDao.get("$key.onion:80") == null
                 }
             }.getOrDefault(false)  // en doute : PAS une cible de tirage
         }
