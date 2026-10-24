@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.47 · Console v0.8.12 · Serveur v0.2.38 "
+              ["Versions livrées", "Messagerie v0.2.48 · Console v0.8.12 · Serveur v0.2.38 "
                                    "(24 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -519,8 +519,20 @@ def build_story():
                  "sa publication visait 127.0.0.1 — tor recevait « connexion "
                  "refusée » sur chaque flux entrant, ce qui rendait le média "
                  "direct (et donc le décrochage) impossible ; le correctif, "
-                 "verrouillé par des tests de liaison IPv4, attend la "
-                 "confirmation terrain.", S["body"]))
+                 "vérifié par des tests de liaison IPv4, est confirmé sur le "
+                 "terrain (premières sondes de joignabilité réussies des deux "
+                 "côtés). La v0.2.48 lève alors les derniers verrous "
+                 "applicatifs du décrochage : le verrou de contact du média "
+                 "est aligné sur celui de la sonnerie (un pair en attente "
+                 "pouvait faire sonner puis se voir refuser le média), la "
+                 "première tentative de connexion couvre la durée réelle du "
+                 "rendezvous Tor (45 s), la permission micro — jamais "
+                 "demandée depuis la première version — est désormais "
+                 "sollicitée au moment d'appeler et de décrocher (l'appel "
+                 "reste audible dans le sens qui marche si elle est refusée), "
+                 "la visio reçoit son fil d'exécution caméra dédié, et la "
+                 "récupération d'annuaire accepte les adresses de réplica "
+                 "avec port.", S["body"]))
 
     h2_block(story, "3.5 Résilience et disponibilité",
              Paragraph(
@@ -597,8 +609,10 @@ def build_story():
               ["Médias", "Limite de vues : permanent / vue unique / 1 relecture", "v0.2.28"],
               ["Appels", "Appels audio et vidéo P2P onion-vers-onion ; v0.2.44 : "
                  "repli relais média par le réplica de flotte quand le direct "
-                 "échoue ; v0.2.47 : média direct réparé (cause racine IPv6 ::1, "
-                 "voir §3.4)", "v0.2.x · v0.2.34 · v0.2.44 · v0.2.47"],
+                 "échoue ; v0.2.47 : média direct réparé (cause racine IPv6 ::1) ; "
+                 "v0.2.48 : décrochage débloqué côté applicatif (verrou de "
+                 "contact aligné sur la sonnerie, 1er essai 45 s, permission "
+                 "micro demandée, §3.4)", "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -629,7 +643,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.47 / v0.8.12).",
+                  "(version v0.2.48 / v0.8.12).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -774,9 +788,12 @@ def build_story():
                "le transfert passe par la sauvegarde chiffrée et la clé nyx1."],
               ["Appels en revalidation terrain", "La cause racine historique des appels "
                "sans média (écoute du service onion sur ::1 au lieu de "
-               "127.0.0.1 sur Android) est identifiée et corrigée en v0.2.47 ; "
-               "le direct, le repli relais (v0.2.44) et le lien inversé "
-               "NYX-LINK (v0.2.46) attendent la confirmation terrain."],
+               "127.0.0.1 sur Android) est corrigée en v0.2.47 et confirmée "
+               "par les premières sondes joignables du terrain ; la v0.2.48 "
+               "lève les derniers verrous applicatifs (verrou de contact du "
+               "média aligné sur la sonnerie, fenêtre de connexion du premier "
+               "essai portée à 45 s, permission micro enfin demandée) — la "
+               "confirmation de bout en bout de l'appel reste attendue."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -790,7 +807,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.47) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.48) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -819,8 +836,9 @@ def build_story():
               ["Pas de groupes", "Groupes par sender keys (puis MLS), pièces "
                "jointes de groupe", "v0.3", "Conception actée (ADR)"],
               ["Appels en revalidation", "Confirmation terrain du correctif IPv6 "
-               "(v0.2.47) et du repli relais (v0.2.44) ; relais TURN (ADR-014) "
-               "pour les réseaux hostiles", "v0.2.44-v0.2.47 puis phase 2",
+               "(v0.2.47, sondes joignables au 24/10) et des verrous "
+               "applicatifs v0.2.48 ; relais TURN (ADR-014) "
+               "pour les réseaux hostiles", "v0.2.44-v0.2.48 puis phase 2",
                "Correctifs livrés, validation terrain en cours"],
               ["Android uniquement", "Étude d'un client bureau (le noyau réseau "
                "et les codecs sont déjà multiplateformes par conception)",
@@ -965,6 +983,20 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["9ᵉ édition", "24 octobre 2026", "Messagerie v0.2.48 · "
+               "Console v0.8.12 · Serveur v0.2.38",
+               "Le correctif IPv6 de la 8ᵉ édition est confirmé par le terrain "
+               "(premières sondes de joignabilité réussies sur les deux "
+               "téléphones) ; la v0.2.48 lève les cinq derniers verrous "
+               "applicatifs du décrochage révélés par les logs du 24/10 : verrou "
+               "de contact du média plus strict que celui de la sonnerie, "
+               "fenêtre de connexion du premier essai trop courte pour un "
+               "rendezvous Tor à froid (12 s → 45 s), permission micro jamais "
+               "demandée depuis la première version, caméra de visio sans fil "
+               "d'exécution dédié, récupération d'annuaire rejetant les adresses "
+               "de réplica avec port ; au passage, le lien inversé cible "
+               "uniquement les serveurs de flotte (fin des 404 vers les "
+               "téléphones des pairs) ; 490 tests JVM."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -1104,7 +1136,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.47 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.48 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>

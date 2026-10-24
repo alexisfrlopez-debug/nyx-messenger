@@ -628,7 +628,15 @@ class TorManager private constructor(context: Context) {
      */
     fun forceDescriptorRefresh(onion: String): Result<Unit> = runCatching {
         val cfg = config ?: error("tor non démarré")
-        val host = onion.trim().removeSuffix(".onion").lowercase()
+        // v0.2.48 — ROBUSTESSE AUX ADRESSES DE RÉPLICA (terrain 24/10 06:39 :
+        // « HSFETCH kxcwahchrt… échoué : adresse onion invalide (65 ≠ 56) » —
+        // l'appelant (guérison DescriptorHeal du repo) passait l'adresse
+        // COMPLÈTE « <56>.onion:80 » (65 car.) : le suffixe .onion n'était PAS
+        // en fin de chaîne, removeSuffix ne retirait rien, le require tuait la
+        // guérison À CHAQUE FOIS → les descripteurs périmés restaient en
+        // cache ~24 h. Strip du port AVANT le suffixe — normalisation unique
+        // déléguée à [net.nyx.messenger.net.LinkFallback.hostKey], testée JVM.
+        val host = net.nyx.messenger.repo.LinkFallback.hostKey(onion)
         require(host.length == 56) { "adresse onion invalide (${host.length} ≠ 56)" }
         TorControlClient(cfg.controlPort).use { control ->
             control.authenticate(cfg.cookieFile)

@@ -59,6 +59,35 @@ object P2pProtocol {
         return Frame(type, payload)
     }
 
+    /**
+     * v0.2.48 — LECTURE DU PREMIER HELLO avec distinction de la connexion
+     * MUETTE (terrain 24/10 : l'auto-sonde média et les sondes console testent
+     * la joignabilité TCP du port 47471 SANS envoyer de trame → « connexion
+     * sans HELLO valide — fermée » ×toutes les 20-40 s dans chaque export,
+     * noyant les vraies anomalies). [HelloFirst.mute] = EOF avant le premier
+     * octet (rien reçu du tout) ; [HelloFirst.bad] = octets reçus mais trame
+     * cassée ; [HelloFirst.hello] = Hello parsé (null = trame valide mais pas
+     * un HELLO). Le format lu est le même que [read] (type u8 + len i32 +
+     * payload) — figé depuis la v0.2.18 et verrouillé par P2pProtocolTest.
+     */
+    data class HelloFirst(val mute: Boolean, val bad: Boolean, val hello: Hello?)
+
+    fun readHello(input: InputStream): HelloFirst {
+        val d = DataInputStream(input)
+        val type = try { d.read() } catch (_: Exception) { return HelloFirst(false, true, null) }
+        if (type == -1) return HelloFirst(true, false, null)   // EOF : rien envoyé
+        if (type != F_HELLO) return HelloFirst(false, false, null)
+        return try {
+            val len = d.readInt()
+            if (len < 0 || len > 4 * 1024 * 1024) return HelloFirst(false, true, null)
+            val payload = ByteArray(len)
+            d.readFully(payload)
+            HelloFirst(false, false, parseHello(payload))
+        } catch (_: Exception) {
+            HelloFirst(false, true, null)
+        }
+    }
+
     // ---------- HELLO ----------
 
     /**

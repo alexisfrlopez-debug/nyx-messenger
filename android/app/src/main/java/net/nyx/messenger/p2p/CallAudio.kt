@@ -51,6 +51,29 @@ class CallAudio(
      * dans l'ACCEPT/HELLO — son décodeur en a besoin avant la 1ʳᵉ trame.
      */
     fun startSending(): ByteArray {
+        // v0.2.48 — PERMISSION MICRO AVANT TOUT (terrain 24/10 08:49 : AudioRecord
+        // « AudioFlinger could not create record track, status: -1 » / code -20
+        // SANS AUCUN message applicatif — l'app ne demandait JAMAIS
+        // RECORD_AUDIO à l'exécution : les appels n'avaient jamais dépassé la
+        // sonnerie, le trou était invisible). Refusée → l'appel CONTINUE en
+        // réception seule (le pair reste audible, notre émission est muette)
+        // avec un csd factice — PAS de onFatal : l'appel ne doit pas se couper
+        // pour ça. L'UI demande la permission au clic Appeler (ChatScreen).
+        val ctx = runCatching {
+            net.nyx.messenger.di.ServiceLocator.appContext()
+        }.getOrNull()
+        if (ctx != null && androidx.core.content.ContextCompat.checkSelfPermission(
+                ctx, android.Manifest.permission.RECORD_AUDIO
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-call",
+                "micro REFUSÉ : permission RECORD_AUDIO non accordée — appel en RÉCEPTION " +
+                    "SEULE (le pair est audible, vous n'êtes pas entendu) ; accordez le " +
+                    "microphone (Paramètres → Applications → Nyx → Microphone) et rappelez"
+            )
+            return ByteArray(2)   // csd factice : le pair décode du silence
+        }
         val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, 1).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
@@ -70,6 +93,18 @@ class CallAudio(
             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
             maxOf(minBuf, 8192) * 2
         )
+        // v0.2.48 — L'ÉCHEC D'INITIALISATION EST EXPLICITE (terrain : le
+        // constructeur ne lève PAS — il rend un objet UNINITIALIZED, mort à
+        // startRecording ; sans ça, aucune trace applicative du micro HS).
+        if (rec.state != AudioRecord.STATE_INITIALIZED) {
+            runCatching { rec.release() }
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-call",
+                "micro INUTILISABLE : AudioRecord non initialisé (state=${rec.state}) — " +
+                    "micro occupé par une autre application, ou permission — appel en réception seule"
+            )
+            return ByteArray(2)   // csd factice — réception seule, pas de onFatal
+        }
         record = rec
         val t = Thread({
             try {

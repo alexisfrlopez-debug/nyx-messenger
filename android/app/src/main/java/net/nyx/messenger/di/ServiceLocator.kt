@@ -145,7 +145,17 @@ object ServiceLocator {
                 }.getOrDefault(false)
             }
             net.nyx.messenger.p2p.P2pServer.isAllowed = { peer ->
-                runBlocking { database.contactDao().get(peer)?.status == net.nyx.messenger.data.db.ContactStatus.ACCEPTED }
+                // v0.2.48 — HARMONISATION AVEC LE RÉPLICA EMBARQUÉ (terrain 24/10
+                // 08:49 : « HELLO events REFUSÉ de kxcwah… » alors que la
+                // SONNERIE du même pair passait par le journal) : le média
+                // exigeait ACCEPTED strict alors que messages + sonnerie passent
+                // déjà à PENDING → un pair PENDING pouvait faire sonner et se
+                // voir DÉCROCHER mais son média était refusé = « décrochage
+                // impossible » STRUCTUREL. Même politique que le :80 (le pair
+                // reste borné par l'existence du contact + les quotas).
+                val st = runBlocking { database.contactDao().get(peer)?.status }
+                st == net.nyx.messenger.data.db.ContactStatus.ACCEPTED ||
+                    st == net.nyx.messenger.data.db.ContactStatus.PENDING
             }
             net.nyx.messenger.p2p.P2pServer.fileSink = { author, body ->
                 repoRef.receiveDirectFragment(author, body)
@@ -197,7 +207,15 @@ object ServiceLocator {
                 net.nyx.messenger.net.LinkChannel.signer = { canonical ->
                     cipher.signEvent(canonical, identity.secretKey())
                 }
-                net.nyx.messenger.net.LinkChannel.replicaProvider = { repository.activeReplica }
+                net.nyx.messenger.net.LinkChannel.replicaProvider = {
+                    // v0.2.48 — CIBLE DE TIRAGE = RÉPLICA DE FLOTTE UNIQUEMENT
+                    // (terrain 24/10 : le canal tirait vers l'embarqué D'UN PAIR
+                    // découvert — un téléphone est un TIREUR, il n'implémente
+                    // pas les routes /link : 404 « route inconnue » + backoff
+                    // 10 s à chaque cycle avant de retomber sur le nœud de
+                    // flotte).
+                    repository.fleetReplica
+                }
                 net.nyx.messenger.net.LinkChannel.socksProvider = {
                     // -1 tant que Tor n'est pas prêt (le canal dort, pas de
                     // churn d'erreurs au bootstrap) ; le port réel ensuite.

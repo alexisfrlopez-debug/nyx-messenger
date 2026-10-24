@@ -494,7 +494,27 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_47
+    val ITEMS_V0_2_48 = listOf(
+        Item("appel-authentifie", "APPEL AUTHENTIFIÉ CHEZ L'APPELÉ — ITEM DÉCISIF (NOUVEAU v0.2.48) : appel entre les 2 téléphones v0.2.48, l'appelé décroche → l'export de L'APPELÉ montre « appel entrant authentifié de <pair>… (cid …) » (le HELLO call accepté — JAMAIS vu depuis la v0.2.18 : le verrou contact du média était plus strict que celui de la sonnerie, un pair PENDING faisait sonner mais son média était refusé = « décrochage impossible » structurel ; la cause du refus est désormais journalisée : signature ou contact)"),
+        Item("media-45s", "MÉDIA DIRECT ÉTABLI (NOUVEAU v0.2.48 — le 1er essai couvre le rendezvous à froid) : « média essai 1 (45 s) → <pair>…:47471 » puis l'audio COULE EN DIRECT sans bascule relais — le terrain 24/10 montrait « pending-join … Stalling » 12 s d'affilée : le rendezvous onion à froid prend 15-35 s, l'ancienne fenêtre tuait l'essai AVANT la complétion"),
+        Item("micro-permission", "MICRO DEMANDÉ ET OUVERT (NOUVEAU v0.2.48 — la permission RECORD_AUDIO n'était JAMAIS demandée : AudioRecord échouait en silence, terrain 24/10 « AudioFlinger could not create record track, status: -1 ») : le premier clic Appeler/Décrocher affiche la demande système → ACCORDEZ-LA ; l'appelé ET l'appelant s'entendent ; si refusée/occupée, le DIAG dit exactement quoi (« micro REFUSÉ : permission… » / « micro INUTILISABLE : AudioRecord non initialisé ») et l'appel reste audible dans le sens qui marche"),
+        Item("visio-camera", "VISIO SANS « no looper » (NOUVEAU v0.2.48) : appel visio → « caméra active (visio en émission) » dans le DIAG (l'ouverture caméra a désormais un HandlerThread dédié « nyx-cam » — avant : « caméra indisponible — visio audio-only : No handler given, and current thread has no looper! »)"),
+        Item("depot-direct-pair", "DÉPÔT DIRECT AU PAIR PLUS JAMAIS REFUSÉ (NOUVEAU v0.2.48) : « dépôt direct événements : 1/1 ingérés par le pair » dans le DIAG de l'expéditeur (terrain 24/10 : -1/1 refusé — même cause que le décrochage) ; plus de « HELLO events REFUSÉ de <pair>… : contact non établi » pour un pair PENDING"),
+        Item("hsfetch-port", "HSFETCH DE GUÉRISON OPÉRATIONNEL (NOUVEAU v0.2.48) : plus JAMAIS « HSFETCH … échoué : adresse onion invalide (65 ≠ 56) » (la guérison recevait l'adresse de réplica AVEC le port « .onion:80 » — strip du port désormais, le descripteur est vraiment re-demandé) ; après un déploiement nœud, réplica ONLINE en ~2-3 min"),
+        Item("tirage-flotte", "TIRAGE NYX-LINK SANS 404 (NOUVEAU v0.2.48) : plus de « canal en échec vers <pair>… : GET /link/pull → HTTP 404 route inconnue » — le canal tire désormais UNIQUEMENT vers un réplica de FLOTTE (jamais l'embarqué d'un pair, qui n'implémente pas les routes /link)"),
+        Item("sonde-muette", "SONDES SANS BRUIT (NOUVEAU v0.2.48) : les sondes de joignabilité (auto-sonde média, console) apparaissent comme « connexion muette fermée (sonde de joignabilité — aucun octet reçu) » en INFO — le « connexion sans HELLO valide » WARN ne sort PLUS que pour une vraie trame invalide"),
+        Item("bind-ipv4-preuve", "BIND IPv4 (v0.2.47, ACQUIS terrain 24/10 matin — continue) : « réplica temporaire prêt (local 127.0.0.1:PORT) » + « écouteur direct prêt (local 127.0.0.1:PORT) » + AUCUN MORT en boucle + « auto-sonde média OK »"),
+        Item("lien-inverse-console", "LIEN INVERSÉ — LA CARTE CONSOLE (v0.2.46, continue) : le direct doit maintenant marcher (v0.2.47+) — la carte « VIA LIEN INVERSÉ » n'est plus qu'un repli"),
+        Item("serveur-detach", "SERVEUR DÉPLOYÉ SANS FENÊTRE ORPHELINE (v0.2.37+, continue) : déploiement nœud 0.2.38 confirmé terrain 24/10 06:42 — « ONION CLIENT adopté (déjà vivant — Detach) »"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie d'appel passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("conflux-zero", "TOR SANS CONFLUX (validation continue) : AUCUN « path restriction type 2 » dans le tor.log au bootstrap"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
+    fun items(): List<Item> = ITEMS_V0_2_48
 
 
     /**

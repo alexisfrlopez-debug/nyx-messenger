@@ -54,6 +54,15 @@ fun CallOverlay() {
     val ui by CallManager.ui.collectAsState()
     if (ui.phase == CallManager.Phase.IDLE) return
 
+    // v0.2.48 — PERMISSION MICRO AU DÉCROCHAGE (terrain 24/10 : elle n'était
+    // JAMAIS demandée — l'appelé décrochait puis n'était pas entendu ;
+    // CallAudio dégrade en réception seule avec cause journalisée, mais on
+    // la demande au moment où l'utilisateur exprime l'intention de parler).
+    val ansCtx = androidx.compose.ui.platform.LocalContext.current
+    val answerPerm = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { CallManager.acceptIncoming() }
+
     var seconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(ui.phase, ui.startedAt) {
         seconds = 0
@@ -185,7 +194,15 @@ fun CallOverlay() {
                         tint = Color.White,
                         bg = Color(0xFF2E7D32),
                         desc = stringResource(R.string.call_accept)
-                    ) { CallManager.acceptIncoming() }
+                    ) {
+                        // v0.2.48 — micro demandé avant de décrocher (l'appel
+                        // continue de sonner pendant la demande ; réponse →
+                        // décrochage immédiat, même si refusée).
+                        if (ansCtx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) CallManager.acceptIncoming()
+                        else answerPerm.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
                 }
                 CallManager.Phase.ACTIVE -> {
                     CircleButton(

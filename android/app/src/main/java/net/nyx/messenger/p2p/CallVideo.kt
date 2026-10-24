@@ -57,6 +57,12 @@ class CallVideo(
     private var encSurface: Surface? = null
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
+
+    /** v0.2.48 — Handler des callbacks caméra (HandlerThread « nyx-cam ») :
+     *  le thread média n'a PAS de Looper (« No handler given… » terrain 24/10). */
+    private var cameraHandler: android.os.Handler? = null
+    private var cameraThread: android.os.HandlerThread? = null
+
     private var preview: Surface? = null
     private var decoder: MediaCodec? = null
     private var remoteSurface: Surface? = null
@@ -179,6 +185,19 @@ class CallVideo(
     private fun openCamera(encoderSurface: Surface) {
         val mgr = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val id = pickCameraId(mgr) ?: throw IllegalStateException("aucune caméra")
+        // v0.2.48 — HANDLER EXPLICITE (terrain 24/10 08:49 : « caméra
+        // indisponible — visio audio-only : No handler given, and current
+        // thread has no looper! ») : openCamera exige un thread POURVU d'un
+        // Looper pour livrer ses callbacks ; le thread média n'en a pas.
+        // Un HandlerThread dédié (créé une fois, libéré dans stopCamera)
+        // remplace le main thread — AUCUN callback caméra ne touche l'UI.
+        if (cameraHandler == null) {
+            val ht = android.os.HandlerThread("nyx-cam")
+            ht.start()
+            cameraThread = ht
+            cameraHandler = android.os.Handler(ht.looper)
+        }
+        val handler = requireNotNull(cameraHandler) { "handler caméra indisponible" }
         mgr.openCamera(id, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 if (stopped) { runCatching { device.close() }; return }
@@ -196,7 +215,7 @@ class CallVideo(
                                 set(android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE,
                                     android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                             }
-                            s.setRepeatingRequest(req.build(), null, null)
+                            s.setRepeatingRequest(req.build(), null, handler)
                             cameraOn = true
                             android.util.Log.i("nyx-video", "caméra active (visio en émission)")
                         }
@@ -204,7 +223,7 @@ class CallVideo(
                         override fun onConfigureFailed(s: CameraCaptureSession) {
                             onFatal("vidéo : session caméra refusée")
                         }
-                    }, null)
+                    }, handler)
                 } catch (e: Exception) {
                     if (!stopped) onFatal("vidéo : ${e.message}")
                 }
@@ -214,7 +233,7 @@ class CallVideo(
             override fun onError(device: CameraDevice, error: Int) {
                 if (!stopped) onFatal("vidéo : caméra en erreur ($error)")
             }
-        }, null)
+        }, handler)
     }
 
     /** Attache/détache la surface d'APERÇU local (TextureView de l'overlay). */
@@ -312,6 +331,8 @@ class CallVideo(
         session = null
         runCatching { camera?.close() }
         camera = null
+        // v0.2.48 — le HandlerThread caméra survit aux re-créations de session
+        // (setPreviewSurface) ; il est arrêté uniquement au stop complet.
     }
 
     /** Arrêt complet (raccroché, erreur, écran détruit). */
@@ -319,6 +340,11 @@ class CallVideo(
         if (stopped) return
         stopped = true
         stopCamera()
+        // v0.2.48 — libère le thread des callbacks caméra (HandlerThread
+        // « nyx-cam » créé dans openCamera — jamais sur le main).
+        runCatching { cameraThread?.quitSafely() }
+        cameraThread = null
+        cameraHandler = null
         runCatching { encoder?.stop() }
         runCatching { encoder?.release() }
         runCatching { decoder?.stop() }

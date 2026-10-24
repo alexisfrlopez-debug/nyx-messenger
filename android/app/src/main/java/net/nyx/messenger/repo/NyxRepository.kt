@@ -119,6 +119,29 @@ class NyxRepository(
     val activeReplica: String? get() = replicas.getOrNull(replicaIndex)
 
     /**
+     * v0.2.48 — CIBLE DE TIRAGE NYX-LINK : premier réplica actif qui n'est PAS
+     * un téléphone pair (terrain 24/10 : le canal inversé tirait vers
+     * l'embarqué D'UN PAIR découvert — vxb5tsk…/kxcwah… — or un téléphone est
+     * un TIREUR, il n'implémente pas les routes /link (tirage) : 404 « route
+     * inconnue » + backoff 10 s à chaque cycle avant de retomber sur le nœud
+     * de flotte). Les
+     * serveurs de flotte ne sont jamais dans le carnet de contacts ; les deux
+     * formats de clé (nu et .onion) sont essayés — un nœud de flotte est
+     * absent du carnet par construction. Null = pas de flotte connue → le
+     * canal dort.
+     */
+    val fleetReplica: String?
+        get() = replicas.firstOrNull { addr ->
+            val key = hostKeyOf(addr)
+            runCatching {
+                kotlinx.coroutines.runBlocking {
+                    contactDao.get(key) == null &&
+                        contactDao.get("$key.onion") == null
+                }
+            }.getOrDefault(false)  // en doute : PAS une cible de tirage
+        }
+
+    /**
      * v0.2.44 — INDICE DE RELAIS MÉDIA pour l'offre d'appel (repli décrochage) :
      * le réplica ACTIF, SAUF s'il est l'onion DU PAIR — l'appelant n'atteint
      * pas plus l'onion du pair en relais qu'en direct (terrain 23/10 : c'est

@@ -205,11 +205,20 @@ object CallManager {
                 // v0.2.28 — la cible RÉELLE est loguée (préfixe 16 car — le
                 // tor.log scrubbe les onions, le logcat app est la seule trace
                 // exploitable pour diagnostiquer « impossible de décrocher »).
+                // v0.2.48 — PREMIER ESSAI ÉLARGI À 45 s : terrain 24/10 08:48
+                // (tor.log Blackview) : le rendezvous onion à froid prend
+                // 15-35 s (« pending-join circ … with intro ack. Stalling. »
+                // 12 s d'affilée → timeout) alors que CONNECT_ATTEMPT_MS =
+                // 12 s tuait l'essai AVANT la complétion — chaque retry
+                // relançait un NOUVEAU rendezvous, sans jamais converger. Le
+                // 1er essai couvre désormais le rendezvous à froid ; les
+                // suivants gardent 12 s (circuit client déjà chaud).
+                val attemptMs = if (attempt == 1) FIRST_ATTEMPT_MS else CONNECT_ATTEMPT_MS
                 android.util.Log.i(
                     "nyx-call",
-                    "média essai $attempt → ${peer.take(16)}…:${P2pProtocol.MEDIA_ONION_PORT}"
+                    "média essai $attempt (${attemptMs / 1000} s) → ${peer.take(16)}…:${P2pProtocol.MEDIA_ONION_PORT}"
                 )
-                socket = runCatching { P2pClient.connect(peer, CONNECT_ATTEMPT_MS) }.getOrElse { e ->
+                socket = runCatching { P2pClient.connect(peer, attemptMs) }.getOrElse { e ->
                     android.util.Log.i(
                         "nyx-call",
                         "connexion directe impossible vers ${peer.take(16)}… (${e.message}) — " +
@@ -780,6 +789,14 @@ object CallManager {
      *  survivre à la récupération d'annuaire de tor. */
     private const val CONNECT_WINDOW_MS = 150_000L // essais jusqu'à 150 s (HSDir)
     private const val CONNECT_ATTEMPT_MS = 12_000  // essai individuel (tor : 10-30 s)
+
+    /**
+     * v0.2.48 — 1ᵉʳ essai média : couvre le rendezvous onion À FROID (2
+     * circuits complets, terrain 24/10 : 15-35 s) — les essais suivants
+     * gardent [CONNECT_ATTEMPT_MS] (circuit client déjà chaud). 45 s < au
+     * délai d'ouverture du relais (60 s) : le direct garde la priorité.
+     */
+    private const val FIRST_ATTEMPT_MS = 45_000
     private const val WAITED_TTL_MS = 90_000L      // connexion gardée avant l'offre
     // v0.2.44 — repli relais : ouverture du canal relais après 60 s de direct
     // infructueux (assez tôt pour que l'appelé s'y branche dès son acceptation,

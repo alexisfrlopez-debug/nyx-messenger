@@ -91,6 +91,57 @@ class P2pProtocolTest {
             P2pProtocol.helloSignedString("call", "abcdef.onion", "cid123")
         )
     }
+
+    // ---------- v0.2.48 — readHello (distinction connexion muette / trame) ----------
+
+    @Test
+    fun `readHello - connexion muette (EOF avant tout octet - sonde)`() {
+        // Terrain 24/10 : l'auto-sonde média et les sondes console ouvrent TCP
+        // et ferment SANS trame — ne doit plus être confondu avec une trame
+        // invalide (« connexion sans HELLO valide » bruyant dans chaque export).
+        val r = P2pProtocol.readHello(ByteArrayInputStream(ByteArray(0)))
+        assertTrue(r.mute)
+        assertTrue(!r.bad)
+        assertNull(r.hello)
+    }
+
+    @Test
+    fun `readHello - HELLO valide roundtrip`() {
+        val sig = "sig0="
+        val h = P2pProtocol.Hello("events", "a".repeat(56) + ".onion", "alias", "", "", 1, sig)
+        val bos = ByteArrayOutputStream()
+        P2pProtocol.write(bos, P2pProtocol.F_HELLO, P2pProtocol.encodeHello(h, sig))
+        val r = P2pProtocol.readHello(ByteArrayInputStream(bos.toByteArray()))
+        assertTrue(!r.mute)
+        assertTrue(!r.bad)
+        assertNotNull(r.hello)
+        assertEquals("events", r.hello!!.kind)
+        assertEquals(h.onion, r.hello!!.onion)
+    }
+
+    @Test
+    fun `readHello - trame valide mais pas un HELLO`() {
+        val bos = ByteArrayOutputStream()
+        P2pProtocol.write(bos, P2pProtocol.F_AUDIO, "son".toByteArray())
+        val r = P2pProtocol.readHello(ByteArrayInputStream(bos.toByteArray()))
+        assertTrue(!r.mute)
+        assertTrue(!r.bad)
+        assertNull(r.hello)
+    }
+
+    @Test
+    fun `readHello - trame cassée après des octets (bad)`() {
+        // type HELLO + longueur annoncée 100 mais payload tronqué à 3 octets :
+        // des octets ONT été reçus (pas une sonde) mais la trame est cassée.
+        val bos = ByteArrayOutputStream()
+        bos.write(P2pProtocol.F_HELLO)
+        for (b in byteArrayOf(0, 0, 0, 100)) bos.write(b.toInt())
+        bos.write("abc".toByteArray())
+        val r = P2pProtocol.readHello(ByteArrayInputStream(bos.toByteArray()))
+        assertTrue(!r.mute)
+        assertTrue(r.bad)
+        assertNull(r.hello)
+    }
 }
 
 private operator fun String.times(n: Int): String = repeat(n)

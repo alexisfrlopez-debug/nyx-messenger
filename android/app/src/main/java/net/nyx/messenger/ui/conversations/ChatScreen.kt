@@ -448,6 +448,16 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
         } else vm.sendError.value = ctx.getString(R.string.camera_denied)
     }
 
+    // v0.2.48 : permission micro → appel audio (terrain 24/10 : l'app ne la
+    // demandait JAMAIS — AudioRecord échouait en silence, l'appelant n'était
+    // pas entendu ; l'appel part QUAND MÊME, en réception seule si refusée,
+    // CallAudio journalise la cause — mais on la demande au clic Appeler).
+    val audioPerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        CallManager.call(peer, contact?.alias?.ifBlank { peer.take(10) + "…" } ?: (peer.take(10) + "…"))
+    }
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
@@ -474,9 +484,17 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                     // v0.2.18 — APPEL AUDIO (ADR-015) : signalisation journal +
                     // média direct onion-to-onion. Réservé aux contacts mutuels
                     // (même verrou que les messages).
+                    // v0.2.48 — permission micro demandée au clic (elle ne
+                    // l'était JAMAIS : micro mort en silence depuis la v0.2.18).
                     IconButton(
                         onClick = {
-                            CallManager.call(peer, contact?.alias?.ifBlank { peer.take(10) + "…" } ?: (peer.take(10) + "…"))
+                            if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                                android.content.pm.PackageManager.PERMISSION_GRANTED
+                            ) {
+                                CallManager.call(peer, contact?.alias?.ifBlank { peer.take(10) + "…" } ?: (peer.take(10) + "…"))
+                            } else {
+                                audioPerm.launch(android.Manifest.permission.RECORD_AUDIO)
+                            }
                         },
                         enabled = contact?.status == net.nyx.messenger.data.db.ContactStatus.ACCEPTED &&
                             CallManager.ui.value.phase == CallManager.Phase.IDLE

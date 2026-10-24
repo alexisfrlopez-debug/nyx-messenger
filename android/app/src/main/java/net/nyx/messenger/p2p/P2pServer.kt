@@ -164,11 +164,21 @@ object P2pServer {
     /** Traite une connexion entrante — HELLO obligatoire en première trame. */
     private fun handle(sock: Socket) {
         sock.soTimeout = 120_000
-        val helloFrame = try { P2pProtocol.read(sock.getInputStream()) } catch (_: Exception) { null }
-        val hello = helloFrame?.takeIf { it.type == P2pProtocol.F_HELLO }
-            ?.let { P2pProtocol.parseHello(it.payload) }
+        // v0.2.48 — lecture enrichie : distinguons la connexion MUETTE (sonde
+        // de joignabilité : l'auto-sonde média locale et les sondes console
+        // ouvrent TCP sans envoyer RIEN — terrain 24/10 : une par 20-40 s par
+        // export) de la vraie trame invalide, pour ne plus noyer les logs.
+        val first = try { P2pProtocol.readHello(sock.getInputStream()) }
+        catch (_: Exception) { P2pProtocol.HelloFirst(false, true, null) }
+        val hello = first.hello
         if (hello == null) {
-            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "connexion sans HELLO valide — fermée")
+            if (first.mute) {
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-p2p", "connexion muette fermée (sonde de joignabilité — aucun octet reçu)"
+                )
+            } else {
+                net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "connexion sans HELLO valide — fermée")
+            }
             runCatching { sock.close() }
             return
         }
@@ -179,9 +189,29 @@ object P2pServer {
             hello.kind, hello.onion,
             if (hello.kind == "file") hello.count.toString() else hello.cid
         )
+        // v0.2.48 — LA CAUSE DU REFUS EST JOURNALISÉE (terrain 24/10 08:49 : « HELLO
+        // events REFUSÉ de kxcwah… » sans raison — signature ou contact ? le
+        // terrain ne pouvait pas trancher) : deux logs distincts, le prochain
+        // export est auto-diagnostiquant.
         val authOk = verifier != null && verifier(hello.onion, expected, hello.sig)
-        if (!authOk || isAllowed?.invoke(hello.onion) != true) {
-            net.nyx.messenger.diag.DiagLog.w("nyx-p2p", "HELLO ${hello.kind} REFUSÉ de ${hello.onion.take(16)}…")
+        if (!authOk) {
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-p2p",
+                "HELLO ${hello.kind} REFUSÉ de ${hello.onion.take(16)}… : signature invalide " +
+                    "(clé ≠ onion revendiqué ou trame altérée)"
+            )
+            if (hello.kind == "call") {
+                runCatching { P2pProtocol.write(sock.getOutputStream(), P2pProtocol.F_CALL_REJECT) }
+            }
+            runCatching { sock.close() }
+            return
+        }
+        if (isAllowed?.invoke(hello.onion) != true) {
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-p2p",
+                "HELLO ${hello.kind} REFUSÉ de ${hello.onion.take(16)}… : contact non établi " +
+                    "côté destinataire (ni ACCEPTED ni PENDING — voir EmbeddedReplica)"
+            )
             if (hello.kind == "call") {
                 runCatching { P2pProtocol.write(sock.getOutputStream(), P2pProtocol.F_CALL_REJECT) }
             }
