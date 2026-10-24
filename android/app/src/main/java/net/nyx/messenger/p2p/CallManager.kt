@@ -549,20 +549,25 @@ object CallManager {
         }
     }
 
-    /** Refuse un appel entrant — trace chez l'appelant (journal) + socket. */
+    /** Refuse un appel entrant — trace chez l'appelant (journal) + socket.
+     *  v0.2.50 — même correctif que hangup() ci-dessous : le F_CALL_REJECT part dans la
+     *  coroutine IO, JAMAIS sur le thread UI (NetworkOnMainThreadException —
+     *  pile jumelle de celle du crash terrain 24/10 11:48 ; le bouton Refuser
+     *  de l'overlay appelle cette fonction en direct depuis le thread UI). */
     fun rejectIncoming() {
         val state = _ui.value
         if (state.phase != Phase.INCOMING && state.phase != Phase.WAIT) return
         val r = repo
+        val rejConn = conn
+        pendingOffer = null
+        acceptedCid = null
         scope.launch {
+            runCatching { rejConn?.send(P2pProtocol.F_CALL_REJECT) }
             runCatching {
                 r?.sendCallSignal(state.peer, CallSignal(CallSignal.OP_REJECT, state.cid, "", nowS()).encode())
             }
+            end("refusé")
         }
-        conn?.send(P2pProtocol.F_CALL_REJECT)
-        pendingOffer = null
-        acceptedCid = null
-        end("refusé")
     }
 
     /**
@@ -728,21 +733,30 @@ object CallManager {
         video?.toggleCamera()
     }
 
-    /** Raccroche (ou annule une sonnerie sortante). */
+    /** Raccroche (ou annule une sonnerie sortante).
+     *  v0.2.50 — PLUS JAMAIS D'ÉCRITURE SOCKET DEPUIS LE THREAD UI : terrain
+     *  24/10 11:48 puis 11:49 (v0.2.49, Blackview appelante) — la sonnerie ne
+     *  sonnait jamais (routage de l'offre, cf. NyxRepository v0.2.50) et
+     *  l'opérateur, en tapant Raccrocher ~40-50 s plus tard, déclenchait
+     *  conn.send(F_BYE) SUR LE THREAD PRINCIPAL → NetworkOnMainThreadException
+     *  → CRASH FATAL de l'app ENTIÈRE (tor + réplica compris — le pair voyait
+     *  ensuite son poll expirer 29 s : « réplica … en échec »). DEUX fois en
+     *  80 s, pile la pile terrain « V2.J.b / V2.B.g / writeByte ». Le BYE
+     *  socket + le BYE journal + le nettoyage partent désormais dans la
+     *  coroutine IO ; l'UI suit _ui (ENDED) quelques millisecondes plus tard
+     *  — aucun appel tactile ne peut donc plus tuer l'app. */
     fun hangup(reason: String = "terminé") {
         val state = _ui.value
         if (state.phase == Phase.IDLE) return
         val r = repo
+        val byeConn = conn
         scope.launch {
+            runCatching { byeConn?.send(P2pProtocol.F_BYE) }
             runCatching {
                 r?.sendCallSignal(state.peer, CallSignal(CallSignal.OP_BYE, state.cid, "", nowS()).encode())
             }
+            end(reason)
         }
-        if (state.phase == Phase.INCOMING) {
-            // Annulation d'une sonnerie entrante côté appelé : bye déjà envoyé.
-        }
-        conn?.send(P2pProtocol.F_BYE)
-        end(reason)
     }
 
     /** Termine et nettoie ; l'écran affiche [reason] 3 s puis revient à IDLE. */

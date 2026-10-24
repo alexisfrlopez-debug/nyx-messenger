@@ -83,11 +83,17 @@ def read(p: Path):
 
 
 def iter_files(root: Path, *suffixes, skip_dirs=("build", ".git", ".gradle", "tools", "node_modules", ".credentials", "data")):
-    for p in root.rglob("*"):
-        if p.is_file() and p.suffix in suffixes:
-            if any(part in skip_dirs for part in p.parts):
-                continue
-            yield p
+    # v0.2.50 — ÉLAGAGE PENDANT LA PARCOURS (os.walk) : l'ancien rglob("*")
+    # TRAVERSAIT build/ et .git/ (des centaines de milliers d'entrées après un
+    # build — plusieurs minutes sur overlayfs) avant de filtrer leurs fichiers.
+    # Les répertoires skip n'ont jamais rien livré : mêmes fichiers, en secondes.
+    import os
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for name in filenames:
+            p = Path(dirpath) / name
+            if p.suffix in suffixes:
+                yield p
 
 
 # ---------------------------------------------------------------- checks

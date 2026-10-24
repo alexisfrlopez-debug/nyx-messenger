@@ -223,38 +223,15 @@ class NyxRepository(
         )
     }
 
-    /**
-     * Poll inbox par le lien inversé : GET /client/inbox exécuté sur le
-     * téléphone du pair. Null = repli impossible/infructueux.
-     */
-    private suspend fun linkInboxFallback(
-        failedAddr: String,
-        me: String,
-        after: Long,
-        auth: String,
-    ): net.nyx.messenger.net.InboxResponse? {
-        val router = linkRouterClient(failedAddr) ?: return null
-        val to = hostKeyOf(failedAddr) + ".onion"
-        val q = "/client/inbox?to=$me&after=$after&limit=32&auth=" +
-            java.net.URLEncoder.encode(auth, "UTF-8")
-        val res = router.linkRoundTrip(to, "GET", q)
-        return res.fold(
-            onSuccess = { (code, body) ->
-                if (code != 200) return@fold null
-                net.nyx.messenger.diag.DiagLog.i(
-                    "nyx-repo",
-                    "✓ inbox du pair ${failedAddr.take(16)}… servie par LIEN INVERSÉ " +
-                        "(onion entrant injoignable — le pair a tiré la requête par son canal sortant)"
-                )
-                runCatching {
-                    kotlinx.serialization.json.Json.decodeFromString(
-                        net.nyx.messenger.net.InboxResponse.serializer(), body
-                    )
-                }.getOrNull()
-            },
-            onFailure = { null }
-        )
-    }
+    /* v0.2.50 — le repli « inbox par lien inversé » (v0.2.46, ADR-018) est
+     *  retiré AVEC sa fonction : il ne s'appliquait que lorsque le réplica
+     *  ACTIF était le téléphone d'un pair (échec transport vers son onion) —
+     *  or le poll ne lit PLUS JAMAIS le journal d'un pair (DepositRouting :
+     *  réplica propre en procédé + flotte uniquement). Une flotte en échec
+     *  n'a pas de canal serveur à tirer (cf. LinkFallback.applicable) : le
+     *  repli serait structurellement mort. Le repli LIEN DES DÉPÔTS
+     *  (linkDepositFallback) reste, lui, pleinement actif — c'est lui qui
+     *  livre l'offre sur la boîte du pair quand son onion est injoignable. */
 
     private fun noteReplica(addr: String?, update: (ReplicaState) -> ReplicaState) {
         if (addr.isNullOrBlank()) return
@@ -369,6 +346,53 @@ class NyxRepository(
         return fresh
     }
 
+    /* ------------- v0.2.50 — ROUTAGE DÉTERMINISTE DU JOURNAL ------------- */
+
+    /** v0.2.50 — l'adresse est-elle le téléphone D'UN CONTACT (réplica
+     *  pair) ? En cas de doute (Room indisponible) : OUI — on l'exclut des
+     *  cibles (prudence : un journal de pair ne livre jamais mes événements). */
+    private suspend fun isPeerReplicaAddr(addr: String): Boolean {
+        val key = hostKeyOf(addr)
+        return runCatching {
+            contactDao.get(key) != null || contactDao.get("$key.onion") != null ||
+                contactDao.get("$key.onion:80") != null
+        }.getOrDefault(true)
+    }
+
+    /**
+     * v0.2.50 — CIBLE DE DÉPÔT pour les événements adressés à [peer]
+     * (décision pure : [DepositRouting.depositTarget]) : LA BOÎTE DU PAIR
+     * (son propre réplica annoncé — il le lit en procédé à chaque cycle),
+     * sinon LA FLOTTE (rendez-vous commun). JAMAIS le réplica actif au hasard
+     * de l'index, qui peut être le journal d'un TIERS (terrain 24/10 11:47 :
+     * chaque téléphone avait l'onion de L'AUTRE en index 0 — l'appelant
+     * déposait l'offre dans le journal de l'appelé, mais l'appelé pollait
+     * celui de l'appelant : offre invisible, « appels ne sonnent plus »).
+     */
+    private suspend fun depositTargetAddrFor(peer: String): String? =
+        DepositRouting.depositTarget(peer, replicas) { addr -> isPeerReplicaAddr(addr) }
+
+    /** Client de dépôt caché par (adresse, port SOCKS) — miroir de relay(). */
+    private var depositClient: RelayClient? = null
+    private var depositClientAddr: String? = null
+    private var depositClientPort = -2
+
+    @Synchronized
+    private fun cachedRelayFor(addr: String): RelayClient? {
+        val port = net.nyx.messenger.tor.TorManager.activeSocksPort
+        if (depositClient != null && depositClientAddr == addr && depositClientPort == port) {
+            return depositClient
+        }
+        val fresh = RelayClient.forReplica(addr, socksPort = port)
+        depositClient = fresh
+        depositClientAddr = addr
+        depositClientPort = port
+        return fresh
+    }
+
+    /** Tour de round-robin des réplicas de flotte (lecture inbox, v0.2.50). */
+    private val fleetPollTurn = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** Sonde de joignabilité du réplica rattaché (GET /health via Tor).
      *
      *  v0.2.5 : chaque sonde alimente [lastProbe] (durée + cause d'échec) —
@@ -443,7 +467,12 @@ class NyxRepository(
             if ((link?.blockedAt ?: 0L) > 0) {
                 error("contact bloqué — débloquez-le (onglet Blocages) pour lui écrire")
             }
-            val relay = relay() ?: error("aucun réplica configuré")
+            // v0.2.50 — CIBLE DÉTERMINISTE (même correctif que
+            // sendCallSignal) : la boîte DU PAIR sinon la flotte — jamais le
+            // réplica actif au hasard de l'index (l'appelé ne lit plus les
+            // journaux de tiers depuis la refonte du poll).
+            val depositAddr = depositTargetAddrFor(peer)
+            val relay = depositAddr?.let { cachedRelayFor(it) } ?: error("aucun réplica configuré")
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
             val peerPub = OnionCodec.onionToPubKey(peer)
@@ -486,7 +515,7 @@ class NyxRepository(
                     return@runCatching
                 }
             }
-            postSigned(relay, me, signed, canonical, priv).fold(
+            postSigned(relay, me, signed, canonical, priv, failedAddr = depositAddr).fold(
                 onSuccess = {
                     messageDao.updateState(id, STATE_SENT)
                     android.util.Log.i("nyx-send", "   ✓ déposé (seq=$seq)")
@@ -556,6 +585,10 @@ class NyxRepository(
         ev: WireEvent,
         canonical: String,
         priv: ByteArray,
+        /** v0.2.50 — réplica VISÉ par ce dépôt (repli lien exécuté CHEZ LE
+         *  PAIR si la cible est sa boîte) ; null = ancien comportement
+         *  (réplica actif). */
+        failedAddr: String? = null,
     ): Result<Unit> {
         val first = relay.postEvent(ev)
         if (first.isSuccess) return first
@@ -568,7 +601,7 @@ class NyxRepository(
         // pair (ADR-018) AVANT de rendre l'échec — le pair tire la requête
         // par son canal sortant et l'exécute localement.
         ?: run {
-            val failed = activeReplica
+            val failed = failedAddr ?: activeReplica
             if (failed != null) {
                 linkDepositFallback(failed, ev)?.let { return it }
             }
@@ -582,7 +615,7 @@ class NyxRepository(
         val retry = relay.postEvent(retried.copy(sig = cipher.signEvent(canonical2, priv)))
         if (retry.isSuccess) return retry
         // v0.2.46 — le re-dépôt recadré échoue aussi par réseau → même repli.
-        val failed = activeReplica
+        val failed = failedAddr ?: activeReplica
         if (failed != null) {
             linkDepositFallback(failed, retried)?.let { return it }
         }
@@ -608,55 +641,132 @@ class NyxRepository(
     }
 
     private suspend fun pollInboxLocked(): Int = withContext(Dispatchers.IO) {
-        val relay = relay() ?: return@withContext 0
         val me = identity.onionAddress ?: return@withContext 0
         val priv = identity.secretKey()
-        // v0.2.42 — CURSEUR PAR RÉPLICA INTERROGÉ (retour d'audit session 63) :
-        // il était TOUJOURS lu/écrit sous la clé `replicas.first()` alors que
-        // le relais suit [replicaIndex] (failover v0.2.25). Les `gid` n'étant
-        // pas alignés entre réplicas (le réplica embarqué numérote
-        // localement), appliquer à un réplica le curseur d'un autre pouvait
-        // SAUTER DÉFINITIVEMENT des événements (réplica « en avance ») — la
-        // table PollStateEntity(replicaOnion, cursor) le permettait déjà.
-        val activeReplica = activeReplica ?: replicas.first()
-        val cursor = pollStateDao.get(activeReplica)?.cursor ?: 0L
-        // v0.2.19 : preuve d'identité du demandeur (signature NYX-INBOX) — le
-        // réplica embarqué (toutes versions depuis v0.2.35) l'exige, le serveur Go l'ignore (paramètre
-        // inconnu). Le MÊME client parle aux deux.
+        var inserted = 0
+        // v0.2.50 — L'ORDRE DE LECTURE CORRIGÉ (terrain 24/10 11:47 « appels
+        // ne sonnent plus » : chaque téléphone POLLAIT le réplica embarqué DE
+        // L'AUTRE — index 0 de la fusion « découverts d'abord » — où ses
+        // propres événements n'atterrissent JAMAIS ; l'offre de l'appelant
+        // dormait dans le journal local de l'appelé pendant que celui-ci
+        // interrogeait le journal de l'appelant, et mourait avec lui quand
+        // l'appelant plantait — poll orphelin 29 s) :
+        //   1. MON PROPRE réplica embarqué, EN PROCÉDÉ (EmbeddedReplica.dispatch
+        //      — même routeur que le direct : signature, quotas, whitelist) :
+        //      TOUT dépôt qui cible mon onion y atterrit (direct ou lien
+        //      inversé) ; zéro socket, zéro Tor, réponse ~ms ;
+        //   2. LA FLOTTE (rendez-vous commun) — jamais le journal d'un pair.
+        inserted += pollOwnReplica(me, priv)
+        inserted += pollFleetReplicas(me, priv)
+        inserted
+    }
+
+    /**
+     * v0.2.50 — LECTURE DE MON PROPRE RÉPLICA EN PROCÉDÉ. C'est ici que
+     * l'offre d'appel atterrit désormais (l'appelant dépose sur ma boîte,
+     * ou le repli lien l'y exécute). Premier poll (pas encore de curseur) :
+     * les événements antérieurs à la mise à jour sont SAUTÉS — servis par
+     * les chemins d'avant, et les ré-ingérer fabriquerait des « Appel
+     * manqué » fantômes (les offres des tests v0.2.47-49 dorment dans ce
+     * journal depuis que v0.2.49 ne le lisait pas) ; le curseur s'aligne
+     * pour que les suivants arrivent normalement.
+     */
+    private suspend fun pollOwnReplica(me: String, priv: ByteArray): Int {
+        val hadCursor = pollStateDao.get(me) != null
+        val cursor = pollStateDao.get(me)?.cursor ?: 0L
         val authTs = System.currentTimeMillis() / 1000
         val auth = "$authTs:" + cipher.signEvent(
             net.nyx.messenger.replica.ReplicaValidate.inboxCanonical(me, authTs), priv
         )
-        // v0.2.46 — repli LIEN INVERSÉ : si le réplica actif est le téléphone
-        // d'un pair dont l'onion entrant est injoignable (échec TRANSPORT),
-        // la lecture est rejouée par un réplica sain — le pair tire la requête
-        // par son canal sortant (ADR-018). Sinon l'échec remonte comme avant
-        // (failover markReplicaFailed + DescriptorHeal chez l'appelant).
+        val (code, body) = net.nyx.messenger.replica.EmbeddedReplica.dispatch(
+            "GET", "/client/inbox",
+            mapOf(
+                "to" to me, "after" to cursor.toString(),
+                "limit" to "32", "auth" to auth
+            ),
+            ByteArray(0)
+        )
+        if (code != 200) {
+            // 503 = réplica embarqué pas démarré / en pause (Paramètres) :
+            // cycle suivant, rien à signaler.
+            if (code != 503) {
+                net.nyx.messenger.diag.DiagLog.w(
+                    "nyx-poll", "inbox PROPRE (réplica embarqué) → $code ${body.take(80)}"
+                )
+            }
+            return 0
+        }
+        val resp = runCatching {
+            kotlinx.serialization.json.Json.decodeFromString(
+                net.nyx.messenger.net.InboxResponse.serializer(), body
+            )
+        }.getOrNull() ?: return 0
+        val floor = if (hadCursor) 0L else System.currentTimeMillis() / 1000 - 120
+        var inserted = 0
+        for (ev in resp.events) {
+            if (ev.ts < floor) continue
+            // v0.2.41 — PORTE COMMUNE (ADR-017) : le poll et le canal direct
+            // P2P ingèrent les événements par la MÊME porte de validation.
+            if (ingestInboxEvent(ev, priv) == Ingest.NEW) inserted++
+        }
+        if (resp.events.isNotEmpty()) {
+            android.util.Log.i("nyx-recv", "← inbox PROPRE ${resp.events.size} évts (after=$cursor)")
+        }
+        // v0.2.42 — curseur persisté SOUS le réplica interrogé (ici : moi).
+        if (resp.cursor > cursor) {
+            pollStateDao.upsert(PollStateEntity(me, resp.cursor))
+        }
+        return inserted
+    }
+
+    /**
+     * v0.2.50 — LECTURE DE LA FLOTTE : uniquement les réplicas qui ne sont
+     * le téléphone D'AUCUN contact (décision pure : DepositRouting.pollTargets)
+     * — le journal d'un pair ne peut pas contenir mes événements, et il meurt
+     * avec lui. Round-robin : UN réplica de flotte par cycle (le suivant au
+     * cycle suivant — failover implicite sans état collé). Échec réseau :
+     * markReplicaFailed (dégradation ADR-017 + guérison HSFETCH v0.2.45
+     * conservées) PUIS retour silencieux — le poll local a déjà servi ce
+     * cycle, une flotte à plat ne doit pas tuer la boucle.
+     */
+    private suspend fun pollFleetReplicas(me: String, priv: ByteArray): Int {
+        val candidates = DepositRouting.pollTargets(replicas) { addr -> isPeerReplicaAddr(addr) }
+        if (candidates.isEmpty()) return 0
+        val addr = candidates[
+            Math.floorMod(fleetPollTurn.getAndIncrement(), candidates.size)
+        ]
+        noteReplica(addr) { s -> s.copy(lastUsedAt = System.currentTimeMillis()) }
+        val relay = cachedRelayFor(addr) ?: return 0
+        // v0.2.42 — curseur PAR RÉPLICA INTERROGÉ (les gid ne sont pas alignés
+        // entre réplicas — le réplica embarqué numérote localement).
+        val cursor = pollStateDao.get(addr)?.cursor ?: 0L
+        // v0.2.19 : preuve d'identité du demandeur (signature NYX-INBOX) — le
+        // réplica embarqué l'exige, le serveur Go l'ignore (paramètre inconnu).
+        // Le MÊME client parle aux deux.
+        val authTs = System.currentTimeMillis() / 1000
+        val auth = "$authTs:" + cipher.signEvent(
+            net.nyx.messenger.replica.ReplicaValidate.inboxCanonical(me, authTs), priv
+        )
         val resp = try {
             relay.inbox(me, cursor, auth = auth)
         } catch (e: Exception) {
-            linkInboxFallback(activeReplica, me, cursor, auth) ?: throw e
+            markReplicaFailed("poll inbox : ${e.message?.take(60) ?: e::class.simpleName}")
+            return 0
         }
         if (resp.events.isNotEmpty()) {
             android.util.Log.i("nyx-recv", "← inbox ${resp.events.size} évts (after=$cursor)")
         }
         var inserted = 0
         for (ev in resp.events) {
-            // v0.2.41 — PORTE COMMUNE (ADR-017) : le poll et le canal direct
-            // P2P ingèrent les événements par la MÊME porte de validation.
             if (ingestInboxEvent(ev, priv) == Ingest.NEW) inserted++
         }
         // v0.2.41 — poll RÉUSSI : le chemin journal redevient PREMIER (sortie
-        // de dégradation ADR-017).
+        // de dégradation ADR-017) — c'est la FLOTTE qui vient d'être prouvée
+        // joignable, Tor chaud : les accusés peuvent repartir immédiatement.
         lastTransportFailAt = 0L
-        // v0.2.42 — curseur persisté SOUS LE RÉPLICA INTERROGÉ (cf. en-tête
-        // de pollInboxLocked) — plus de saut d'événements au failover.
-        pollStateDao.upsert(PollStateEntity(activeReplica, resp.cursor))
-        // v0.2.15 : accusés en attente — tentative IMMÉDIATE (ce poll vient de
-        // prouver le réplica joignable, Tor chaud) ; en cas d'échec la boucle
-        // périodique repartira les accusés comme les annonces/acks.
+        pollStateDao.upsert(PollStateEntity(addr, resp.cursor))
         runCatching { ensureReceiptsSent() }
-        inserted
+        return inserted
     }
 
     /**
@@ -1769,7 +1879,24 @@ class NyxRepository(
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
                 val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
-                val relay = relay()
+                // v0.2.50 — CIBLE DÉTERMINISTE (terrain 24/10 11:47 « appels
+                // ne sonnent plus ») : la BOÎTE DU PAIR sinon la FLOTTE —
+                // jamais le réplica actif au hasard de l'index (l'offre
+                // partait dans le journal de l'appelé, mais l'appelé pollait
+                // celui de l'appelant : invisible). Le repli lien de
+                // postSigned s'exécute ainsi CHEZ LE PAIR si sa boîte est
+                // visée mais son onion injoignable.
+                val depositAddr = depositTargetAddrFor(peerLower)
+                val relay = depositAddr?.let { cachedRelayFor(it) }
+                if (depositAddr != null) {
+                    val surLaBoiteDuPair = hostKeyOf(depositAddr) == hostKeyOf(peerLower)
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-repo",
+                        "signalisation d'appel → " +
+                            (if (surLaBoiteDuPair) "boîte du pair " else "flotte ") +
+                            "${depositAddr.take(16)}…"
+                    )
+                }
                 // v0.2.41 — FAILOVER SIGNALISATION D'APPEL (ADR-017) : la
                 // sonnerie/l'offre/réponse est le chemin LE PLUS critique de
                 // l'appel (« impossible de décrocher » quand le réplica
@@ -1783,7 +1910,10 @@ class NyxRepository(
                         return@runCatching
                     }
                 }
-                val posted = postSigned(relay ?: error("aucun réplica configuré"), me, signed, canonical, priv)
+                val posted = postSigned(
+                    relay ?: error("aucun réplica configuré"), me, signed, canonical, priv,
+                    failedAddr = depositAddr
+                )
                 if (posted.isSuccess) return@runCatching
                 if (!directTried && tryDirectPush(peerLower, signed)) {
                     android.util.Log.i(

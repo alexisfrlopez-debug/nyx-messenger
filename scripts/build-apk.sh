@@ -115,8 +115,20 @@ build_one() { # build_one <Flavor> <glob-sortie-attendue>
   # (le contrôle d) de check_apk ne doit PAS compter /tmp — tous les variants
   # s'y accumulent en mode séquentiel — mais le compte du BUILD de CE variant).
   ls $OUT 2>/dev/null | wc -l > "/tmp/nyx-apk-count-$FLAVOR.txt"
-  ( cd android && ./gradlew clean --console=plain -q --no-daemon \
-      -Dorg.gradle.jvmargs="-Xmx1024m -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=1 )
+  # v0.2.50 — CLEAN INTER-VARIANTS CONDITIONNEL À L'ESPACE DISQUE : le clean
+  # servait l'époque du disque étroit (v0.2.35 — ne jamais garder deux jeux
+  # d'intermédiaires). Avec de l'espace (≥ 3 Go libres), il fait PIRE : il
+  # détruit les intermédiaires du variant SUIVANT à chaque reprise, et le
+  # compileur Kotlin redémarre de zéro après chaque run tué par le timeout du
+  # bac à sable — la convergence devenait impossible (terrain v0.2.50 : le
+  # variant Diag a exigé 3 runs directs). L'espace est vérifié AVANT le build
+  # de CHAQUE variant : sous 3 Go, le comportement v0.2.35 est conservé.
+  FREE_KB=$(df -Pk . | awk 'NR==2 {print $4}')
+  if [ "$FREE_KB" -lt 3000000 ]; then
+    echo "⚠ espace disque restreint (${FREE_KB} Ko libres) — clean inter-variants (v0.2.35)"
+    ( cd android && ./gradlew clean --console=plain -q --no-daemon \
+        -Dorg.gradle.jvmargs="-Xmx1024m -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=1 )
+  fi
 }
 build_one Standard "android/app/build/outputs/apk/standard/release/*.apk"
 build_one Diag "android/app/build/outputs/apk/diag/release/*.apk"
