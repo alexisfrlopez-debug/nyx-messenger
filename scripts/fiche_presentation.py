@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.49 · Console v0.8.12 · Serveur v0.2.38 "
+              ["Versions livrées", "Messagerie v0.2.50 · Console v0.8.12 · Serveur v0.2.38 "
                                    "(24 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -643,7 +643,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.49 / v0.8.12).",
+                  "(version v0.2.50 / v0.8.12).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -796,8 +796,11 @@ def build_story():
                "v0.2.49 ajoute la preuve de build intégrée au démarrage "
                "(marqueur de câblage vérifiable) et la relance automatique du "
                "service onion jamais servi (course aux microdescripteurs au "
-               "démarrage) — la confirmation de bout en bout de l'appel "
-               "reste attendue."],
+               "démarrage) ; la v0.2.50 rétablit la sonnerie en corrigeant le "
+               "routage du journal (l'offre va sur la boîte du pair, lue en "
+               "procédé — plus jamais le journal d'un tiers) et élimine le "
+               "crash fatal du raccroché (écriture socket hors du thread UI) "
+               "— la confirmation de bout en bout de l'appel reste attendue."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -841,10 +844,11 @@ def build_story():
                "jointes de groupe", "v0.3", "Conception actée (ADR)"],
               ["Appels en revalidation", "Confirmation terrain du correctif IPv6 "
                "(v0.2.47, sondes joignables au 24/10), des verrous "
-               "applicatifs v0.2.48 et du build vérifié v0.2.49 "
-               "(marqueur de câblage + onion servi confirmé) ; relais "
+               "applicatifs v0.2.48, du build vérifié v0.2.49 (marqueur de "
+               "câblage + onion servi confirmé) et du routage rétabli v0.2.50 "
+               "(sonnerie + raccroché sans crash) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.49 puis phase 2",
+               "v0.2.44-v0.2.50 puis phase 2",
                "Correctifs livrés, validation terrain en cours"],
               ["Android uniquement", "Étude d'un client bureau (le noyau réseau "
                "et les codecs sont déjà multiplateformes par conception)",
@@ -989,6 +993,19 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["11ᵉ édition", "24 octobre 2026", "Messagerie v0.2.50 · "
+               "Console v0.8.12 · Serveur v0.2.38",
+               "Retour terrain v0.2.49 : les appels ne sonnaient plus — chaque "
+               "téléphone interrogeait le journal du pair (fusion « découverts "
+               "d'abord ») pendant que l'offre dormait dans la boîte de "
+               "l'appelé, et raccrocher écrivait la socket sur le thread UI "
+               "(crash fatal de l'app entière, deux fois en 80 secondes) ; la "
+               "v0.2.50 rétablit l'invariant de routage du journal (dépôt sur "
+               "la boîte du pair sinon la flotte, lecture de son propre "
+               "réplica en procédé — jamais le journal d'un tiers, extrait "
+               "purifié et testé JVM) et rend tout geste tactile inoffensif "
+               "(BYE/refus en coroutine IO) ; la sonnerie et le décrochage de "
+               "bout en bout attendus en validation terrain."],
               ["10ᵉ édition", "24 octobre 2026", "Messagerie v0.2.49 · "
                "Console v0.8.12 · Serveur v0.2.38",
                "Retour terrain v0.2.48 : deux causes trouvées — l'APK livré "
@@ -1154,7 +1171,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.49 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.50 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
