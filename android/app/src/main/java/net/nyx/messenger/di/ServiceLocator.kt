@@ -185,6 +185,33 @@ object ServiceLocator {
                 net.nyx.messenger.replica.EmbeddedReplica.start(
                     database, identity.onionAddress ?: "", net.nyx.messenger.BuildConfig.VERSION_NAME
                 )
+
+                // v0.2.46 — CANAL INVERSÉ NYX-LINK (ADR-018) : le téléphone
+                // TIRE les requêtes destinées à son réplica embarqué par un
+                // long-poll permanent vers le réplica actif de flotte (chemin
+                // sortant prouvé à 100 % sur le terrain) — il ne dépend plus
+                // de son onion ENTRANT, chroniquement injoignable. La sonde
+                // de la console et les dépôts/polls des pairs aboutissent
+                // même quand l'oignon du téléphone est mort dehors.
+                net.nyx.messenger.net.LinkChannel.me = { identity.onionAddress }
+                net.nyx.messenger.net.LinkChannel.signer = { canonical ->
+                    cipher.signEvent(canonical, identity.secretKey())
+                }
+                net.nyx.messenger.net.LinkChannel.replicaProvider = { repository.activeReplica }
+                net.nyx.messenger.net.LinkChannel.socksProvider = {
+                    // -1 tant que Tor n'est pas prêt (le canal dort, pas de
+                    // churn d'erreurs au bootstrap) ; le port réel ensuite.
+                    if (net.nyx.messenger.tor.TorManager.get(context).state.value
+                        is net.nyx.messenger.tor.TorManager.TorState.Ready
+                    ) net.nyx.messenger.tor.TorManager.activeSocksPort else -1
+                }
+                net.nyx.messenger.net.LinkChannel.dispatcher = { method, path, query, body ->
+                    net.nyx.messenger.replica.EmbeddedReplica.dispatch(method, path, query, body)
+                }
+                net.nyx.messenger.net.LinkChannel.onReplicaFailed = { reason ->
+                    repository.markReplicaFailed(reason)
+                }
+                net.nyx.messenger.net.LinkChannel.start()
             }
 
             startInboxPolling()

@@ -133,6 +133,100 @@ class NyxRepository(
         return replicas.firstOrNull { !it.startsWith(p) } ?: active
     }
 
+    /* ---------------- v0.2.46 — repli LIEN INVERSÉ (ADR-018) ----------------
+     * Terrain sessions 41 → 67 : l'onion ENTRANT d'un téléphone est
+     * chroniquement injoignable (descripteur non propagé / points d'intro
+     * morts / cache client périmé) alors que ses canaux SORTANTS vivent à
+     * 100 %. Quand le réplica en échec est le TÉLÉPHONE D'UN PAIR (réplica
+     * découvert — annoncé par carte de profil), ses requêtes sont rejouées
+     * par un AUTRE réplica sain : dépôt /link/send → le pair les tire par
+     * son canal sortant (LinkChannel) → réponse /link/wait. Pour un serveur
+     * de flotte en échec le repli ne s'applique pas (pas de canal côté
+     * serveur — le WAIT brûlerait 75 s pour rien). Décision pure : [LinkFallback]. */
+
+    /** Clé d'hôte normalisée (« xxx…onion:80 » → base32 nu 56 car.). */
+    internal fun hostKeyOf(addr: String): String =
+        net.nyx.messenger.repo.LinkFallback.hostKey(addr)
+
+    /** Réplica SAIN routeur pour joindre le pair [failedAddr], ou null. */
+    internal fun linkRouterClient(failedAddr: String): RelayClient? {
+        val others = replicas.filter { hostKeyOf(it) != hostKeyOf(failedAddr) }
+        val socks = net.nyx.messenger.tor.TorManager.activeSocksPort
+        if (!net.nyx.messenger.repo.LinkFallback.applicable(
+                failedAddr, net.nyx.messenger.net.ReplicaRegistry.list(), others, socks
+            )
+        ) {
+            return null
+        }
+        val routerAddr = others.first()
+        return RelayClient.forReplica(routerAddr, socksPort = socks)
+    }
+
+    /**
+     * Dépôt d'un événement par le lien inversé : POST /client/event exécuté
+     * SUR LE TÉLÉPHONE du pair via son canal sortant. Null = repli
+     * impossible/infructueux (l'appelant retombe sur l'échec d'origine).
+     */
+    private suspend fun linkDepositFallback(failedAddr: String, ev: WireEvent): Result<Unit>? {
+        val router = linkRouterClient(failedAddr) ?: return null
+        val to = hostKeyOf(failedAddr) + ".onion"
+        val payload = kotlinx.serialization.json.Json.encodeToString(
+            WireEvent.serializer(), ev
+        )
+        val bodyB64 = java.util.Base64.getEncoder().encodeToString(
+            payload.toByteArray(Charsets.UTF_8)
+        )
+        val res = router.linkRoundTrip(to, "POST", "/client/event", bodyB64)
+        return res.fold(
+            onSuccess = { (code, respBody) ->
+                if (code == 200 || (code == 409 && respBody.contains("déjà connu"))) {
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-repo",
+                        "✓ dépôt au pair ${failedAddr.take(16)}… servi par LIEN INVERSÉ " +
+                            "(onion entrant injoignable — le pair a tiré la requête par son canal sortant)"
+                    )
+                    Result.success(Unit)
+                } else {
+                    null
+                }
+            },
+            onFailure = { null }
+        )
+    }
+
+    /**
+     * Poll inbox par le lien inversé : GET /client/inbox exécuté sur le
+     * téléphone du pair. Null = repli impossible/infructueux.
+     */
+    private suspend fun linkInboxFallback(
+        failedAddr: String,
+        me: String,
+        after: Long,
+        auth: String,
+    ): net.nyx.messenger.net.InboxResponse? {
+        val router = linkRouterClient(failedAddr) ?: return null
+        val to = hostKeyOf(failedAddr) + ".onion"
+        val q = "/client/inbox?to=$me&after=$after&limit=32&auth=" +
+            java.net.URLEncoder.encode(auth, "UTF-8")
+        val res = router.linkRoundTrip(to, "GET", q)
+        return res.fold(
+            onSuccess = { (code, body) ->
+                if (code != 200) return@fold null
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-repo",
+                    "✓ inbox du pair ${failedAddr.take(16)}… servie par LIEN INVERSÉ " +
+                        "(onion entrant injoignable — le pair a tiré la requête par son canal sortant)"
+                )
+                runCatching {
+                    kotlinx.serialization.json.Json.decodeFromString(
+                        net.nyx.messenger.net.InboxResponse.serializer(), body
+                    )
+                }.getOrNull()
+            },
+            onFailure = { null }
+        )
+    }
+
     private fun noteReplica(addr: String?, update: (ReplicaState) -> ReplicaState) {
         if (addr.isNullOrBlank()) return
         val cur = _replicaStates.value[addr] ?: ReplicaState(addr)
@@ -440,13 +534,30 @@ class NyxRepository(
         if (msg.contains("HTTP 409")) return Result.success(Unit) // idempotent
         val expected = Regex("attendu (\\d+)").find(msg)?.groupValues?.get(1)?.toLongOrNull()
             ?: (Regex("dernière (\\d+)").find(msg)?.groupValues?.get(1)?.toLongOrNull()?.plus(1))
-            ?: return first
+        // v0.2.46 — échec RÉSEAU (pas de message applicatif : timeout/SOCKS) :
+        // repli LIEN INVERSÉ si le réplica en échec est le téléphone d'un
+        // pair (ADR-018) AVANT de rendre l'échec — le pair tire la requête
+        // par son canal sortant et l'exécute localement.
+        ?: run {
+            val failed = activeReplica
+            if (failed != null) {
+                linkDepositFallback(failed, ev)?.let { return it }
+            }
+            return first
+        }
         seqMutex.withLock { seqStateDao.upsert(SeqStateEntity(author, expected)) }
         val retried = ev.copy(seq = expected)
         val canonical2 = MessageCipher.canonical(
             retried.type, retried.author, retried.seq, retried.ts, retried.ttl, retried.to ?: "", retried.body
         )
-        return relay.postEvent(retried.copy(sig = cipher.signEvent(canonical2, priv)))
+        val retry = relay.postEvent(retried.copy(sig = cipher.signEvent(canonical2, priv)))
+        if (retry.isSuccess) return retry
+        // v0.2.46 — le re-dépôt recadré échoue aussi par réseau → même repli.
+        val failed = activeReplica
+        if (failed != null) {
+            linkDepositFallback(failed, retried)?.let { return it }
+        }
+        return retry
     }
 
     /* ---------------- réception ---------------- */
@@ -487,7 +598,16 @@ class NyxRepository(
         val auth = "$authTs:" + cipher.signEvent(
             net.nyx.messenger.replica.ReplicaValidate.inboxCanonical(me, authTs), priv
         )
-        val resp = relay.inbox(me, cursor, auth = auth)
+        // v0.2.46 — repli LIEN INVERSÉ : si le réplica actif est le téléphone
+        // d'un pair dont l'onion entrant est injoignable (échec TRANSPORT),
+        // la lecture est rejouée par un réplica sain — le pair tire la requête
+        // par son canal sortant (ADR-018). Sinon l'échec remonte comme avant
+        // (failover markReplicaFailed + DescriptorHeal chez l'appelant).
+        val resp = try {
+            relay.inbox(me, cursor, auth = auth)
+        } catch (e: Exception) {
+            linkInboxFallback(activeReplica, me, cursor, auth) ?: throw e
+        }
         if (resp.events.isNotEmpty()) {
             android.util.Log.i("nyx-recv", "← inbox ${resp.events.size} évts (after=$cursor)")
         }

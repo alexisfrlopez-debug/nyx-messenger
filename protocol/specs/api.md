@@ -93,6 +93,28 @@ diffusion — wire-format.md §7). Réponse :
 - **Note** : le nœud peut refuser les routes `client/*` avec `503` lorsqu'il est
   placé en maintenance par l'opérateur (le gossip inter-réplicas continue).
 
+## Routes lien inversé (ADR-018 — v0.2.38)
+
+NYX-LINK : le téléphone ne dépend plus de sa joignabilité ENTRANTE Tor pour
+servir son réplica embarqué — il TIRE ses requêtes par un long-poll permanent
+(`spec complète : protocol/specs/link.md`). Le nœud devient routeur
+applicatif : file ≤ 8 requêtes/destinataire, TTL 90 s, at-least-once
+(ré-livraison 20 s, idempotence applicative existante).
+
+- `POST /link/send` — dépôt d'une requête pour un téléphone `{"to","id",
+  "method","path","body_b64"}` → `202` · `400` validation (paths whitelistés :
+  routes réplica uniquement — pas de proxy ouvert) · `409` id en vol ·
+  `429` file pleine.
+- `GET /link/pull?me=&auth=ts:sig` — long-poll 45 s du téléphone, auth par
+  signature ed25519 du canon `NYX-LINK-PULL` (détenteur de l'adresse prouvé
+  par dérivation) → `200 {"reqs":[…]}` (≤ 4/lot, FIFO) · `401` auth.
+- `POST /link/reply` — réponse signée `{"id","from","status","body_b64",
+  "auth"}` (canon `NYX-LINK-REPLY` couvre sha256 du corps) → `202` ·
+  `403` répondant ≠ destinataire · `404` inconnue/expirée.
+- `GET /link/wait?id=` — long-poll 75 s du demandeur → `200 {"status",
+  "body_b64"}` · `408` délai dépassé · `404` id inconnu.
+- Refusées en maintenance (`503`) comme toutes les routes client.
+
 ## Routes gossip (nœud ↔ nœud)
 
 ### `GET /gossip/peers`

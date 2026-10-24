@@ -49,8 +49,8 @@ android {
         applicationId = "net.nyx.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 49
-        versionName = "0.2.45"
+        versionCode = 50
+        versionName = "0.2.46"
         // Credentials Drive du build test (vides si test-upload.properties absent)
         buildConfigField("String", "DRIVE_CLIENT_ID",     "\"${testUpload("drive.clientId")}\"")
         buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${testUpload("drive.clientSecret")}\"")
@@ -194,4 +194,9 @@ dependencies {
     // v0.2.21 : org.json RÉEL pour les tests (IdentityBackup v2 — le stub
     // android.jar est inutilisable en JVM ; artifact déjà en cache Gradle).
     testImplementation("org.json:json:20240303")
+    // v0.2.46 : MockWebServer — faux routeur NYX-LINK en loopback pour
+    // [LinkChannelLoopbackTest] (le mockable android.jar MASQUE
+    // com.sun.net.httpserver ; même version qu'OkHttp — zéro nouvel import
+    // runtime, résolu depuis le même dépôt Maven).
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

@@ -173,6 +173,29 @@ class RelayClient private constructor(
         }
     }
 
+    /**
+     * v0.2.46 — ALLER-RETOUR PAR LIEN INVERSÉ (ADR-018) : ce réplica devient
+     * ROUTEUR pour joindre le réplica EMBARQUÉ d'un PAIR dont l'onion
+     * entrant est injoignable (repli réseau — le chemin direct a échoué par
+     * transport). Dépose /link/send puis attend /link/wait : la réponse est
+     * celle du réplica du pair, exécutée sur SON téléphone via SON canal
+     * sortant. Renvoie (code HTTP du pair, corps décodé).
+     */
+    suspend fun linkRoundTrip(
+        to: String,
+        method: String,
+        path: String,
+        bodyB64: String = "",
+    ): Result<Pair<Int, String>> = runCatching {
+        val resp = net.nyx.messenger.net.LinkTransport.sendAndAwait(
+            client, base, to, method, path, bodyB64
+        )
+        val decoded = if (resp.bodyB64.isEmpty()) "" else String(
+            java.util.Base64.getDecoder().decode(resp.bodyB64), Charsets.UTF_8
+        )
+        resp.status to decoded
+    }
+
     companion object {
         /**
          * v0.2.42 — USER-AGENT NEUTRE (retour d'audit session 63) : OkHttp

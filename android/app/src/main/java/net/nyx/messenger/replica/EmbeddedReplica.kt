@@ -257,6 +257,22 @@ object EmbeddedReplica {
         }
     }
 
+    /**
+     * v0.2.46 — EXÉCUTION LOCALE D'UNE REQUÊTE DU LIEN INVERSÉ (ADR-018) :
+     * le canal NYX-LINK ([net.nyx.messenger.net.LinkChannel]) reçoit par
+     * long-poll les requêtes destinées à CE réplica quand l'onion entrant du
+     * téléphone est injoignable (terrain chronique) — chaque requête est
+     * exécutée par LE MÊME routeur que le direct ([route] : signature,
+     * quotas, whitelist, pause Paramètres) : le lien n'ajoute AUCUNE
+     * confiance, il n'achemine que ce que Tor livrait avant.
+     */
+    fun dispatch(method: String, path: String, query: Map<String, String>, body: ByteArray): Pair<Int, String> {
+        if (!started) {
+            return 503 to ReplicaHttp.errorJson("réplica embarqué non démarré")
+        }
+        return route(ReplicaHttp.Request(method.uppercase(), path, query, emptyMap(), body))
+    }
+
     /** Routage — miroir des handlers Go (api/handlers.go). */
     private fun route(req: ReplicaHttp.Request): Pair<Int, String> {
         if (!serving) {

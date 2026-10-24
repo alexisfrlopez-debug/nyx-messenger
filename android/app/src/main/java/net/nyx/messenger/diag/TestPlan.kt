@@ -461,8 +461,24 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    /** Items de la release courante (miroir de docs/releases/v0.2.45.md). */
-    fun items(): List<Item> = ITEMS_V0_2_45
+    /** Items de la release courante (miroir de docs/releases/v0.2.46.md). */
+    val ITEMS_V0_2_46 = listOf(
+        Item("lien-inverse-console", "LIEN INVERSÉ — LA CARTE CONSOLE (NOUVEAU v0.2.46, ITEM DÉCISIF — la demande « régler l'oignon entrant injoignable dans la console ») : téléphone v0.2.46 allumé + serveur 0.2.38 déployé (console v0.8.12 → « Mettre à jour le nœud ») → même quand la sonde DIRECTE de son réplica embarqué échoue (onion entrant mort), la carte passe à « EN LIGNE (VIA LIEN INVERSÉ) — v0.2.46 · X évènement(s) · Y ms » (bleu) avec la version RÉELLE du téléphone — plus JAMAIS « INJOIGNABLE » tant que l'app vit"),
+        Item("lien-inverse-diag", "CANAL nyx-link DANS L'EXPORT (NOUVEAU v0.2.46) : l'export de logs montre « nyx-link : canal inversé démarré — le réplica embarqué reçoit désormais via la flotte » puis, à chaque requête tirée, « GET /health → 200 servi LOCALEMENT puis déposé (… ms) » — le téléphone répond par son canal SORTANT"),
+        Item("lien-inverse-depot", "REPLI DÉPÔT AU PAIR INJOIGNABLE (NOUVEAU v0.2.46) : les 2 téléphones en v0.2.46, onion du pair injoignable (sonde console KO) → l'envoi d'un message aboutit quand même → log émetteur « ✓ dépôt au pair … servi par LIEN INVERSÉ » ; le pair le reçoit à son prochain poll"),
+        Item("guerison-cache", "GUÉRISON CACHE DESCRIPTEUR (v0.2.45, continue) : après 2 échecs réseau consécutifs du même réplica, le DIAG montre « → HSFETCH de guérison » puis réplica ONLINE en ~2-3 min"),
+        Item("serveur-detach", "SERVEUR 0.2.38 DÉPLOYÉ SANS FENÊTRE ORPHELINE (v0.2.37+, continue) : « Mettre à jour le nœud » (console v0.8.12, binaire 0.2.38 — a00d63d4…) → les téléphones NE perdent PAS le réplica pendant le déploiement ; les routes /link deviennent vivantes (404 → 202)"),
+        Item("appel-decroche-relais", "APPEL DÉCROCHÉ VIA RELAIS (v0.2.44, TOUJOURS EN ATTENTE — les 2 téléphones en v0.2.46 + serveur 0.2.38) : appel alors que l'onion du pair est injoignable → ~60 s « relais réplica ouvert en parallèle », ~150 s « média VIA RELAIS réplica » → L'AUDIO COULE (la cause racine commune oignon↔décrochage est documentée v0.2.46 — la signalisation survit de plus maintenant au repli lien dans postSigned)"),
+        Item("appel-direct-dabord", "APPEL DIRECT D'ABORD : onion du pair joignable → média direct AVANT 60 s, PAS de relais — le lien/relais ne consomment jamais un chemin sain"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie d'appel passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("conflux-zero", "TOR SANS CONFLUX (validation continue) : AUCUN « path restriction type 2 » dans le tor.log au bootstrap"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
+    fun items(): List<Item> = ITEMS_V0_2_46
 
 
     /**
