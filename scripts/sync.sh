@@ -47,7 +47,17 @@ if [ -d "$CREDS" ] && python3 scripts/gdrive.py --status >/dev/null 2>&1; then
   if [ -d livrables ]; then
     while IFS= read -r f; do
       rel="${f#livrables/}"
-      sub="livrables/$(dirname "$rel")"   # dirname "." → dossier racine livrables
+      d="$(dirname "$rel")"
+      # Miroir Drive = archives/<v>/, documents/, dernieres-livrables/ (session 13).
+      # Les fichiers à la RACINE de livrables/ ne font PAS partie du miroir :
+      # SKIP explicite — incident « dossier . » : dirname "." produisait le chemin
+      # « livrables/. » → chaque sync engouffrait les SUMS racine dans un dossier
+      # parasite nommé « . » (créé 19/10, nourri v0.2.31→47, supprimé session 69).
+      if [ "$d" = "." ]; then
+        echo "${YLW}  ⏳ SKIP miroir (racine livrables/ hors convention) — $rel${NC}"
+        continue
+      fi
+      sub="livrables/$d"
       # SHA256SUMS-latest.txt = mutable par définition (même taille à chaque
       # version, contenu différent) → JAMAIS d'upload immuable pour lui.
       IM="--immutable"; [ "$(basename "$f")" = "SHA256SUMS-latest.txt" ] && IM=""
