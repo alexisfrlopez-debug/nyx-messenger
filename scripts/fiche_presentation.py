@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.48 · Console v0.8.12 · Serveur v0.2.38 "
+              ["Versions livrées", "Messagerie v0.2.49 · Console v0.8.12 · Serveur v0.2.38 "
                                    "(24 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -643,7 +643,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.48 / v0.8.12).",
+                  "(version v0.2.49 / v0.8.12).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -792,8 +792,12 @@ def build_story():
                "par les premières sondes joignables du terrain ; la v0.2.48 "
                "lève les derniers verrous applicatifs (verrou de contact du "
                "média aligné sur la sonnerie, fenêtre de connexion du premier "
-               "essai portée à 45 s, permission micro enfin demandée) — la "
-               "confirmation de bout en bout de l'appel reste attendue."],
+               "essai portée à 45 s, permission micro enfin demandée) ; la "
+               "v0.2.49 ajoute la preuve de build intégrée au démarrage "
+               "(marqueur de câblage vérifiable) et la relance automatique du "
+               "service onion jamais servi (course aux microdescripteurs au "
+               "démarrage) — la confirmation de bout en bout de l'appel "
+               "reste attendue."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -836,9 +840,11 @@ def build_story():
               ["Pas de groupes", "Groupes par sender keys (puis MLS), pièces "
                "jointes de groupe", "v0.3", "Conception actée (ADR)"],
               ["Appels en revalidation", "Confirmation terrain du correctif IPv6 "
-               "(v0.2.47, sondes joignables au 24/10) et des verrous "
-               "applicatifs v0.2.48 ; relais TURN (ADR-014) "
-               "pour les réseaux hostiles", "v0.2.44-v0.2.48 puis phase 2",
+               "(v0.2.47, sondes joignables au 24/10), des verrous "
+               "applicatifs v0.2.48 et du build vérifié v0.2.49 "
+               "(marqueur de câblage + onion servi confirmé) ; relais "
+               "TURN (ADR-014) pour les réseaux hostiles",
+               "v0.2.44-v0.2.49 puis phase 2",
                "Correctifs livrés, validation terrain en cours"],
               ["Android uniquement", "Étude d'un client bureau (le noyau réseau "
                "et les codecs sont déjà multiplateformes par conception)",
@@ -983,6 +989,18 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["10ᵉ édition", "24 octobre 2026", "Messagerie v0.2.49 · "
+               "Console v0.8.12 · Serveur v0.2.38",
+               "Retour terrain v0.2.48 : deux causes trouvées — l'APK livré "
+               "était un build mixte (3 correctifs sur 5 absents du dex, la "
+               "reprise du pipeline sur mtimes ambiguës) et la course aux "
+               "microdescripteurs laissait le service onion sans descripteur "
+               "servi ; la v0.2.49 verrouille les deux : marqueur de câblage "
+               "vérifiable dans l'export (preuve du build propre), reprise "
+               "de build par empreinte SHA-256 avec porte critique, relance "
+               "automatique du service « jamais servi » (DEL+ADD, même "
+               "adresse) et vérité de publication (« onion CONFIRMÉ servi par "
+               "les HSDirs ») ; validation de bout en bout attendue."],
               ["9ᵉ édition", "24 octobre 2026", "Messagerie v0.2.48 · "
                "Console v0.8.12 · Serveur v0.2.38",
                "Le correctif IPv6 de la 8ᵉ édition est confirmé par le terrain "
@@ -1136,7 +1154,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.48 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.49 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
