@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.47 · Console v0.8.11 · Serveur v0.2.38 "
+              ["Versions livrées", "Messagerie v0.2.47 · Console v0.8.12 · Serveur v0.2.38 "
                                    "(24 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -625,11 +625,11 @@ def build_story():
                  "collision à l'identique)", "serveur v0.2.37"],
               ["Diagnostic", "Plan de test intégré, journal persistant, export de logs", "v0.2.33"],
               ["Administration", "Console nyx-admin : flotte, déploiement et mise à jour "
-                                 "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH) ; v0.8.7 : correctif de syntaxe HSFETCH (adresse nue) — le réplica téléphoné passe enfin EN LIGNE après redémarrage de l'app ; v0.8.10 : binaire serveur embarqué affiché AVANT le clic de mise à jour ; v0.8.11 : binaire v0.2.37 embarqué + classification des échecs de sonde corrigée", "v0.8.11"],
+                                 "du nœud 1-clic SSH, boîte à outils, terminal ; v0.8.6 : sonde du réplica téléphoné auto-réparée (HSFETCH) ; v0.8.7 : correctif de syntaxe HSFETCH (adresse nue) — le réplica téléphoné passe enfin EN LIGNE après redémarrage de l'app ; v0.8.10 : binaire serveur embarqué affiché AVANT le clic de mise à jour ; v0.8.11 : binaire v0.2.37 embarqué + classification des échecs de sonde corrigée ; v0.8.12 : réplica téléphoné affiché « EN LIGNE (VIA LIEN INVERSÉ) » quand NYX-LINK le relie — fin du « oignon entrant injoignable »", "v0.8.12"],
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.47 / v0.8.11).",
+                  "(version v0.2.47 / v0.8.12).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -951,7 +951,7 @@ def build_story():
                "server general failure » qui rendait les appels "
                "indécrochables ; 378 tests JVM."],
               ["8ᵉ édition", "24 octobre 2026", "Messagerie v0.2.47 · "
-               "Console v0.8.11 · Serveur v0.2.38",
+               "Console v0.8.12 · Serveur v0.2.38",
                "Rattrapage de six versions : chaîne de mise à jour "
                "anti-quota GitHub (v0.2.42), publication onion stabilisée "
                "(v0.2.43), repli relais média des appels par le réplica "
@@ -962,7 +962,9 @@ def build_story():
                "::1 pendant que sa publication visait 127.0.0.1, si bien que "
                "« oignon entrant injoignable » et « décrochage impossible » "
                "n'étaient qu'un seul et même défaut depuis les premières "
-               "versions ; 486 tests JVM."],
+               "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
+               "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
+               "mais jamais synchronisée, la synchro Drive a été rattrapée."],
           ],
           [0.20, 0.16, 0.30, 0.34],
           caption="Tableau 7 — Historique des éditions de cette fiche.")
@@ -1102,7 +1104,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.47 / v0.8.11 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.47 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
