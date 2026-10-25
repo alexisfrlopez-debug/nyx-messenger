@@ -33,6 +33,7 @@ object P2pProtocol {
     const val F_EVENT = 0x18     // v0.2.41 — événement journal signé (JSON WireEvent)
     const val F_AUDIO = 0x14     // trame audio (AAC access unit brute)
     const val F_VIDEO = 0x16     // v0.2.20 — trame vidéo (access unit H.264 brute)
+    const val F_VIDEO_ROT = 0x17 // v0.2.53 — rotation d'écran de l'émetteur (payload « 0/90/180/270 »)
     const val F_CALL_ACCEPT = 0x12  // payload = csd de l'appelé (voir AcceptPayload)
     const val F_CALL_REJECT = 0x13
     const val F_BYE = 0x15       // raccroché
@@ -104,6 +105,10 @@ object P2pProtocol {
         val count: Int,        // fichier/events : nombre d'unités annoncées
         val sig: String,       // signature ed25519 (b64) de [helloSignedString]
         val vcsd: String = "", // v0.2.20 : csd H.264 (SPS+PPS b64) si visio, "" sinon
+        // v0.2.53 — présentation vidéo (interop : absents chez un pair v0.2.52 → 0)
+        val vrot: Int = 0,     // rotation horaire qui rend l'image droite (0/90/180/270)
+        val vw: Int = 0,       // largeur d'encodage de l'émetteur
+        val vh: Int = 0,       // hauteur d'encodage de l'émetteur
     )
 
     fun encodeHello(h: Hello, sigB64: String): ByteArray {
@@ -116,6 +121,11 @@ object P2pProtocol {
             .append(",\"count\":").append(h.count)
         if (h.vcsd.isNotEmpty()) {
             sb.append(",\"vcsd\":\"").append(esc(h.vcsd)).append('"')
+            // v0.2.53 — présentation vidéo (rotation + taille) : un pair
+            // v0.2.52 lit ses clés connues et ignore ces clés nouvelles.
+            sb.append(",\"vrot\":").append(h.vrot.coerceIn(0, 359))
+                .append(",\"vw\":").append(h.vw.coerceIn(0, 4096))
+                .append(",\"vh\":").append(h.vh.coerceIn(0, 4096))
         }
         sb.append(",\"sig\":\"").append(esc(sigB64)).append("\"}")
         return sb.toString().toByteArray(Charsets.UTF_8)
@@ -131,31 +141,59 @@ object P2pProtocol {
             kind, onion, MiniJson.str(s, "alias") ?: "", MiniJson.str(s, "cid") ?: "",
             MiniJson.str(s, "csd") ?: "", MiniJson.num(s, "count")?.toInt() ?: 0,
             MiniJson.str(s, "sig") ?: "",
-            MiniJson.str(s, "vcsd") ?: ""
+            MiniJson.str(s, "vcsd") ?: "",
+            // v0.2.53 — absents chez un émetteur v0.2.52 → 0 (présentation d'alors)
+            MiniJson.num(s, "vrot")?.toInt() ?: 0,
+            MiniJson.num(s, "vw")?.toInt() ?: 0,
+            MiniJson.num(s, "vh")?.toInt() ?: 0
         )
     }
 
     /**
-     * v0.2.20 — PAYLOAD du F_CALL_ACCEPT : JSON {"csd":…,"vcsd":…} quand de
-     * la vidéo est négociée, sinon le b64 AAC brut de v0.2.18/19 (compat : un
-     * pair v0.2.19 qui n'a PAS annoncé de vcsd reçoit l'ancien format).
+     * v0.2.53 — résultat du [AcceptPayload.parse] : csd audio + csd vidéo +
+     * présentation vidéo de l'APPELÉ (rotation/taille — 0/0/0 chez un pair
+     * ≤ v0.2.52, qui ne les envoyait pas : présentation d'alors, pas de crash).
+     */
+    data class AcceptInfo(
+        val audioCsd: String,
+        val videoCsd: String,
+        val vrot: Int = 0,
+        val vw: Int = 0,
+        val vh: Int = 0,
+    )
+
+    /**
+     * v0.2.20 — PAYLOAD du F_CALL_ACCEPT : JSON {csd, vcsd, vrot, vw, vh}
+     * (présentation v0.2.53) quand de la vidéo est négociée, sinon le b64 AAC
+     * brut de v0.2.18/19 (compat : un pair v0.2.19 qui n'a PAS annoncé de vcsd
+     * reçoit l'ancien format ; un pair v0.2.52 ignore les clés nouvelles).
      */
     object AcceptPayload {
-        fun encode(audioCsdB64: String, videoCsdB64: String): String {
+        fun encode(
+            audioCsdB64: String, videoCsdB64: String,
+            vrot: Int = 0, vw: Int = 0, vh: Int = 0
+        ): String {
             if (videoCsdB64.isEmpty()) return audioCsdB64 // format historique
             fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
-            return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"}"
+            return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"" +
+                ",\"vrot\":${vrot.coerceIn(0, 359)},\"vw\":${vw.coerceIn(0, 4096)}" +
+                ",\"vh\":${vh.coerceIn(0, 4096)}}"
         }
 
-        /** (csd audio, csd vidéo ou "") — tolère l'ancien format brut. */
-        fun parse(payload: ByteArray): Pair<String, String> {
+        /** Infos d'acceptation — tolère l'ancien format brut ET le JSON v0.2.20. */
+        fun parse(payload: ByteArray): AcceptInfo {
             val s = runCatching { String(payload, Charsets.UTF_8) }.getOrDefault("")
             if (s.startsWith("{")) {
                 val audio = MiniJson.str(s, "csd") ?: ""
                 val video = MiniJson.str(s, "vcsd") ?: ""
-                if (audio.isNotEmpty()) return audio to video
+                if (audio.isNotEmpty()) return AcceptInfo(
+                    audio, video,
+                    MiniJson.num(s, "vrot")?.toInt() ?: 0,
+                    MiniJson.num(s, "vw")?.toInt() ?: 0,
+                    MiniJson.num(s, "vh")?.toInt() ?: 0
+                )
             }
-            return s to ""
+            return AcceptInfo(s, "")
         }
     }
 

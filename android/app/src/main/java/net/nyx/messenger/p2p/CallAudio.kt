@@ -36,6 +36,11 @@ class CallAudio(
      */
     @Volatile var videoSink: ((ByteArray) -> Unit)? = null
 
+    /** v0.2.53 — trames F_VIDEO_ROT (rotation de l'écran du PAIR) :
+     *  métadonnée de présentation routée vers l'état UI (matrice de la vue
+     *  distante) — le flux et le décodeur ne bougent pas. */
+    @Volatile var rotSink: ((ByteArray) -> Unit)? = null
+
     @Volatile var stopped = false
         private set
 
@@ -232,6 +237,7 @@ class CallAudio(
                     when (frame.type) {
                         P2pProtocol.F_AUDIO -> feedDecoder(dec, frame.payload, info)
                         P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
+                        P2pProtocol.F_VIDEO_ROT -> rotSink?.invoke(frame.payload)
                         P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
                     }
                 }

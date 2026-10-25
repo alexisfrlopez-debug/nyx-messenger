@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,12 +43,22 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import net.nyx.messenger.R
 import net.nyx.messenger.p2p.CallManager
+import net.nyx.messenger.p2p.VideoFit
 
 /**
  * v0.2.18 — ÉCRAN D'APPEL (ADR-015) : composé GLOBALEMENT (NyxNavHost,
  * au-dessus de la navigation) tant qu'un appel est en cours — sonnerie
  * sortante/entrante, connexion, conversation, fin. Latence Tor annoncée
  * honnêtement (ADR-010/015) : 0,5-3 s bout en bout, prix de l'anonymat.
+ *
+ * v0.2.53 — LA VIDÉO SUIT LE TÉLÉPHONE (terrain 25/10 08:41 : « l'image video
+ * a une orientation d'écran figée ») : les DEUX vues sont des TextureView
+ * dont la MATRICE porte la rotation ([VideoFit] — rotation + fit centré,
+ * letterbox implicite sur fond noir). Le flux H.264 et le décodeur ne
+ * changent JAMAIS quand le téléphone tourne : seule la matrice change —
+ * aucune coupure, aucune resynchronisation. La rotation LOCALE (aperçu) et
+ * celle du PAIR (vue distante) arrivent par l'état [CallManager.ui]
+ * (videoLocalRot / videoPeerRot, mises à jour par F_VIDEO_ROT en direct).
  */
 @Composable
 fun CallOverlay() {
@@ -58,9 +69,14 @@ fun CallOverlay() {
     // JAMAIS demandée — l'appelé décrochait puis n'était pas entendu ;
     // CallAudio dégrade en réception seule avec cause journalisée, mais on
     // la demande au moment où l'utilisateur exprime l'intention de parler).
+    // v0.2.53 — CAMÉRA EN MÊME TEMPS (terrain 25/10 : la visio ENTRANTE
+    // tombait en audio-only faute de permission caméra jamais demandée côté
+    // appelé — demandée désormais AU DÉMARRAGE, ici en repli au décrochage,
+    // les DEUX en une seule boîte) : l'appel continue de sonner pendant la
+    // demande ; réponse → décrochage immédiat, même si refusées.
     val ansCtx = androidx.compose.ui.platform.LocalContext.current
     val answerPerm = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { CallManager.acceptIncoming() }
 
     var seconds by remember { mutableLongStateOf(0L) }
@@ -93,33 +109,73 @@ fun CallOverlay() {
     ) {
         // v0.2.20 — VISIO : rendu DISTANT plein écran + APERÇU local en
         // picture-in-picture quand la vidéo est négociée et l'appel actif.
+        // v0.2.53 — les deux deviennent des TextureView à MATRICE (rotation).
         if (ui.phase == CallManager.Phase.ACTIVE && ui.videoEnabled) {
-            AndroidView(
-                factory = { ctx ->
-                    android.view.SurfaceView(ctx).apply {
-                        holder.addCallback(object : android.view.SurfaceHolder.Callback {
-                            override fun surfaceCreated(h: android.view.SurfaceHolder) {
-                                CallManager.setRemoteSurface(h.surface)
-                            }
-                            override fun surfaceChanged(h: android.view.SurfaceHolder, f: Int, w: Int, hh: Int) {}
-                            override fun surfaceDestroyed(h: android.view.SurfaceHolder) {
-                                CallManager.setRemoteSurface(null)
-                            }
-                        })
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            // ----- Vue DISTANTE (le pair) : matrice videoPeerRot/videoPeerW/H -----
+            var remoteW by remember { mutableStateOf(0) }
+            var remoteH by remember { mutableStateOf(0) }
+            var remoteSt by remember { mutableStateOf<android.graphics.SurfaceTexture?>(null) }
+            var remoteBufKey by remember { mutableStateOf("") }
             AndroidView(
                 factory = { ctx ->
                     android.view.TextureView(ctx).apply {
                         surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
                             override fun onSurfaceTextureAvailable(
                                 st: android.graphics.SurfaceTexture, w: Int, h: Int
-                            ) { CallManager.setPreviewSurface(android.view.Surface(st)) }
+                            ) {
+                                remoteW = w; remoteH = h
+                                remoteSt = st
+                                // Buffer à la taille d'encodage du pair : le décodeur
+                                // rend 1:1, la matrice met à l'échelle (image nette).
+                                if (ui.videoPeerW > 0 && ui.videoPeerH > 0) {
+                                    runCatching { st.setDefaultBufferSize(ui.videoPeerW, ui.videoPeerH) }
+                                }
+                                CallManager.setRemoteSurface(android.view.Surface(st))
+                            }
                             override fun onSurfaceTextureSizeChanged(
                                 st: android.graphics.SurfaceTexture, w: Int, h: Int
-                            ) {}
+                            ) { remoteW = w; remoteH = h }
+                            override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
+                                remoteSt = null
+                                CallManager.setRemoteSurface(null); return true
+                            }
+                            override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+                        }
+                    }
+                },
+                update = { tv ->
+                    val st = remoteSt
+                    if (st != null && ui.videoPeerW > 0 && ui.videoPeerH > 0) {
+                        val key = "${ui.videoPeerW}x${ui.videoPeerH}"
+                        if (key != remoteBufKey) {
+                            remoteBufKey = key
+                            runCatching { st.setDefaultBufferSize(ui.videoPeerW, ui.videoPeerH) }
+                        }
+                    }
+                    // Rotation du pair (HELLO/ACCEPT puis F_VIDEO_ROT en direct) :
+                    // matrice SANS miroir — l'image du pair est vue telle qu'il l'a cadrée.
+                    if (remoteW > 0 && remoteH > 0 && ui.videoPeerW > 0 && ui.videoPeerH > 0) {
+                        applyVideoTransform(tv, remoteW, remoteH, ui.videoPeerW, ui.videoPeerH, ui.videoPeerRot, false)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            // ----- APERÇU LOCAL (ma caméra) : matrice videoLocalRot/W/H + MIROIR front -----
+            var prevW by remember { mutableStateOf(0) }
+            var prevH by remember { mutableStateOf(0) }
+            AndroidView(
+                factory = { ctx ->
+                    android.view.TextureView(ctx).apply {
+                        surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(
+                                st: android.graphics.SurfaceTexture, w: Int, h: Int
+                            ) {
+                                prevW = w; prevH = h
+                                CallManager.setPreviewSurface(android.view.Surface(st))
+                            }
+                            override fun onSurfaceTextureSizeChanged(
+                                st: android.graphics.SurfaceTexture, w: Int, h: Int
+                            ) { prevW = w; prevH = h }
                             override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
                                 CallManager.setPreviewSurface(null); return true
                             }
@@ -127,11 +183,19 @@ fun CallOverlay() {
                         }
                     }
                 },
+                update = { tv ->
+                    // Miroir si caméra FRONT (l'utilisateur se voit comme dans un
+                    // miroir ; le flux ENVOYÉ reste non miroir — standard).
+                    if (prevW > 0 && prevH > 0 && ui.videoLocalW > 0 && ui.videoLocalH > 0) {
+                        applyVideoTransform(tv, prevW, prevH, ui.videoLocalW, ui.videoLocalH, ui.videoLocalRot, ui.videoLocalFront)
+                    }
+                },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 8.dp)
                     .size(110.dp, 150.dp)
                     .clip(RoundedCornerShape(12.dp))
+                    .background(Color.Black) // letterbox noir dans le cadre arrondi
             )
         }
         Column(
@@ -198,10 +262,17 @@ fun CallOverlay() {
                         // v0.2.48 — micro demandé avant de décrocher (l'appel
                         // continue de sonner pendant la demande ; réponse →
                         // décrochage immédiat, même si refusée).
-                        if (ansCtx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                        // v0.2.53 — caméra demandée EN MÊME TEMPS : la visio
+                        // entrante ne dépend plus d'une permission jamais vue.
+                        val missing = mutableListOf<String>()
+                        if (ansCtx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) !=
                             android.content.pm.PackageManager.PERMISSION_GRANTED
-                        ) CallManager.acceptIncoming()
-                        else answerPerm.launch(android.Manifest.permission.RECORD_AUDIO)
+                        ) missing += android.Manifest.permission.RECORD_AUDIO
+                        if (ansCtx.checkSelfPermission(android.Manifest.permission.CAMERA) !=
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) missing += android.Manifest.permission.CAMERA
+                        if (missing.isEmpty()) CallManager.acceptIncoming()
+                        else answerPerm.launch(missing.toTypedArray())
                     }
                 }
                 CallManager.Phase.ACTIVE -> {
@@ -247,6 +318,22 @@ fun CallOverlay() {
             }
         }
     }
+}
+
+/**
+ * v0.2.53 — Applique la matrice de présentation ([VideoFit] : rotation
+ * horaire + fit centré + miroir optionnel) à un TextureView vidéo.
+ */
+private fun applyVideoTransform(
+    tv: android.view.TextureView,
+    viewW: Int, viewH: Int,
+    bufW: Int, bufH: Int,
+    rotationDeg: Int,
+    mirror: Boolean,
+) {
+    val m = android.graphics.Matrix()
+    m.setValues(VideoFit.values(viewW, viewH, bufW, bufH, rotationDeg, mirror))
+    tv.setTransform(m)
 }
 
 @Composable

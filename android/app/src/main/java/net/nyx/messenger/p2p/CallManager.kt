@@ -60,6 +60,16 @@ object CallManager {
         val videoEnabled: Boolean = false, // v0.2.20 : visio négociée (les DEUX côtés)
         // v0.2.26 : horodatage du DERNIER changement de phase (watchdogs).
         val phaseChangedAt: Long = 0L,
+        // v0.2.53 — PRÉSENTATION VIDÉO (matrices des TextureView de l'overlay) :
+        // la rotation est une métadonnée (le flux H.264 ne change jamais),
+        // locale pour l'aperçu, du pair pour la vue distante.
+        val videoLocalRot: Int = 0,   // rotation locale (image droite ; aperçu front en miroir)
+        val videoLocalW: Int = 0,     // taille d'encodage locale
+        val videoLocalH: Int = 0,
+        val videoLocalFront: Boolean = true, // caméra front → aperçu local en miroir
+        val videoPeerRot: Int = 0,    // rotation du pair (HELLO/ACCEPT puis F_VIDEO_ROT)
+        val videoPeerW: Int = 0,      // taille d'encodage du pair
+        val videoPeerH: Int = 0,
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
@@ -277,19 +287,31 @@ object CallManager {
             // dans le HELLO (le pair prépare son décodeur et répond le sien).
             // Caméra indisponible → AUDIO-ONLY (jamais d'appel raté pour ça).
             var vCsdB64 = ""
+            var vRot = 0; var vW = 0; var vH = 0
             if (_ui.value.videoEnabled) {
                 val ctx = appContext
                 if (ctx == null) {
                     end("contexte indisponible"); return@run
                 }
+                // v0.2.53 — le callback de rotation locale alimente l'état UI
+                // (l'aperçu suit le téléphone), la rotation part dans le HELLO.
                 val engine = CallVideo(ctx,
-                    { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
-                val vcsd = runCatching { engine.startSending() }.getOrNull()
-                if (vcsd != null) {
+                    { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } },
+                    { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) })
+                val vSend = runCatching { engine.startSending() }.getOrNull()
+                if (vSend?.csd != null) {
                     video = engine
                     audioEngine.videoSink = { bytes -> engine.feedDecoder(bytes) }
-                    vCsdB64 = java.util.Base64.getEncoder().encodeToString(vcsd)
-                    net.nyx.messenger.diag.DiagLog.i("nyx-video", "visio annoncée dans le HELLO (csd ${vcsd.size} o)")
+                    audioEngine.rotSink = { p -> onPeerRotation(p) }
+                    vCsdB64 = java.util.Base64.getEncoder().encodeToString(vSend.csd)
+                    vRot = vSend.rotation; vW = vSend.w; vH = vSend.h
+                    _ui.value = _ui.value.copy(
+                        videoLocalRot = vRot, videoLocalW = vW, videoLocalH = vH,
+                        videoLocalFront = vSend.front)
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-video",
+                        "visio annoncée dans le HELLO (csd ${vSend.csd.size} o, rotation ${vRot}°, ${vW}x${vH})"
+                    )
                 } else {
                     engine.stop()
                     _ui.value = _ui.value.copy(videoEnabled = false)
@@ -307,7 +329,8 @@ object CallManager {
             // plus la coroutine sans nettoyage — BYE + fin propre.
             runCatching {
                 c.send(P2pProtocol.F_HELLO, P2pProtocol.encodeHello(
-                    P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64), sig
+                    // v0.2.53 — vrot/vw/vh : présentation vidéo (un pair v0.2.52 ignore ces clés)
+                    P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64, vRot, vW, vH), sig
                 ))
             }.getOrElse { e ->
                 net.nyx.messenger.diag.DiagLog.w("nyx-call", "HELLO non remis : ${e.message}")
@@ -320,20 +343,29 @@ object CallManager {
             val answer = runCatching { P2pProtocol.read(c.input) }.getOrNull()
             when (answer?.type) {
                 P2pProtocol.F_CALL_ACCEPT -> {
-                    // v0.2.20 : payload JSON {csd, vcsd} (ou b64 brut v0.2.19).
-                    val (peerAudioCsd, peerVideoCsd) = P2pProtocol.AcceptPayload.parse(answer.payload)
+                    // v0.2.20 : payload JSON {csd, vcsd} (ou b64 brut v0.2.19) ;
+                    // v0.2.53 : + présentation vidéo de l'appelé (vrot/vw/vh).
+                    val accept = P2pProtocol.AcceptPayload.parse(answer.payload)
                     val peerCsd = runCatching {
-                        java.util.Base64.getDecoder().decode(peerAudioCsd)
+                        java.util.Base64.getDecoder().decode(accept.audioCsd)
                     }.getOrElse { ByteArray(0) }
                     runCatching { audioEngine.startReceiving(peerCsd) }
                     audioEngine.transmit = true // acceptation explicite → l'audio part
-                    if (_ui.value.videoEnabled && peerVideoCsd.isNotEmpty()) {
+                    if (_ui.value.videoEnabled && accept.videoCsd.isNotEmpty()) {
                         runCatching {
-                            val vcsd = java.util.Base64.getDecoder().decode(peerVideoCsd)
+                            val vcsd = java.util.Base64.getDecoder().decode(accept.videoCsd)
                             video?.startReceiving(vcsd)
                             video?.transmit = true
+                            // v0.2.53 — resynchronise la rotation si le téléphone
+                            // a tourné pendant la sonnerie/la négociation.
+                            video?.sendCurrentRotation()
                         }
-                        net.nyx.messenger.diag.DiagLog.i("nyx-video", "visio ACTIVE (csd pair ${peerVideoCsd.length} o b64)")
+                        _ui.value = _ui.value.copy(
+                            videoPeerRot = accept.vrot, videoPeerW = accept.vw, videoPeerH = accept.vh)
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-video",
+                            "visio ACTIVE (csd pair ${accept.videoCsd.length} o b64, rotation ${accept.vrot}°, ${accept.vw}x${accept.vh})"
+                        )
                     } else {
                         // Le pair n'a pas de vidéo (v0.2.19 ou caméra refusée).
                         _ui.value = _ui.value.copy(videoEnabled = false)
@@ -684,21 +716,35 @@ object CallManager {
         // v0.2.20 — le pair a annoncé de la VIDÉO (HELLO vcsd) : on démarre la
         // nôtre et on répond en JSON {csd, vcsd} (pair forcément v0.2.20).
         var myVCsdB64 = ""
+        var myVRot = 0; var myVW = 0; var myVH = 0
         val peerWantVideo = c.hello.vcsd.isNotEmpty()
         val ctx = appContext
         if (peerWantVideo && ctx != null) {
+            // v0.2.53 — même moteur que l'appelant : rotation suivie + callback UI.
             val vEngine = CallVideo(ctx,
-                { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
-            val myVCsd = runCatching { vEngine.startSending() }.getOrNull()
-            if (myVCsd != null) {
+                { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } },
+                { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) })
+            val vSend = runCatching { vEngine.startSending() }.getOrNull()
+            if (vSend?.csd != null) {
                 video = vEngine
                 engine.videoSink = { bytes -> vEngine.feedDecoder(bytes) }
-                myVCsdB64 = java.util.Base64.getEncoder().encodeToString(myVCsd)
+                engine.rotSink = { p -> onPeerRotation(p) }
+                myVCsdB64 = java.util.Base64.getEncoder().encodeToString(vSend.csd)
+                myVRot = vSend.rotation; myVW = vSend.w; myVH = vSend.h
+                _ui.value = _ui.value.copy(
+                    videoLocalRot = myVRot, videoLocalW = myVW, videoLocalH = myVH,
+                    videoLocalFront = vSend.front,
+                    // présentation de L'APPELANT lue de son HELLO (0/0/0 si v0.2.52)
+                    videoPeerRot = c.hello.vrot, videoPeerW = c.hello.vw, videoPeerH = c.hello.vh)
                 runCatching {
                     vEngine.startReceiving(java.util.Base64.getDecoder().decode(c.hello.vcsd))
                     vEngine.transmit = true
+                    vEngine.sendCurrentRotation()
                 }
-                net.nyx.messenger.diag.DiagLog.i("nyx-video", "visio ACTIVE côté appelé")
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-video",
+                    "visio ACTIVE côté appelé (rotation locale ${myVRot}°, pair ${c.hello.vrot}°)"
+                )
             } else {
                 vEngine.stop()
             }
@@ -706,8 +752,11 @@ object CallManager {
         // v0.2.26 : la réponse d'acceptation non remise (pair disparu) ne fige
         // plus WAIT — fin propre immédiate.
         runCatching {
-            c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(myCsdB64, myVCsdB64)
-                .toByteArray(Charsets.UTF_8))
+            // v0.2.53 — la présentation de l'appelé accompagne son csd
+            // (un appelant v0.2.52 ignore ces clés du JSON).
+            c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(
+                myCsdB64, myVCsdB64, myVRot, myVW, myVH
+            ).toByteArray(Charsets.UTF_8))
         }.getOrElse { e ->
             net.nyx.messenger.diag.DiagLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
             end("connexion perdue"); return
@@ -744,6 +793,20 @@ object CallManager {
 
     /** Surface d'APERÇU local (TextureView de l'overlay) — null = détachée. */
     fun setPreviewSurface(s: android.view.Surface?) { video?.setPreviewSurface(s) }
+
+    /**
+     * v0.2.53 — le pair a tourné SON écran (trame F_VIDEO_ROT) : la vue
+     * distante de l'overlay change de matrice de présentation — le flux
+     * H.264 et le décodeur ne bougent PAS (aucune coupure, aucune
+     * resynchronisation IDR). Payload illisible ou pair ≤ v0.2.52 : ignoré.
+     */
+    private fun onPeerRotation(payload: ByteArray) {
+        val rot = VideoRot.decodeFrame(payload) ?: return
+        if (_ui.value.videoPeerRot != rot) {
+            _ui.value = _ui.value.copy(videoPeerRot = rot)
+            net.nyx.messenger.diag.DiagLog.i("nyx-video", "orientation du pair suivie : ${rot}°")
+        }
+    }
 
     /** Coupe/relance la CAMÉRA (émission) — la réception continue. */
     fun toggleCamera() {
@@ -812,7 +875,10 @@ object CallManager {
         net.nyx.messenger.notify.ContactNotifier.cancelCall(peer)
         val wasActive = _ui.value.phase == Phase.ACTIVE
         _ui.value = _ui.value.copy(phase = Phase.ENDED, message = reason, muted = false, speaker = false,
-            videoEnabled = false)
+            videoEnabled = false,
+            // v0.2.53 — la présentation ne survit pas à l'appel.
+            videoLocalRot = 0, videoLocalW = 0, videoLocalH = 0, videoLocalFront = true,
+            videoPeerRot = 0, videoPeerW = 0, videoPeerH = 0)
         scope.launch {
             delay(if (wasActive) 2500L else 3000L)
             if (_ui.value.phase == Phase.ENDED) _ui.value = CallUi()

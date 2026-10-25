@@ -28,6 +28,18 @@ import android.view.Surface
  * surface distante fournie par l'UI ([setRemoteSurface] — configuré au premier
  * appel, recréé si la surface change).
  *
+ * v0.2.53 — ORIENTATION SUIVIE (terrain 25/10 08:41 : « l'image video a une
+ * orientation d'écran figée ») : l'image partait en orientation CAPTEUR (couchée
+ * à 90° sur un téléphone en portrait) et ne suivait jamais le téléphone.
+ * La rotation est une MÉTADONNÉE DE PRÉSENTATION : le flux H.264 ne change
+ * PAS (aucun redémarrage d'encodeur, aucune coupure), l'émetteur calcule
+ * [VideoRot.uprightDegrees] (orientation capteur + rotation courante de
+ * l'écran), la porte dans le HELLO ([VideoSendInfo]) puis la SUIT
+ * (DisplayListener anti-rebond 600 ms) et envoie une trame
+ * [P2pProtocol.F_VIDEO_ROT] à chaque changement — le pair tourne sa VUE
+ * (matrice TextureView, cf. [VideoFit]) sans toucher au décodeur. Un pair
+ * ≤ v0.2.52 ignore silencieusement ces trames (interop garantie).
+ *
  * PRIVATÉ : rien ne part avant acceptation explicite ([transmit], comme
  * l'audio — pas de caméra à l'insu) ; le transport est l'onion direct (Tor
  * chiffre de bout en bout). AUCUNE image n'est stockée, aucune image ne passe
@@ -40,7 +52,18 @@ class CallVideo(
     private val context: Context,
     private val write: (type: Int, payload: ByteArray) -> Unit,
     private val onFatal: (String) -> Unit,
+    /** v0.2.53 — la rotation LOCALE a changé (l'aperçu et l'état UI suivent). */
+    private val onLocalRotation: (Int) -> Unit = {},
 ) {
+
+    /** v0.2.53 — résultat de [startSending] : csd + présentation locale. */
+    data class VideoSendInfo(
+        val csd: ByteArray?,   // null = pas de visio (permission/caméra/csd absent)
+        val rotation: Int,     // rotation horaire qui rend l'image droite (0/90/180/270)
+        val w: Int,            // largeur d'encodage
+        val h: Int,            // hauteur d'encodage
+        val front: Boolean = true, // v0.2.53 : caméra front (aperçu local en miroir)
+    )
 
     /** v0.2.20 : aucune trame vidéo ne part avant acceptation explicite. */
     @Volatile var transmit = false
@@ -58,10 +81,21 @@ class CallVideo(
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
 
+    /** Caméra choisie : identifiant + orientation capteur + face (v0.2.53). */
+    private class CamPick(val id: String, val sensorDeg: Int, val front: Boolean)
+
+    private var camPick: CamPick? = null
+
+    /** v0.2.53 — rotation de présentation courante (calculée au démarrage puis suivie). */
+    @Volatile private var currentRot = 0
+
     /** v0.2.48 — Handler des callbacks caméra (HandlerThread « nyx-cam ») :
      *  le thread média n'a PAS de Looper (« No handler given… » terrain 24/10). */
     private var cameraHandler: android.os.Handler? = null
     private var cameraThread: android.os.HandlerThread? = null
+
+    /** v0.2.53 — écoute de la rotation de l'écran (même looper que la caméra). */
+    private var displayListener: android.hardware.display.DisplayManager.DisplayListener? = null
 
     private var preview: Surface? = null
     private var decoder: MediaCodec? = null
@@ -70,16 +104,17 @@ class CallVideo(
     private val threads = mutableListOf<Thread>()
 
     /**
-     * Démarre la caméra + l'encodeur. Renvoie le csd H.264 (SPS+PPS concaténés)
-     * ou null si la caméra est indisponible (permission refusée, pas de
-     * caméra, occupation) — l'appel continue en AUDIO-ONLY sans erreur.
+     * Démarre la caméra + l'encodeur. Renvoie le csd H.264 (SPS+PPS
+     * concaténés) et la présentation (rotation/taille), ou un csd null si la
+     * caméra est indisponible (permission refusée, pas de caméra, occupation)
+     * — l'appel continue en AUDIO-ONLY sans erreur.
      */
-    fun startSending(): ByteArray? {
+    fun startSending(): VideoSendInfo {
         if (context.checkSelfPermission(android.Manifest.permission.CAMERA) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             android.util.Log.i("nyx-video", "permission caméra absente — visio audio-only")
-            return null
+            return VideoSendInfo(null, 0, 0, 0)
         }
         return try {
             // v0.2.52 — L'ORDRE EST INVERSÉ : la caméra démarre AVANT la lecture
@@ -104,20 +139,110 @@ class CallVideo(
                 )
                 stopCamera()
                 stopEncoder(enc.codec)
-                null
+                VideoSendInfo(null, 0, 0, 0)
             } else {
                 android.util.Log.i(
                     "nyx-video",
                     "csd H.264 LU APRÈS LA 1ʳᵉ TRAME (${csd.size} o) — encodeur prêt, caméra active"
                 )
+                // v0.2.53 — présentation initiale : rotation qui rend l'image
+                // DROITE pour la rotation D'ÉCRAN courante (terrain : l'image
+                // partait couchée à 90° et ne bougeait plus jamais).
+                currentRot = computeUprightRotation()
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-video",
+                    "orientation initiale ${currentRot}° (capteur ${camPick?.sensorDeg ?: "?"}°, " +
+                        "caméra ${if (camPick?.front == true) "front" else "arrière"}, " +
+                        "écran ${currentDisplayRotationDeg()}°) — suit désormais le téléphone"
+                )
+                onLocalRotation(currentRot)
+                startRotationTracking()
                 startEncDrain(enc.codec)
-                csd
+                VideoSendInfo(csd, currentRot, enc.w, enc.h, camPick?.front ?: true)
             }
         } catch (e: Exception) {
             android.util.Log.w("nyx-video", "caméra indisponible — visio audio-only : ${e.message}")
             stopCamera()
-            null
+            VideoSendInfo(null, 0, 0, 0)
         }
+    }
+
+    /**
+     * v0.2.53 — Envoie la rotation COURANTE au pair (F_VIDEO_ROT). Appelé par
+     * CallManager juste après `transmit = true` : garantit la synchronisation
+     * même si le téléphone a tourné pendant la sonnerie/la négociation.
+     */
+    fun sendCurrentRotation() {
+        if (!transmit || stopped) return
+        runCatching { write(P2pProtocol.F_VIDEO_ROT, VideoRot.encodeFrame(currentRot)) }
+    }
+
+    /* ------------------- v0.2.53 — rotation de présentation ------------------- */
+
+    /** Rotation de l'écran principal en degrés (0/90/180/270 — 0 si indisponible). */
+    private fun currentDisplayRotationDeg(): Int {
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE)
+            as? android.hardware.display.DisplayManager ?: return 0
+        val disp = dm.getDisplay(android.view.Display.DEFAULT_DISPLAY) ?: return 0
+        return runCatching { VideoRot.displayRotationToDeg(disp.rotation) }.getOrDefault(0)
+    }
+
+    /** Rotation qui rend l'image droite, pour la rotation d'écran COURANTE. */
+    private fun computeUprightRotation(): Int {
+        val pick = camPick ?: return 0
+        return VideoRot.uprightDegrees(pick.sensorDeg, currentDisplayRotationDeg(), pick.front)
+    }
+
+    /** Applique la rotation d'écran courante (appelé avec anti-rebond). */
+    private val applyRotation = Runnable {
+        if (stopped) return@Runnable
+        val newRot = computeUprightRotation()
+        if (newRot != currentRot) {
+            val old = currentRot
+            currentRot = newRot
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-video",
+                "orientation suivie : ${old}° → ${newRot}° (écran tourné)" +
+                    (if (transmit) " — F_VIDEO_ROT au pair, matrice de présentation changée" else "")
+            )
+            onLocalRotation(newRot)
+            if (transmit && !stopped) {
+                runCatching { write(P2pProtocol.F_VIDEO_ROT, VideoRot.encodeFrame(newRot)) }
+            }
+        }
+    }
+
+    /** Enregistre le suivi de rotation (looper caméra, anti-rebond 600 ms). */
+    private fun startRotationTracking() {
+        if (displayListener != null) return
+        val handler = ensureCameraHandler()
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE)
+            as? android.hardware.display.DisplayManager ?: return
+        val listener = object : android.hardware.display.DisplayManager.DisplayListener {
+            // La rotation de l'écran arrive par onDisplayChanged (le Display
+            // principal) — pas de callback dédié sur DisplayListener.
+            override fun onDisplayChanged(displayId: Int) {
+                if (displayId != android.view.Display.DEFAULT_DISPLAY) return
+                // Anti-rebond : le passage portrait→paysage passe par des états
+                // intermédiaires ; on ne retient que la position STABLE.
+                handler.removeCallbacks(applyRotation)
+                handler.postDelayed(applyRotation, ROT_DEBOUNCE_MS)
+            }
+
+            override fun onDisplayAdded(displayId: Int) {}
+            override fun onDisplayRemoved(displayId: Int) {}
+        }
+        runCatching { dm.registerDisplayListener(listener, handler) }
+        displayListener = listener
+    }
+
+    private fun stopRotationTracking() {
+        val listener = displayListener ?: return
+        displayListener = null
+        cameraHandler?.removeCallbacks(applyRotation)
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE)
+            as? android.hardware.display.DisplayManager ?: return
+        runCatching { dm.unregisterDisplayListener(listener) }
     }
 
     /**
@@ -219,8 +344,8 @@ class CallVideo(
     /** Taille caméra/encodeur : la plus petite supportée ≥ 320×240 (bord 640). */
     private fun pickCaptureSize(): Pair<Int, Int> {
         val mgr = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val id = pickCameraId(mgr) ?: throw IllegalStateException("aucune caméra")
-        val map = mgr.getCameraCharacteristics(id)
+        val pick = pickCamera(mgr) ?: throw IllegalStateException("aucune caméra")
+        val map = mgr.getCameraCharacteristics(pick.id)
             .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val sizes = map?.getOutputSizes(android.graphics.SurfaceTexture::class.java)
             ?.filter { it.width in 240..640 && it.height in 180..480 }
@@ -230,35 +355,35 @@ class CallVideo(
         return best.width to best.height
     }
 
-    /** Caméra FRONT en priorité (visio naturelle), sinon la première. */
-    private fun pickCameraId(mgr: CameraManager): String? {
+    /** Caméra FRONT en priorité (visio naturelle), sinon la première — avec son
+     *  orientation capteur et sa face (v0.2.53 : calcul de la présentation). */
+    private fun pickCamera(mgr: CameraManager): CamPick? {
         val ids = mgr.cameraIdList
-        return ids.firstOrNull {
+        val chosen = ids.firstOrNull {
             runCatching {
                 mgr.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) ==
                     CameraCharacteristics.LENS_FACING_FRONT
             }.getOrDefault(false)
-        } ?: ids.firstOrNull()
+        } ?: ids.firstOrNull() ?: return null
+        val ch = runCatching { mgr.getCameraCharacteristics(chosen) }.getOrNull() ?: return null
+        val sensor = ch.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        val front = ch.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+        return CamPick(chosen, sensor, front)
     }
 
     @SuppressLint("MissingPermission")
     private fun openCamera(encoderSurface: Surface) {
         val mgr = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val id = pickCameraId(mgr) ?: throw IllegalStateException("aucune caméra")
+        val pick = pickCamera(mgr) ?: throw IllegalStateException("aucune caméra")
+        camPick = pick
         // v0.2.48 — HANDLER EXPLICITE (terrain 24/10 08:49 : « caméra
         // indisponible — visio audio-only : No handler given, and current
         // thread has no looper! ») : openCamera exige un thread POURVU d'un
         // Looper pour livrer ses callbacks ; le thread média n'en a pas.
         // Un HandlerThread dédié (créé une fois, libéré dans stopCamera)
         // remplace le main thread — AUCUN callback caméra ne touche l'UI.
-        if (cameraHandler == null) {
-            val ht = android.os.HandlerThread("nyx-cam")
-            ht.start()
-            cameraThread = ht
-            cameraHandler = android.os.Handler(ht.looper)
-        }
-        val handler = requireNotNull(cameraHandler) { "handler caméra indisponible" }
-        mgr.openCamera(id, object : CameraDevice.StateCallback() {
+        val handler = ensureCameraHandler()
+        mgr.openCamera(pick.id, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 if (stopped) { runCatching { device.close() }; return }
                 camera = device
@@ -296,6 +421,17 @@ class CallVideo(
         }, handler)
     }
 
+    /** Handler unique du looper caméra (callbacks caméra + rotation d'écran). */
+    private fun ensureCameraHandler(): android.os.Handler {
+        if (cameraHandler == null) {
+            val ht = android.os.HandlerThread("nyx-cam")
+            ht.start()
+            cameraThread = ht
+            cameraHandler = android.os.Handler(ht.looper)
+        }
+        return requireNotNull(cameraHandler) { "handler caméra indisponible" }
+    }
+
     /** Attache/détache la surface d'APERÇU local (TextureView de l'overlay). */
     fun setPreviewSurface(s: Surface?) {
         synchronized(lock) {
@@ -312,6 +448,10 @@ class CallVideo(
     /**
      * Démarre le DÉCODEUR H.264 avec le csd du pair (SPS+PPS concaténés) —
      * les trames arrivent via [feedDecoder] (routage [CallAudio.videoSink]).
+     * v0.2.53 — SANS rotation : la présentation (rotation du pair) est portée
+     * par la VUE de l'UI (matrice TextureView) : le support décodeur de
+     * KEY_ROTATION est inégal selon les appareils, et changer de rotation en
+     * cours d'appel n'exige ainsi AUCUN redémarrage de décodeur.
      */
     fun startReceiving(peerCsd: ByteArray) {
         synchronized(lock) { peerCsdBuf = peerCsd }
@@ -320,7 +460,7 @@ class CallVideo(
 
     @Volatile private var peerCsdBuf: ByteArray = ByteArray(0)
 
-    /** Surface distante (SurfaceView de l'overlay) — reconfigure le décodeur. */
+    /** Surface distante (TextureView de l'overlay) — reconfigure le décodeur. */
     fun setRemoteSurface(s: Surface?) {
         synchronized(lock) {
             if (remoteSurface == s) return
@@ -399,6 +539,7 @@ class CallVideo(
     fun stop() {
         if (stopped) return
         stopped = true
+        stopRotationTracking()
         stopCamera()
         // v0.2.48 — libère le thread des callbacks caméra (HandlerThread
         // « nyx-cam » créé dans openCamera — jamais sur le main).
@@ -421,5 +562,8 @@ class CallVideo(
 
         /** v0.2.52 — attente max du csd réel (caméra → 1ʳᵉ trame → format). */
         const val CSD_WAIT_MS = 6_000
+
+        /** v0.2.53 — anti-rebond du suivi d'orientation (ms). */
+        const val ROT_DEBOUNCE_MS = 600L
     }
 }

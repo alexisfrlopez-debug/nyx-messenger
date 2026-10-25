@@ -535,6 +535,34 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_53 = listOf(
+        Item("permission-precoce", "LES PERMISSIONS SONT DEMANDÉES AU PREMIER DÉMARRAGE — ITEM DÉCISIF n°1 (NOUVEAU v0.2.53, demande opérateur 25/10 08:41 : « l'appel video n'a fonctionné qu'à partir du moment où je l'ai lancé du Xiaomi et que j'ai eu la demande d'autorisation d'utiliser la caméra. il faudrait que les demandes d'autorisation soient faites dès l'installation de l'application » — cause racine : Xiaomi « permission caméra absente — visio audio-only » à 08:39:59 pendant l'appel visio ENTRANT du Blackview, la permission caméra n'était demandée qu'au clic visio côté APPELANT, JAMAIS au démarrage ni côté appelé) : au PREMIER lancement (ou après mise à jour si pas encore accordées), UNE SEULE boîte système demande caméra + micro (+ notification) — l'export montre « permissions demandées au premier démarrage : … » puis au démarrage suivant « permissions de démarrage déjà toutes accordées (notif, caméra, micro) » ; une visio reçue ou émise MARCHE DÈS LA PREMIÈRE utilisation, sans dégradation audio-only"),
+        Item("orientation-suivie", "LA VIDÉO EST DROITE ET SUIT LE TÉLÉPHONE — ITEM DÉCISIF n°2 (NOUVEAU v0.2.53, demande opérateur 25/10 : « l'image video a une orientation d'écran figée, il faudrait qu'elle suive l'orientation du téléphone (et que la résolution s'adapte en conséquence) » — l'image partait en orientation CAPTEUR, couchée à 90° sur un téléphone en portrait, et ne suivait jamais l'écran : aucune lecture de SENSOR_ORIENTATION, décodeur à rotation-degrees = 0) : appel visio entre les DEUX v0.2.53 → l'image distante est DROITE (plus couchée) dans TOUTES les orientations ; tourner le téléphone en cours d'appel → l'image QUE VOIT LE PAIR suit (portrait ↔ paysage, résolution affichée adaptée 240×320 ↔ 320×240) SANS AUCUNE COUPURE (matrice de présentation, le flux H.264 ne change pas) ; l'aperçu local est droit et en MIROIR naturel (caméra front) ; les exports montrent « orientation initiale X° (capteur Y° …) — suit désormais le téléphone » puis à chaque rotation « orientation suivie : X° → Y° (écran tourné) — F_VIDEO_ROT au pair » chez celui qui tourne et « orientation du pair suivie : Y° » chez l'autre"),
+        Item("build-propre", "BUILD PROPRE PREUVE PAR MARQUEUR : l'export de CHAQUE téléphone contient « câblage v0.2.53 vérifié : permissions caméra+micro+notification demandées ensemble au premier démarrage, orientation vidéo suivie (rotation capteur→écran » (chaîne complète du marqueur — cf. notes de release)"),
+        Item("sonnerie-stop-decroche", "LA SONNERIE S'ARRÊTE AU DÉCROCHÉ (v0.2.52, continue — acquis terrain 25/10 08:39-08:41 : « sonnerie STOPPÉE » ×5 dans les 2 exports) : appel → décrocher → la sonnerie S'ARRÊTE À L'INSTANT, silence pendant la conversation"),
+        Item("visio-image", "LA VISIO PORTE UNE IMAGE (v0.2.52, continue — acquis terrain 25/10 08:41 : « csd H.264 LU APRÈS LA 1ʳᵉ TRAME (30 o) » ×2, « visio ACTIVE » des deux côtés) : appel visio → les DEUX écrans montrent l'image distante"),
+        Item("raccroche-libre", "RACCROCHER LIBÈRE TOUJOURS, MÊME TOR MORT (v0.2.52, continue) : pendant un appel sortant qui sonne dans le vide, Raccrocher referme l'écran d'appel EN MOINS D'UNE SECONDE"),
+        Item("tor-relance", "TOR RELANCÉ AUTOMATIQUEMENT APRÈS MORT DU DÉMON (v0.2.52, continue) : si le démon meurt, « démon tor MORT … — RELANCE AUTOMATIQUE n/3 » puis l'onion se RE-PUBLIE"),
+        Item("appel-tient", "L'APPEL TIENT APRÈS LE DÉCROCHÉ (v0.2.51, continue) : décrocher → l'appel RESTE ACTIF, l'audio coule dans les DEUX SENS, « csd-0 AAC CALCULÉ (1408) », AUCUN « work failed to complete: 14 »"),
+        Item("lien-resync", "DÉPÔT AU PAIR PAR LIEN RESYNCHRONISÉ (v0.2.52, continue) : si « seq N refusé (attendu M) — re-signé, rejoué » apparaît, le dépôt aboutit"),
+        Item("csd-calcule", "CSD-0 CALCULÉ VISIBLE (v0.2.51, continue) : « csd-0 AAC CALCULÉ (1408) » juste après la mise en marche de l'encodeur"),
+        Item("sonnerie-retablie", "LA SONNERIE SONNE (v0.2.50, continue) : « appel entrant de <pair>… (cid …) » chez l'appelé + « sonnerie DÉMARRÉE »"),
+        Item("onion-confirme", "ONION VRAIMENT SERVI APRÈS CHAQUE DÉMARRAGE (v0.2.49, reporté) : « onion CONFIRMÉ servi par les HSDirs » ≤ ~3 min après « onion publié »"),
+        Item("appel-authentifie", "APPEL AUTHENTIFIÉ CHEZ L'APPELÉ (v0.2.48, reporté) : « appel entrant authentifié de <pair>… (cid …) »"),
+        Item("media-45s", "MÉDIA DIRECT ÉTABLI (v0.2.48, reporté) : « média essai 1 (45 s) → <pair>…:47471 » puis l'audio coule en direct"),
+        Item("micro-permission", "MICRO DEMANDÉ ET OUVERT (v0.2.48, continue — désormais AU DÉMARRAGE en plus du clic) : les deux sens s'entendent"),
+        Item("visio-camera", "VISIO SANS « no looper » (v0.2.48, reporté) : « caméra active (visio en émission) »"),
+        Item("poll-local", "POLL PROPRE + FLOTTE SANS JOURNAL DE PAIR (v0.2.50, continue) : plus aucun « réplica <pair>… en échec (poll inbox…) » quand le pair s'éteint"),
+        Item("raccroche-sans-crash", "RACCROCHER NE TUE PLUS L'APP (v0.2.50, continue) : aucun « FATAL EXCEPTION » dans l'export"),
+        Item("bind-ipv4-preuve", "BIND IPv4 (v0.2.47, ACQUIS — continue) : « réplica temporaire prêt (local 127.0.0.1:PORT) » + « écouteur direct prêt (local 127.0.0.1:PORT) »"),
+        Item("serveur-detach", "SERVEUR DÉPLOYÉ SANS FENÊTRE ORPHELINE (v0.2.37+, continue) : nœud 0.2.38 confirmé terrain"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
     val ITEMS_V0_2_52 = listOf(
         Item("sonnerie-stop-decroche", "LA SONNERIE S'ARRÊTE AU DÉCROCHÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.52, cause racine du terrain 25/10 06:38 « Xiaomi continue de sonner alors que l'appel est décroché » : la sonnerie était le SON DU CANAL de notification, annulé seulement au RACCROCHÉ — 19 s de sonnerie PAR-DESSUS l'appel actif mesurées sur l'appel n°1) : appel audio → décrocher → la sonnerie S'ARRÊTE À L'INSTANT du décroché, l'audio coule proprement ; dans l'export de l'appelé : « sonnerie DÉMARRÉE (boucle possédée…) » à l'offre PUIS « sonnerie STOPPÉE » juste après « acceptation utilisateur » — et PLUS JAMAIS de sonnerie pendant la conversation"),
         Item("visio-image", "LA VISIO PORTE UNE IMAGE — ITEM DÉCISIF n°2 (NOUVEAU v0.2.52, cause racine « l'appel visio ne fonctionne pas (audio seulement) » : « visio annoncée dans le HELLO (csd 0 o) » — le csd H.264 était lu AVANT la 1ʳᵉ trame caméra, l'encodeur à surface d'entrée n'en expose AUCUN avant : csd VIDE → l'appelé voyait vcsd vide et dégradait l'appel en audio-only) : appel visio → les DEUX écrans montrent l'image distante (aperçu local + rendu distant) ; dans l'export de l'appelant : « csd H.264 LU APRÈS LA 1ʳᵉ TRAME (N o) » (plus JAMAIS « csd 0 o ») et « visio ACTIVE », chez l'appelé « visio ACTIVE côté appelé » — si la caméra ne livre rien : « csd H.264 TOUJOURS VIDE … visio AUDIO-ONLY explicite » (repli honnête, jamais une visio morte annoncée)"),
@@ -612,7 +640,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_52
+    fun items(): List<Item> = ITEMS_V0_2_53
 
 
     /**

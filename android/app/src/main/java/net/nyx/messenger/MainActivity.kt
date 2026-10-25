@@ -45,10 +45,29 @@ import net.nyx.messenger.ui.theme.NyxTheme
  */
 class MainActivity : FragmentActivity() {
 
-    private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            // Refusée : Tor tourne quand même (service au premier plan sans notification
-            // visible sur < 13 ; sur 13+ la notification est simplement masquée).
+    /**
+     * v0.2.53 — PERMISSIONS DE DÉMARRAGE EN UNE SEULE BOÎTE (demande
+     * opérateur 25/10 : « il faudrait que les demandes d'autorisation soient
+     * faites dès l'installation de l'application pour éviter ça » — la visio
+     * ENTRANTE tombait en audio-only : Xiaomi « permission caméra absente —
+     * visio audio-only » pendant l'appel du Blackview, la permission n'était
+     * demandée qu'au clic visio côté APPELANT). Android ne permet pas de
+     * demander PENDANT l'installation : on demande AU PREMIER LANCEMENT —
+     * notification (13+), caméra et micro ensemble, puis à chaque lancement
+     * tant qu'elles manquent (le système gère « ne plus demander »). Les
+     * demandes au clic (ChatScreen, décrochage v0.2.53) restent en repli.
+     * Refusées : Tor tourne quand même, les appels restent audibles.
+     */
+    private val startupPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            val cam = grants[Manifest.permission.CAMERA] == true
+            val mic = grants[Manifest.permission.RECORD_AUDIO] == true
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-boot",
+                "permissions de démarrage : caméra=" + (if (cam) "accordée" else "refusée") +
+                    ", micro=" + (if (mic) "accordé" else "refusé") +
+                    " — la visio entrante ne sera plus jamais dégradée par une permission manquante"
+            )
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,7 +82,7 @@ class MainActivity : FragmentActivity() {
             android.view.WindowManager.LayoutParams.FLAG_SECURE
         )
         enableEdgeToEdge()
-        requestNotificationPermissionIfNeeded()
+        requestStartupPermissionsIfNeeded()
         startEmbeddedTor()
         // Verrou d'accès (ADR-010 §3) : biométrie opt-in OU un des trois mots
         // de passe (v0.2.18 : normal/panique/destruction) — verrouillé à froid.
@@ -129,12 +148,30 @@ class MainActivity : FragmentActivity() {
         AppLock.onBackgrounded()
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
+    private fun requestStartupPermissionsIfNeeded() {
+        // v0.2.53 — UNE SEULE boîte : notification (13+) + caméra + micro.
+        val wanted = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        ) wanted += Manifest.permission.POST_NOTIFICATIONS
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) wanted += Manifest.permission.CAMERA
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) wanted += Manifest.permission.RECORD_AUDIO
+        if (wanted.isNotEmpty()) {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-boot",
+                "permissions demandées au premier démarrage : " + wanted.joinToString() +
+                    " — plus jamais de visio dégradée à la première utilisation"
+            )
+            startupPermissions.launch(wanted.toTypedArray())
+        } else {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-boot", "permissions de démarrage déjà toutes accordées (notif, caméra, micro)"
+            )
         }
     }
 
