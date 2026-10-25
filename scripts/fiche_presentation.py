@@ -375,11 +375,11 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.50 · Console v0.8.12 · Serveur v0.2.38 "
-                                   "(24 octobre 2026)"],
+              ["Versions livrées", "Messagerie v0.2.51 · Console v0.8.12 · Serveur v0.2.38 "
+                                   "(25 octobre 2026)"],
           ],
           [0.28, 0.72],
-          caption="Tableau 1 — Fiche d'identité du projet Nyx au 24 octobre 2026.")
+          caption="Tableau 1 — Fiche d'identité du projet Nyx au 25 octobre 2026.")
 
     # ================= 2. Comment ça marche =================
     p2 = Paragraph(
@@ -643,7 +643,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.50 / v0.8.12).",
+                  "(version v0.2.51 / v0.8.12).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -799,8 +799,13 @@ def build_story():
                "démarrage) ; la v0.2.50 rétablit la sonnerie en corrigeant le "
                "routage du journal (l'offre va sur la boîte du pair, lue en "
                "procédé — plus jamais le journal d'un tiers) et élimine le "
-               "crash fatal du raccroché (écriture socket hors du thread UI) "
-               "— la confirmation de bout en bout de l'appel reste attendue."],
+               "crash fatal du raccroché (écriture socket hors du thread UI) ; la "
+               "v0.2.51 élimine le « csd factice » qui effondrait chaque appel "
+               "300 à 700 ms après le décroché (le décodeur du pair recevait une "
+               "configuration AAC invalide — le csd-0 est désormais calculé, "
+               "fonction pure du format audio, et celui d'un pair v0.2.50 est "
+               "assaini) — la confirmation de bout en bout de l'appel reste "
+               "attendue."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -831,7 +836,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "24 octobre 2026. Les horizons reprennent la roadmap officielle "
+                 "25 octobre 2026. Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
     table(story,
@@ -845,10 +850,12 @@ def build_story():
               ["Appels en revalidation", "Confirmation terrain du correctif IPv6 "
                "(v0.2.47, sondes joignables au 24/10), des verrous "
                "applicatifs v0.2.48, du build vérifié v0.2.49 (marqueur de "
-               "câblage + onion servi confirmé) et du routage rétabli v0.2.50 "
-               "(sonnerie + raccroché sans crash) ; relais "
+               "câblage + onion servi confirmé), du routage rétabli v0.2.50 "
+               "(sonnerie + raccroché sans crash) et du csd calculé v0.2.51 "
+               "(le décodeur du pair ne meurt plus : l'appel tient après le "
+               "décroché) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.50 puis phase 2",
+               "v0.2.44-v0.2.51 puis phase 2",
                "Correctifs livrés, validation terrain en cours"],
               ["Android uniquement", "Étude d'un client bureau (le noyau réseau "
                "et les codecs sont déjà multiplateformes par conception)",
@@ -993,6 +1000,19 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["12ᵉ édition", "25 octobre 2026", "Messagerie v0.2.51 · "
+               "Console v0.8.12 · Serveur v0.2.38",
+               "Retour terrain v0.2.50 : « ça décroche mais l'appel coupe "
+               "immédiatement » — les correctifs de la veille tenaient (sonnerie, "
+               "décroché, aucun crash fatal) mais les six appels du test "
+               "s'effondraient 300 à 700 ms après le décroché : l'appelant "
+               "annonçait au pair un « csd factice » de deux octets nuls (le csd-0 "
+               "AAC était lu dans le format du codec avant que C2 ne l'expose) et "
+               "le décodeur du pair mourait sur cette configuration invalide ; la "
+               "v0.2.51 calcule l'AudioSpecificConfig (fonction pure du format : "
+               "AAC-LC 16 kHz mono, 10 tests dédiés) et assainit le csd reçu — un "
+               "appel v0.2.51 tient même face à un pair resté en v0.2.50 ; 261 "
+               "tests JVM × 2."],
               ["11ᵉ édition", "24 octobre 2026", "Messagerie v0.2.50 · "
                "Console v0.8.12 · Serveur v0.2.38",
                "Retour terrain v0.2.49 : les appels ne sonnaient plus — chaque "
@@ -1070,8 +1090,8 @@ def build_story():
 
     para(story,
          "La qualité est suivie en continu par une batterie de tests "
-         "automatisés : 328 tests JVM exécutés sur deux variantes de build "
-         "(656 exécutions), les tests Go du serveur, et 57 tests pour la "
+         "automatisés : 261 tests JVM exécutés sur deux variantes de build "
+         "(522 exécutions), les tests Go du serveur, et 57 tests pour la "
          "console. Chaque livraison passe un audit de code strict (zéro défaut "
          "critique ou majeur toléré), et les APK sont signés avec la clé de "
          "release officielle — les sommes de contrôle SHA-256 sont publiées "
@@ -1171,7 +1191,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.50 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.51 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
