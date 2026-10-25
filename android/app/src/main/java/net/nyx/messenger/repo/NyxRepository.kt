@@ -195,32 +195,72 @@ class NyxRepository(
      * Dépôt d'un événement par le lien inversé : POST /client/event exécuté
      * SUR LE TÉLÉPHONE du pair via son canal sortant. Null = repli
      * impossible/infructueux (l'appelant retombe sur l'échec d'origine).
+     *
+     * v0.2.52 — RESYNCHRONISATION DE SÉQUENCE (terrain 25/10 05:35:02 : le
+     * dépôt atteignait le pair par le lien mais son réplica le refusait 400
+     * — le seq était en avance, les dépôts précédents étant morts avec tor ;
+     * la voie directe rejouait au seq attendu, la voie lien ABANDONNAIT et
+     * l'événement était perdu) : sur 400 porteur d'un seq attendu, on
+     * re-signe l'événement au seq attendu et on LE REJOUE par le lien —
+     * miroir exact de la resynchronisation de la voie directe.
      */
-    private suspend fun linkDepositFallback(failedAddr: String, ev: WireEvent): Result<Unit>? {
+    private suspend fun linkDepositFallback(
+        failedAddr: String, ev: WireEvent, priv: ByteArray
+    ): Result<Unit>? {
         val router = linkRouterClient(failedAddr) ?: return null
         val to = hostKeyOf(failedAddr) + ".onion"
-        val payload = kotlinx.serialization.json.Json.encodeToString(
-            WireEvent.serializer(), ev
-        )
-        val bodyB64 = java.util.Base64.getEncoder().encodeToString(
-            payload.toByteArray(Charsets.UTF_8)
-        )
-        val res = router.linkRoundTrip(to, "POST", "/client/event", bodyB64)
-        return res.fold(
-            onSuccess = { (code, respBody) ->
-                if (code == 200 || (code == 409 && respBody.contains("déjà connu"))) {
-                    net.nyx.messenger.diag.DiagLog.i(
-                        "nyx-repo",
-                        "✓ dépôt au pair ${failedAddr.take(16)}… servi par LIEN INVERSÉ " +
-                            "(onion entrant injoignable — le pair a tiré la requête par son canal sortant)"
-                    )
-                    Result.success(Unit)
-                } else {
-                    null
-                }
-            },
-            onFailure = { null }
-        )
+        var current = ev
+        for (attempt in 0 until 2) {
+            val payload = kotlinx.serialization.json.Json.encodeToString(
+                WireEvent.serializer(), current
+            )
+            val bodyB64 = java.util.Base64.getEncoder().encodeToString(
+                payload.toByteArray(Charsets.UTF_8)
+            )
+            val res = router.linkRoundTrip(to, "POST", "/client/event", bodyB64)
+            var resynced = false
+            val ok = res.fold(
+                onSuccess = { (code, respBody) ->
+                    when {
+                        code == 200 || (code == 409 && respBody.contains("déjà connu")) -> true
+                        code == 400 && attempt == 0 -> {
+                            val expected = SeqResync.expectedFrom(respBody)
+                            if (expected == null) {
+                                false
+                            } else {
+                                val retried = ev.copy(seq = expected)
+                                val canonical2 = MessageCipher.canonical(
+                                    retried.type, retried.author, retried.seq, retried.ts,
+                                    retried.ttl, retried.to ?: "", retried.body
+                                )
+                                current = retried.copy(sig = cipher.signEvent(canonical2, priv))
+                                resynced = true
+                                net.nyx.messenger.diag.DiagLog.i(
+                                    "nyx-repo",
+                                    "dépôt au pair par LIEN : seq ${ev.seq} refusé " +
+                                        "(attendu $expected) — re-signé, rejoué"
+                                )
+                                false
+                            }
+                        }
+                        else -> false
+                    }
+                },
+                onFailure = { false }
+            )
+            if (ok) {
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-repo",
+                    "✓ dépôt au pair ${failedAddr.take(16)}… servi par LIEN INVERSÉ " +
+                        "(onion entrant injoignable — le pair a tiré la requête par son canal sortant)" +
+                        if (resynced) " [après resynchronisation de séquence]" else ""
+                )
+                return Result.success(Unit)
+            }
+            if (!resynced) return null
+            // resynced : second tour avec l'événement re-signé.
+        }
+        return null
     }
 
     /* v0.2.50 — le repli « inbox par lien inversé » (v0.2.46, ADR-018) est
@@ -594,8 +634,9 @@ class NyxRepository(
         if (first.isSuccess) return first
         val msg = first.exceptionOrNull()?.message ?: return first
         if (msg.contains("HTTP 409")) return Result.success(Unit) // idempotent
-        val expected = Regex("attendu (\\d+)").find(msg)?.groupValues?.get(1)?.toLongOrNull()
-            ?: (Regex("dernière (\\d+)").find(msg)?.groupValues?.get(1)?.toLongOrNull()?.plus(1))
+        // v0.2.52 — extraction partagée avec la voie LIEN (SeqResync, testée
+        // JVM) — comportement identique à l'ancienne regex inline.
+        val expected = SeqResync.expectedFrom(msg)
         // v0.2.46 — échec RÉSEAU (pas de message applicatif : timeout/SOCKS) :
         // repli LIEN INVERSÉ si le réplica en échec est le téléphone d'un
         // pair (ADR-018) AVANT de rendre l'échec — le pair tire la requête
@@ -603,7 +644,7 @@ class NyxRepository(
         ?: run {
             val failed = failedAddr ?: activeReplica
             if (failed != null) {
-                linkDepositFallback(failed, ev)?.let { return it }
+                linkDepositFallback(failed, ev, priv)?.let { return it }
             }
             return first
         }
@@ -617,7 +658,7 @@ class NyxRepository(
         // v0.2.46 — le re-dépôt recadré échoue aussi par réseau → même repli.
         val failed = failedAddr ?: activeReplica
         if (failed != null) {
-            linkDepositFallback(failed, retried)?.let { return it }
+            linkDepositFallback(failed, retried, priv)?.let { return it }
         }
         return retry
     }

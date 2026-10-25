@@ -535,6 +535,32 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_52 = listOf(
+        Item("sonnerie-stop-decroche", "LA SONNERIE S'ARRÊTE AU DÉCROCHÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.52, cause racine du terrain 25/10 06:38 « Xiaomi continue de sonner alors que l'appel est décroché » : la sonnerie était le SON DU CANAL de notification, annulé seulement au RACCROCHÉ — 19 s de sonnerie PAR-DESSUS l'appel actif mesurées sur l'appel n°1) : appel audio → décrocher → la sonnerie S'ARRÊTE À L'INSTANT du décroché, l'audio coule proprement ; dans l'export de l'appelé : « sonnerie DÉMARRÉE (boucle possédée…) » à l'offre PUIS « sonnerie STOPPÉE » juste après « acceptation utilisateur » — et PLUS JAMAIS de sonnerie pendant la conversation"),
+        Item("visio-image", "LA VISIO PORTE UNE IMAGE — ITEM DÉCISIF n°2 (NOUVEAU v0.2.52, cause racine « l'appel visio ne fonctionne pas (audio seulement) » : « visio annoncée dans le HELLO (csd 0 o) » — le csd H.264 était lu AVANT la 1ʳᵉ trame caméra, l'encodeur à surface d'entrée n'en expose AUCUN avant : csd VIDE → l'appelé voyait vcsd vide et dégradait l'appel en audio-only) : appel visio → les DEUX écrans montrent l'image distante (aperçu local + rendu distant) ; dans l'export de l'appelant : « csd H.264 LU APRÈS LA 1ʳᵉ TRAME (N o) » (plus JAMAIS « csd 0 o ») et « visio ACTIVE », chez l'appelé « visio ACTIVE côté appelé » — si la caméra ne livre rien : « csd H.264 TOUJOURS VIDE … visio AUDIO-ONLY explicite » (repli honnête, jamais une visio morte annoncée)"),
+        Item("raccroche-libre", "RACCROCHER LIBÈRE TOUJOURS, MÊME TOR MORT — ITEM DÉCISIF n°3 (NOUVEAU v0.2.52, cause racine du 1ᵉʳ appel 25/10 « Blackview semblait bloqué, impossible d'arrêter la tentative d'appel sans tout fermer » : end() attendait le dépôt OP_BYE qui traînait 25-50 s sur le SOCKS refusé — 16 dépôts martelés en 14 s, puis fermeture forcée) : pendant un appel sortant qui sonne dans le vide, Raccrocher referme l'écran d'appel EN MOINS D'UNE SECONDE, re-taper dessus ne fait rien (garde phases vivantes) ; l'app reste utilisable et un NOUVEL appel passe dès que tor est remis (cf. tor-relance)"),
+        Item("tor-relance", "TOR RELANCÉ AUTOMATIQUEMENT APRÈS MORT DU DÉMON (NOUVEAU v0.2.52, terrain 25/10 05:34 : démon mort, ECONNREFUSED 127.0.0.1:9050 pendant 25 s+, app vivante mais sourde jusqu'à « tout fermer ») : si le démon meurt, l'export montre « démon tor MORT (code X, vécu N s) — RELANCE AUTOMATIQUE n/3 » puis l'onion se RE-PUBLIE dans la foulée ; les arrêts volontaires (Quitter complètement, écran Connexions) ne déclenchent AUCUNE relance"),
+        Item("build-propre", "BUILD PROPRE PREUVE PAR MARQUEUR : l'export de CHAQUE téléphone contient « câblage v0.2.52 vérifié : sonnerie possédée (boucle stoppée au décroché, canal silencieux), csd H.264 lu après la 1ʳᵉ trame caméra » (chaîne complète du marqueur — cf. notes de release)"),
+        Item("appel-tient", "L'APPEL TIENT APRÈS LE DÉCROCHÉ (v0.2.51, continue) : décrocher → l'appel RESTE ACTIF, l'audio coule dans les DEUX SENS, « csd-0 AAC CALCULÉ (1408) », AUCUN « work failed to complete: 14 »"),
+        Item("lien-resync", "DÉPÔT AU PAIR PAR LIEN RESYNCHRONISÉ (NOUVEAU v0.2.52, terrain 05:35:02 « POST /client/event → 400 servi LOCALEMENT » : le repli lien abandonnait sur un refus de séquence, l'événement était PERDU) : si l'export montre « dépôt au pair par LIEN : seq N refusé (attendu M) — re-signé, rejoué » puis « ✓ dépôt au pair … [après resynchronisation de séquence] », l'offre/BYE est bien arrivé"),
+        Item("csd-calcule", "CSD-0 CALCULÉ VISIBLE (v0.2.51, continue) : « csd-0 AAC CALCULÉ (1408) » juste après la mise en marche de l'encodeur"),
+        Item("sonnerie-retablie", "LA SONNERIE SONNE (v0.2.50, continue) : « appel entrant de <pair>… (cid …) » chez l'appelé + « sonnerie DÉMARRÉE »"),
+        Item("onion-confirme", "ONION VRAIMENT SERVI APRÈS CHAQUE DÉMARRAGE (v0.2.49, reporté) : « onion CONFIRMÉ servi par les HSDirs » ≤ ~3 min après « onion publié »"),
+        Item("appel-authentifie", "APPEL AUTHENTIFIÉ CHEZ L'APPELÉ (v0.2.48, reporté) : « appel entrant authentifié de <pair>… (cid …) »"),
+        Item("media-45s", "MÉDIA DIRECT ÉTABLI (v0.2.48, reporté) : « média essai 1 (45 s) → <pair>…:47471 » puis l'audio coule en direct"),
+        Item("micro-permission", "MICRO DEMANDÉ ET OUVERT (v0.2.48, reporté) : le premier clic Appeler/Décrocher affiche la demande système → ACCORDEZ-LA"),
+        Item("visio-camera", "VISIO SANS « no looper » (v0.2.48, reporté) : « caméra active (visio en émission) »"),
+        Item("poll-local", "POLL PROPRE + FLOTTE SANS JOURNAL DE PAIR (v0.2.50, continue) : plus aucun « réplica <pair>… en échec (poll inbox…) » quand le pair s'éteint"),
+        Item("raccroche-sans-crash", "RACCROCHER NE TUE PLUS L'APP (v0.2.50, continue) : aucun « FATAL EXCEPTION » dans l'export"),
+        Item("bind-ipv4-preuve", "BIND IPv4 (v0.2.47, ACQUIS — continue) : « réplica temporaire prêt (local 127.0.0.1:PORT) » + « écouteur direct prêt (local 127.0.0.1:PORT) »"),
+        Item("serveur-detach", "SERVEUR DÉPLOYÉ SANS FENÊTRE ORPHELINE (v0.2.37+, continue) : nœud 0.2.38 confirmé terrain"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
     val ITEMS_V0_2_51 = listOf(
         Item("appel-tient", "L'APPEL TIENT APRÈS LE DÉCROCHÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.51, cause racine du terrain 25/10 04:58 « ça décroche mais l'appel coupe immédiatement » : 3 appels × 2 téléphones, 6/6 effondrés à 300-700 ms du « actif ») : appel entre les 2 téléphones v0.2.51 → décrocher → l'appel RESTE ACTIF et l'AUDIO COULE dans les DEUX SENS ; dans l'export de chaque téléphone : « appel actif » SANS effondrement qui suit, l'AudioTrack livre des frames (plus « 0 frames delivered »), et AUCUN « work failed to complete: 14 » ni « Invalid to call at Released state » (la signature de l'effondrement). RAPPEL DE LA PANNE : le csd-0 AAC annoncé au pair était un « csd factice » {0,0} — la lecture d'outputFormat juste après start() rend null sur les codecs C2 (Android 12+) — et ce csd invalide TUAIT le décodeur du pair au démarrage ; sa 1ʳᵉ trame F_AUDIO levait IllegalStateException → l'appel s'effondrait sans que l'app meure (aucun FATAL : le raccroché v0.2.50 tient)"),
         Item("csd-calcule", "CSD-0 CALCULÉ VISIBLE (NOUVEAU v0.2.51) : dans l'export, juste après la mise en marche de l'encodeur : « csd-0 AAC CALCULÉ (1408) — le codec ne l'expose pas encore au démarrage (C2 : null) : plus de csd factice qui tue le décodeur du pair » (l'AudioSpecificConfig est désormais une fonction pure du format — LC/16 kHz/mono — plus aucune course au format du codec)"),
@@ -586,7 +612,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_51
+    fun items(): List<Item> = ITEMS_V0_2_52
 
 
     /**

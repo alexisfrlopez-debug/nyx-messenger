@@ -135,6 +135,10 @@ class NyxTorService : Service() {
                 .redirectErrorStream(true)
                 .start()
             RUNNING_PROCESS.set(process)
+            // v0.2.52 — lancement DÉLIBÉRÉ : les relances auto redeviennent
+            // possibles et ce démon repart à zéro côté compteur de santé.
+            deliberateStop = false
+            daemonStartedAtMs = System.currentTimeMillis()
             TorManager.get(this).reportStarted(config)
 
             // Draine la sortie du process (sinon le pipe se remplit et tor se bloque).
@@ -159,13 +163,40 @@ class NyxTorService : Service() {
                 start()
             }
 
-            // Surveillance de l'arrêt du process (crash tor) → état Failed.
+            // v0.2.52 — Surveillance de l'arrêt du process : MORT ANORMALE →
+            // RELANCE AUTOMATIQUE BORNÉE (terrain 25/10 : le démon mourait et
+            // l'app restait sourde — dépôts en ECONNREFUSED sur 127.0.0.1:9050,
+            // appel impossible à arrêter, « tout fermer » requis). Les arrêts
+            // DÉLIBÉRÉS (stop/stopNow/onDestroy) posent [deliberateStop] AVANT
+            // le kill : le watcher CAS-RATE alors (RUNNING_PROCESS déjà null)
+            // ou voit le drapeau — jamais de relance parasite.
             scope.launch {
                 val code = process.waitFor()
                 if (RUNNING_PROCESS.compareAndSet(process, null)) {
-                    TorManager.get(this@NyxTorService)
-                        .reportFailure("démon tor terminé (code $code) — voir tor.log")
-                    stopSelf()
+                    val livedMs = System.currentTimeMillis() - daemonStartedAtMs
+                    if (livedMs > HEALTHY_DAEMON_MS) autoRestartCount.set(0)
+                    val n = autoRestartCount.incrementAndGet()
+                    if (!deliberateStop && n <= MAX_AUTO_RESTARTS) {
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-tor",
+                            "démon tor MORT (code $code, vécu ${livedMs / 1000} s) — " +
+                                "RELANCE AUTOMATIQUE $n/$MAX_AUTO_RESTARTS (bootstrap en cours)"
+                        )
+                        kotlinx.coroutines.delay(3_000)
+                        runCatching {
+                            androidx.core.content.ContextCompat.startForegroundService(
+                                applicationContext,
+                                Intent(applicationContext, NyxTorService::class.java)
+                            )
+                        }
+                        // PAS de stopSelf : le onStartCommand qui suit relance un
+                        // démon frais (RUNNING_PROCESS == null → chemin complet :
+                        // killLeftoverTor + hygiène du DataDirectory + torrc neuf).
+                    } else {
+                        TorManager.get(this@NyxTorService)
+                            .reportFailure("démon tor terminé (code $code) — voir tor.log")
+                        stopSelf()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -179,6 +210,9 @@ class NyxTorService : Service() {
 
     override fun onDestroy() {
         foregroundActive.set(false)
+        // v0.2.52 — destruction VOLONTAIRE du service : le démon va être tué,
+        // aucune relance automatique ne doit suivre.
+        deliberateStop = true
         RUNNING_PROCESS.getAndSet(null)?.let { killBounded(it) }
         scope.cancel()
         TorManager.get(this).reportStopped()
@@ -343,6 +377,22 @@ class NyxTorService : Service() {
 
         private val RUNNING_PROCESS = AtomicReference<Process?>(null)
 
+        /** v0.2.52 — RELANCE AUTO du démon mort anormalement (bornée).
+         *  Terrain 25/10 05:34 : le démon est mort (ECONNREFUSED 9050) et
+         *  RIEN ne le relançait — l'app restait vivante mais sourde à tout
+         *  dépôt jusqu'au redémarrage manuel (« impossible d'arrêter
+         *  l'appel »). Compteur remis à zéro quand le démon défunt a vécu
+         *  > 5 min (mort d'un démon sain ≠ boucle de crash). */
+        private val autoRestartCount = java.util.concurrent.atomic.AtomicInteger(0)
+        private const val MAX_AUTO_RESTARTS = 3
+        private const val HEALTHY_DAEMON_MS = 5 * 60_000L
+
+        /** true dès qu'un arrêt VOLONTAIRE commence (kill avant le watcher). */
+        @Volatile private var deliberateStop = false
+
+        /** Instant de démarrage du démon courant (santé = vécu). */
+        @Volatile private var daemonStartedAtMs = 0L
+
         /**
          * v0.2.8 — true tant que la notification de premier plan est affichée.
          * startForeground peut être REFUSÉ (quota FGS épuisé, cf. onStartCommand) :
@@ -369,6 +419,9 @@ class NyxTorService : Service() {
          * « usually controlled by another process ».
          */
         fun stopDaemonSync() {
+            // v0.2.52 — arrêt DÉLIBÉRÉ : drapeau posé AVANT le kill pour que
+            // le watcher de mort ne déclenche PAS de relance automatique.
+            deliberateStop = true
             RUNNING_PROCESS.getAndSet(null)?.let { p ->
                 p.destroy()
                 try {

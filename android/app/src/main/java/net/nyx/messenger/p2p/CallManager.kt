@@ -399,6 +399,12 @@ object CallManager {
                 _ui.value = CallUi(Phase.INCOMING, author, label, signal.cid,
                     message = "appel entrant…", phaseChangedAt = nowMs())
                 net.nyx.messenger.notify.ContactNotifier.incomingCall(author, label)
+                // v0.2.52 — SONNERIE POSSÉDÉE (boucle MediaPlayer) : terrain
+                // 25/10 « Xiaomi continue de sonner alors que l'appel est
+                // décroché » — le son de CANAL jouait pendant tout l'appel
+                // (annulation seulement à end()). Elle est stoppée au
+                // décroché [acceptIncoming], au refus et à toute fin.
+                net.nyx.messenger.notify.CallRinger.start()
                 // v0.2.44 — REPLI RELAIS : l'appelant a annoncé un réplica
                 // relais dans l'offre → s'y brancher dès maintenant (la
                 // moitié patiente côté réplica jusqu'à l'appariement). Si le
@@ -516,6 +522,11 @@ object CallManager {
             "acceptation utilisateur (cid ${state.cid.take(8)}… — média " +
                 "${if (conn != null) "déjà connecté" else "pas encore arrivé"})"
         )
+        // v0.2.52 — LA SONNERIE S'ARRÊTE ICI : terrain 25/10, la sonnerie
+        // du Xiaomi continuait pendant TOUT l'appel (19 s mesurées) car la
+        // notification (au son de canal) n'était annulée qu'à end().
+        net.nyx.messenger.notify.CallRinger.stop()
+        net.nyx.messenger.notify.ContactNotifier.cancelCall(state.peer)
         _ui.value = state.copy(phase = Phase.WAIT, message = "connexion…", phaseChangedAt = nowMs())
         // Si la connexion P2P est déjà là (HELLO reçu avant l'appui) —
         // [onIncomingConnection] l'a gardée en attente : finalise maintenant.
@@ -561,12 +572,18 @@ object CallManager {
         val rejConn = conn
         pendingOffer = null
         acceptedCid = null
+        // v0.2.52 — LA FIN EST IMMÉDIATE : terrain 25/10 05:34-05:35, avec
+        // tor mort le dépôt OP_REJECT traînait 25-50 s (SOCKS refusé,
+        // connectTimeout 25 s) et FIGEAIT le refus « sur place ». Désormais :
+        // rejet socket 1 octet (tampon TCP local, instantané) → end() → le
+        // rejet journal part best-effort APRÈS (le pair a sinon ses propres
+        // watchdogs — il n'attend que la lecture de sa socket).
         scope.launch {
             runCatching { rejConn?.send(P2pProtocol.F_CALL_REJECT) }
+            end("refusé")
             runCatching {
                 r?.sendCallSignal(state.peer, CallSignal(CallSignal.OP_REJECT, state.cid, "", nowS()).encode())
             }
-            end("refusé")
         }
     }
 
@@ -747,15 +764,26 @@ object CallManager {
      *  — aucun appel tactile ne peut donc plus tuer l'app. */
     fun hangup(reason: String = "terminé") {
         val state = _ui.value
-        if (state.phase == Phase.IDLE) return
+        // v0.2.52 — GARDE PHASES VIVANTES : terrain 25/10, l'écran ENDED
+        // martelé (16 dépôts OP_BYE d'affilée en 14 s, connectTimeout 25 s
+        // chacun via le SOCKS mort) spammait des coroutines de dépôt. Les
+        // taps sur un appel déjà terminé ne font PLUS rien.
+        if (state.phase != Phase.OUTGOING && state.phase != Phase.INCOMING &&
+            state.phase != Phase.WAIT && state.phase != Phase.ACTIVE
+        ) return
         val r = repo
         val byeConn = conn
+        // v0.2.52 — LA FIN EST IMMÉDIATE (le dépôt journal ne la retient
+        // plus EN OTAGE) : BYE socket 1 octet (tampon TCP local — instantané,
+        // même socket mourante) → end() → BYE journal best-effort ensuite.
+        // Terrain 25/10 : « impossible d'arrêter la tentative d'appel sans
+        // tout fermer » — end() attendait le dépôt sur le SOCKS refusé.
         scope.launch {
             runCatching { byeConn?.send(P2pProtocol.F_BYE) }
+            end(reason)
             runCatching {
                 r?.sendCallSignal(state.peer, CallSignal(CallSignal.OP_BYE, state.cid, "", nowS()).encode())
             }
-            end(reason)
         }
     }
 
@@ -780,6 +808,7 @@ object CallManager {
             relaySockets.clear()
         }
         val peer = _ui.value.peer
+        net.nyx.messenger.notify.CallRinger.stop()
         net.nyx.messenger.notify.ContactNotifier.cancelCall(peer)
         val wasActive = _ui.value.phase == Phase.ACTIVE
         _ui.value = _ui.value.copy(phase = Phase.ENDED, message = reason, muted = false, speaker = false,

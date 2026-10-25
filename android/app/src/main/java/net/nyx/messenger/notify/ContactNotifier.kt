@@ -36,10 +36,18 @@ import net.nyx.messenger.R
 object ContactNotifier {
 
     const val CHANNEL_CONTACTS = "nyx_contacts"
-    /** v0.2.20 — canal APPELS : importance haute + sonnerie + vibration (le
-     *  canal contacts par défaut ne sonnait PAS — retour terrain : « reçoit
-     *  une notification mais ne sonne pas »). */
-    const val CHANNEL_CALLS = "nyx_calls"
+
+    /** v0.2.52 — canal APPELS v2 SANS SON : la sonnerie est possédée par
+     *  [CallRinger] (boucle MediaPlayer, stop déterministe au décroché).
+     *  Terrain 25/10 : le SON DE CANAL de l'ancien « nyx_calls » jouait
+     *  PENDANT TOUT L'APPEL (annulation seulement à end(), jamais au
+     *  décroché — 19 s mesurées) et MIUI peut le boucler tant que la
+     *  notification vit ; aucun code ne peut arrêter un son de canal.
+     *  Le canal garde heads-up + vibration : le signal VISUEL reste. */
+    const val CHANNEL_CALLS = "nyx_calls_v2"
+
+    /** Ancien canal au son incontrôlable — supprimé à l'init (immuable). */
+    private const val CHANNEL_CALLS_LEGACY = "nyx_calls"
     const val ACTION_ACCEPT = "net.nyx.messenger.notify.ACCEPT"
     const val ACTION_DECLINE = "net.nyx.messenger.notify.DECLINE"
     const val EXTRA_ONION = "onion"
@@ -55,20 +63,20 @@ object ContactNotifier {
                 NotificationManager.IMPORTANCE_DEFAULT
             )
         )
-        // v0.2.20 — canal d'appel entrant : SONNERIE + vibration (comme un
-        // appel système ; l'utilisateur peut le désactiver par canal).
+        // v0.2.52 — canal d'appel entrant v2 SILENCIEUX (heads-up + vibration) :
+        // la SONNERIE est jouée par [CallRinger] (boucle possédée, stop au
+        // décroché — terrain 25/10 : le son de canal continuait pendant
+        // l'appel entier). L'ancien canal « nyx_calls » au son immuable est
+        // SUPPRIMÉ (sinon il resterait configurable et sonnerait encore).
+        runCatching {
+            mgr.deleteNotificationChannel(CHANNEL_CALLS_LEGACY)
+        }
         val calls = NotificationChannel(
             CHANNEL_CALLS,
             context.getString(R.string.notif_channel_calls),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            val ringtone = android.media.RingtoneManager
-                .getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
-            val attrs = android.media.AudioAttributes.Builder()
-                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            setSound(ringtone, attrs)
+            setSound(null, null)
             enableVibration(true)
             setBypassDnd(false)
         }

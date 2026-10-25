@@ -82,14 +82,37 @@ class CallVideo(
             return null
         }
         return try {
-            val (csd, surface, size) = createEncoder()
-            encSurface = surface
+            // v0.2.52 — L'ORDRE EST INVERSÉ : la caméra démarre AVANT la lecture
+            // du csd. Terrain 25/10 : « visio annoncée dans le HELLO (csd 0 o) » —
+            // l'encodeur à surface d'entrée n'expose le csd (outputFormat ou
+            // buffer CODEC_CONFIG) qu'APRÈS la première trame caméra ; le lire
+            // AVANT rendait un csd VIDE et l'appelé dégradait l'appel en
+            // audio-only (même classe de bug que le csd-0 AAC v0.2.51).
+            val enc = createEncoder()
+            encSurface = enc.surface
             android.util.Log.i(
                 "nyx-video",
-                "encodeur H.264 prêt (${size.first}x${size.second}) — ouverture caméra"
+                "encodeur H.264 démarré (${enc.w}x${enc.h}) — ouverture caméra puis lecture du csd"
             )
-            openCamera(surface)
-            csd
+            openCamera(enc.surface)
+            val csd = awaitRealCsd(enc.codec)
+            if (!VideoCsd.looksValid(csd)) {
+                android.util.Log.w(
+                    "nyx-video",
+                    "csd H.264 TOUJOURS VIDE après ${CSD_WAIT_MS / 1000} s " +
+                        "(caméra sans trame ?) — visio AUDIO-ONLY explicite"
+                )
+                stopCamera()
+                stopEncoder(enc.codec)
+                null
+            } else {
+                android.util.Log.i(
+                    "nyx-video",
+                    "csd H.264 LU APRÈS LA 1ʳᵉ TRAME (${csd.size} o) — encodeur prêt, caméra active"
+                )
+                startEncDrain(enc.codec)
+                csd
+            }
         } catch (e: Exception) {
             android.util.Log.w("nyx-video", "caméra indisponible — visio audio-only : ${e.message}")
             stopCamera()
@@ -97,8 +120,49 @@ class CallVideo(
         }
     }
 
-    /** CsD (SPS+PPS) + surface d'entrée + taille effective de l'encodeur. */
-    private fun createEncoder(): Triple<ByteArray, Surface, Pair<Int, Int>> {
+    /**
+     * v0.2.52 — Attente BORNÉE du VRAI csd : INFO_OUTPUT_FORMAT_CHANGED avec
+     * csd-0/csd-1 non vides, OU premier buffer CODEC_CONFIG (certains
+     * encodeurs ne passent que par là). Les trames ordinaires rencontrées en
+     * chemin sont relâchées. Vide = timeout (≈ caméra muette).
+     */
+    private fun awaitRealCsd(enc: MediaCodec): ByteArray {
+        val info = MediaCodec.BufferInfo()
+        val deadline = System.currentTimeMillis() + CSD_WAIT_MS
+        while (System.currentTimeMillis() < deadline && !stopped) {
+            val outIdx = enc.dequeueOutputBuffer(info, 50_000)
+            if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                val of = enc.outputFormat
+                val csd = VideoCsd.fromFormat(
+                    of.getByteBuffer("csd-0")?.let { b -> ByteArray(b.remaining()).also { b.get(it) } },
+                    of.getByteBuffer("csd-1")?.let { b -> ByteArray(b.remaining()).also { b.get(it) } }
+                )
+                if (VideoCsd.looksValid(csd)) return csd
+                // format exposé SANS csd (C2 précoce) : la suite viendra par
+                // le buffer CODEC_CONFIG — on continue d'attendre.
+            } else if (outIdx >= 0) {
+                val ob = enc.getOutputBuffer(outIdx)
+                if (ob != null && VideoCsd.isCodecConfig(info.flags) && info.size > 0) {
+                    val csd = ByteArray(info.size).also { ob.position(info.offset); ob.get(it) }
+                    enc.releaseOutputBuffer(outIdx, false)
+                    if (VideoCsd.looksValid(csd)) return csd
+                } else {
+                    enc.releaseOutputBuffer(outIdx, false)
+                }
+            }
+        }
+        return ByteArray(0)
+    }
+
+    private fun stopEncoder(enc: MediaCodec) {
+        runCatching { enc.stop() }
+        runCatching { enc.release() }
+    }
+
+    /** Encodeur configuré : codec + surface d'entrée + taille effective. */
+    private class EncReady(val codec: MediaCodec, val surface: Surface, val w: Int, val h: Int)
+
+    private fun createEncoder(): EncReady {
         val (w, h) = pickCaptureSize()
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
             setInteger(
@@ -115,22 +179,17 @@ class CallVideo(
         val surface = enc.createInputSurface()
         enc.start()
         encoder = enc
-        var csd = ByteArray(0)
-        val info = MediaCodec.BufferInfo()
-        // Le csd sort sur INFO_OUTPUT_FORMAT_CHANGED (avant toute trame).
-        for (i in 0 until 100) {
-            val outIdx = enc.dequeueOutputBuffer(info, 10_000)
-            if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                val of = enc.outputFormat
-                val sps = of.getByteBuffer("csd-0")?.let { b -> ByteArray(b.remaining()).also { b.get(it) } }
-                val pps = of.getByteBuffer("csd-1")?.let { b -> ByteArray(b.remaining()).also { b.get(it) } }
-                csd = (sps ?: ByteArray(0)) + (pps ?: ByteArray(0))
-                break
-            } else if (outIdx >= 0) {
-                enc.releaseOutputBuffer(outIdx, false)
-            }
-        }
-        // Thread de drain : chaque access unit codée part en F_VIDEO.
+        // v0.2.52 — NI attente de csd NI drain ici : l'encodeur à surface
+        // d'entrée ne produira rien avant la première trame caméra (le csd
+        // est lu par [awaitRealCsd] APRÈS openCamera, le drain par
+        // [startEncDrain] une fois le csd acquis).
+        return EncReady(enc, surface, w, h)
+    }
+
+    /** Thread de drain (démarré quand le csd est acquis) : chaque access
+     *  unit codée part en F_VIDEO — les buffers CODEC_CONFIG ne partent
+     *  JAMAIS en trame (le csd voyage déjà dans HELLO/F_CALL_ACCEPT). */
+    private fun startEncDrain(enc: MediaCodec) {
         val t = Thread({
             val bufInfo = MediaCodec.BufferInfo()
             try {
@@ -138,7 +197,9 @@ class CallVideo(
                     val outIdx = enc.dequeueOutputBuffer(bufInfo, 100_000)
                     if (outIdx >= 0 && bufInfo.size > 0) {
                         val ob = enc.getOutputBuffer(outIdx)
-                        if (ob != null && transmit && !stopped) {
+                        if (ob != null && transmit && !stopped &&
+                            !VideoCsd.isCodecConfig(bufInfo.flags)
+                        ) {
                             val payload = ByteArray(bufInfo.size)
                                 .also { ob.position(bufInfo.offset); ob.get(it) }
                             write(P2pProtocol.F_VIDEO, payload)
@@ -153,7 +214,6 @@ class CallVideo(
         t.isDaemon = true
         t.start()
         threads.add(t)
-        return Triple(csd, surface, w to h)
     }
 
     /** Taille caméra/encodeur : la plus petite supportée ≥ 320×240 (bord 640). */
@@ -358,5 +418,8 @@ class CallVideo(
         const val BIT_RATE = 150_000
         const val FRAME_RATE = 15
         const val I_INTERVAL_S = 2
+
+        /** v0.2.52 — attente max du csd réel (caméra → 1ʳᵉ trame → format). */
+        const val CSD_WAIT_MS = 6_000
     }
 }
