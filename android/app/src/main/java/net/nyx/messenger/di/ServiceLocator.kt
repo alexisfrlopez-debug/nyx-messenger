@@ -233,7 +233,7 @@ object ServiceLocator {
                 // la montre à chaque démarrage.
                 net.nyx.messenger.diag.DiagLog.i(
                     "nyx-boot",
-                    "câblage v0.2.50 vérifié : offre sur la boîte du pair puis flotte, poll réplica propre + flotte, raccroché et refus hors thread UI, tirage NYX-LINK flotte seule, verrou média ACCEPTED||PENDING"
+                    "câblage v0.2.51 vérifié : csd-0 AAC calculé (plus de csd factice qui tue le décodeur du pair), offre sur la boîte du pair puis flotte, poll réplica propre + flotte, raccroché et refus hors thread UI, tirage NYX-LINK flotte seule, verrou média ACCEPTED||PENDING"
                 )
                 net.nyx.messenger.net.LinkChannel.socksProvider = {
                     // -1 tant que Tor n'est pas prêt (le canal dort, pas de

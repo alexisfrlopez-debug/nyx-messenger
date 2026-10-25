@@ -535,6 +535,33 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_51 = listOf(
+        Item("appel-tient", "L'APPEL TIENT APRÈS LE DÉCROCHÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.51, cause racine du terrain 25/10 04:58 « ça décroche mais l'appel coupe immédiatement » : 3 appels × 2 téléphones, 6/6 effondrés à 300-700 ms du « actif ») : appel entre les 2 téléphones v0.2.51 → décrocher → l'appel RESTE ACTIF et l'AUDIO COULE dans les DEUX SENS ; dans l'export de chaque téléphone : « appel actif » SANS effondrement qui suit, l'AudioTrack livre des frames (plus « 0 frames delivered »), et AUCUN « work failed to complete: 14 » ni « Invalid to call at Released state » (la signature de l'effondrement). RAPPEL DE LA PANNE : le csd-0 AAC annoncé au pair était un « csd factice » {0,0} — la lecture d'outputFormat juste après start() rend null sur les codecs C2 (Android 12+) — et ce csd invalide TUAIT le décodeur du pair au démarrage ; sa 1ʳᵉ trame F_AUDIO levait IllegalStateException → l'appel s'effondrait sans que l'app meure (aucun FATAL : le raccroché v0.2.50 tient)"),
+        Item("csd-calcule", "CSD-0 CALCULÉ VISIBLE (NOUVEAU v0.2.51) : dans l'export, juste après la mise en marche de l'encodeur : « csd-0 AAC CALCULÉ (1408) — le codec ne l'expose pas encore au démarrage (C2 : null) : plus de csd factice qui tue le décodeur du pair » (l'AudioSpecificConfig est désormais une fonction pure du format — LC/16 kHz/mono — plus aucune course au format du codec)"),
+        Item("csd-pair-assaini", "INTEROP v0.2.51 ↔ v0.2.50 (NOUVEAU v0.2.51) : si UN des téléphones reste en v0.2.50, l'appel TIENT quand même — l'export du v0.2.51 montre « csd-0 pair INVALIDE (2 o) — remplacé par le calcul local (1408) : pair v0.2.50 ? décodeur sauvé, appel maintenu » (la config audio étant FIXE des deux côtés, le csd local calculé est toujours le bon)"),
+        Item("build-propre", "BUILD PROPRE PREUVE PAR MARQUEUR — ITEM DÉCISIF n°2 : l'export de CHAQUE téléphone contient « câblage v0.2.51 vérifié : csd-0 AAC calculé (plus de csd factice qui tue le décodeur du pair), offre sur la boîte du pair puis flotte, poll réplica propre + flotte, raccroché et refus hors thread UI, tirage NYX-LINK flotte seule, verrou média ACCEPTED||PENDING »"),
+        Item("sonnerie-retablie", "LA SONNERIE SONNE (v0.2.50, continue) : « appel entrant de <pair>… (cid …) » chez l'appelé ; « offre reçue — connexion média déjà là, adoptée » = décrochage instantané"),
+        Item("raccroche-sans-crash", "RACCROCHER NE TUE PLUS L'APP (v0.2.50, continue) : Raccrocher/Refuser pendant sonnerie ou appel actif → retour propre à la conversation, AUCUN « FATAL EXCEPTION » dans l'export"),
+        Item("onion-confirme", "ONION VRAIMENT SERVI APRÈS CHAQUE DÉMARRAGE (v0.2.49, reporté) : « onion CONFIRMÉ servi par les HSDirs » ≤ ~3 min après « onion publié » (ou « JAMAIS SERVI → RELANCE DU SERVICE » puis CONFIRMÉ)"),
+        Item("appel-authentifie", "APPEL AUTHENTIFIÉ CHEZ L'APPELÉ (v0.2.48, reporté) : « appel entrant authentifié de <pair>… (cid …) » — le HELLO call accepté, la cause de tout refus journalisée"),
+        Item("media-45s", "MÉDIA DIRECT ÉTABLI (v0.2.48, reporté) : « média essai 1 (45 s) → <pair>…:47471 » puis l'audio COULE EN DIRECT"),
+        Item("micro-permission", "MICRO DEMANDÉ ET OUVERT (v0.2.48, reporté) : le premier clic Appeler/Décrocher affiche la demande système → ACCORDEZ-LA ; les deux sens s'entendent"),
+        Item("visio-camera", "VISIO SANS « no looper » (v0.2.48, reporté) : appel visio → « caméra active (visio en émission) » + « visio annoncée dans le HELLO »"),
+        Item("poll-local", "POLL PROPRE + FLOTTE SANS JOURNAL DE PAIR (v0.2.50, continue) : plus aucun « réplica <pair>… en échec (poll inbox…) » quand le pair s'éteint"),
+        Item("depot-direct-pair", "DÉPÔT DIRECT AU PAIR PLUS JAMAIS REFUSÉ (v0.2.48, reporté) : « dépôt direct événements : 1/1 ingérés par le pair »"),
+        Item("hsfetch-port", "HSFETCH DE GUÉRISON OPÉRATIONNEL (v0.2.48, reporté) : plus JAMAIS « HSFETCH … échoué : adresse onion invalide (65 ≠ 56) »"),
+        Item("tirage-flotte", "TIRAGE NYX-LINK SANS 404 NI VERS-LE-PAIR (v0.2.48, reporté) : le canal tire UNIQUEMENT vers un réplica de flotte"),
+        Item("sonde-muette", "SONDES SANS BRUIT (v0.2.48, reporté) : « connexion muette fermée (sonde de joignabilité…) » en INFO"),
+        Item("bind-ipv4-preuve", "BIND IPv4 (v0.2.47, ACQUIS — continue) : « réplica temporaire prêt (local 127.0.0.1:PORT) » + « écouteur direct prêt (local 127.0.0.1:PORT) » + AUCUN MORT en boucle"),
+        Item("serveur-detach", "SERVEUR DÉPLOYÉ SANS FENÊTRE ORPHELINE (v0.2.37+, continue) : nœud 0.2.38 confirmé terrain 24/10 06:42"),
+        Item("replica-flotte-joignable", "SANITY : messages + sonnerie d'appel passent par le réplica de flotte (offre ≤ 15 s), carte réplica ONLINE en console"),
+        Item("conflux-zero", "TOR SANS CONFLUX (validation continue) : AUCUN « path restriction type 2 » dans le tor.log au bootstrap"),
+        Item("maj-auto-test", "MAJ AUTO CANAL TEST (validation continue) : à la publication de CETTE release, la version TEST précédente la détecte en ≤ 30 min, l'INSTALLATION aboutit"),
+        Item("logs-arrivent", "Bouton rouge (build test, carte dépliée) : l'export de logs ARRIVE dans le dossier Drive — l'état reste visible MÊME CARTE REPLIÉE (validation continue)"),
+        Item("clavier", "Clavier ouvert (ajout contact, chat, réglages, verrou) : le bas de la page reste visible (validation continue)"),
+        Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
+    )
+
     val ITEMS_V0_2_50 = listOf(
         Item("sonnerie-retablie", "LA SONNERIE SONNE DE NOUVEAU — ITEM DÉCISIF n°1 (NOUVEAU v0.2.50, cause racine du terrain 24/10 11:47 « appels ne sonnent plus ») : appel entre les 2 téléphones v0.2.50 → l'appelé SONNE (notification + overlay entrant) et son export montre « appel entrant de <pair>… (cid …) » ; le partage de preuve : chez l'APPELANT « signalisation d'appel → boîte du pair <addr>… » ou « → flotte <addr>… », chez l'APPELÉ « ← inbox PROPRE n évts » juste avant la sonnerie. RAPPEL DE LA PANNE : chaque téléphone POLLAIT le réplica embarqué DE L'AUTRE (fusion « découverts d'abord ») — l'offre dormait dans le journal local de l'appelé pendant qu'il interrogeait celui de l'appelant : 3 appels, 0 sonnerie"),
         Item("raccroche-sans-crash", "RACCROCHER NE TUE PLUS L'APP — ITEM DÉCISIF n°2 (NOUVEAU v0.2.50) : pendant une sonnerie sortante (ou un appel actif), taper Raccrocher (et Refuser sur un entrant) → l'app RESTE VIVANTE (retour propre à la conversation) ; l'export NE CONTIENT AUCUN « FATAL EXCEPTION : NetworkOnMainThreadException » (terrain 24/10 : DEUX crashes en 80 s — conn.send sur le thread UI à chaque abandon d'appel, l'app emportait tor + réplica et le pair voyait son poll expirer 29 s)"),
@@ -559,7 +586,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_50
+    fun items(): List<Item> = ITEMS_V0_2_51
 
 
     /**

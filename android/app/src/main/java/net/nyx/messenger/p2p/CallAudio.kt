@@ -72,7 +72,11 @@ class CallAudio(
                     "SEULE (le pair est audible, vous n'êtes pas entendu) ; accordez le " +
                     "microphone (Paramètres → Applications → Nyx → Microphone) et rappelez"
             )
-            return ByteArray(2)   // csd factice : le pair décode du silence
+            // v0.2.51 — le « csd factice » {0,0} TUAIT le décodeur du pair
+            // (profile 0 indécodable — terrain 25/10 : 6/6 appels coupés
+            // 300-700 ms après « actif »). Sans émission le pair ne reçoit
+            // AUCUNE trame : il décode du VRAI silence avec le csd CALCULÉ.
+            return AacCsd.aacLc(SAMPLE_RATE, 1)
         }
         val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, 1).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
@@ -83,9 +87,32 @@ class CallAudio(
         enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         enc.start()
         encoder = enc
-        val csd = enc.outputFormat.getByteBuffer("csd-0")?.let { bb ->
+        // v0.2.51 — CSD-0 DÉTERMINISTE (terrain 25/10 04:58 : « ça décroche
+        // mais l'appel coupe immédiatement », 6/6) : les codecs C2
+        // (Android 12+ — téléphones du terrain en 15/16) n'exposent le
+        // csd-0 dans outputFormat qu'après le PREMIER travail ; lu
+        // immédiatement il rendait null (preuve log : « start:
+        // outputFormat: AMessage » VIDE) → repli « csd factice » {0,0} →
+        // le DÉCODEUR DU PAIR mourrait au démarrage (« The csd Sample
+        // queue » → « work failed to complete: 14 » → UNINITIALIZED) → sa
+        // 1ʳᵉ trame F_AUDIO levait IllegalStateException → onFatal →
+        // appel effondré, « 0 frames delivered ». L'AudioSpecificConfig
+        // est une fonction PURE du format configuré : on la CALCULE — la
+        // lecture du codec n'est plus qu'un témoin de traçabilité.
+        val exposed = enc.outputFormat.getByteBuffer("csd-0")?.let { bb ->
             val b = ByteArray(bb.remaining()); bb.get(b); b
-        } ?: ByteArray(2)
+        }
+        val csd = if (exposed != null && !AacCsd.looksBroken(exposed)) exposed
+        else AacCsd.aacLc(SAMPLE_RATE, 1).also {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-call",
+                "csd-0 AAC CALCULÉ (" + it.joinToString("") { b ->
+                    "%02x".format(b.toInt() and 0xFF) } + ") — le codec ne " +
+                    "l'expose pas encore au démarrage (C2 : " +
+                    (if (exposed == null) "null" else "invalide") + ") : " +
+                    "plus de csd factice qui tue le décodeur du pair"
+            )
+        }
 
         val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = AudioRecord(
@@ -103,7 +130,7 @@ class CallAudio(
                 "micro INUTILISABLE : AudioRecord non initialisé (state=${rec.state}) — " +
                     "micro occupé par une autre application, ou permission — appel en réception seule"
             )
-            return ByteArray(2)   // csd factice — réception seule, pas de onFatal
+            return AacCsd.aacLc(SAMPLE_RATE, 1)   // réception seule, pas de onFatal
         }
         record = rec
         val t = Thread({
@@ -151,10 +178,27 @@ class CallAudio(
 
     /** Démarre la RÉCEPTION (csd-0 du pair obligatoire). */
     fun startReceiving(peerCsd: ByteArray) {
+        // v0.2.51 — csd du pair ASSAINI : un pair v0.2.50 expédie le « csd
+        // factice » {0,0} qui tuait NOTRE décodeur au démarrage (terrain
+        // 25/10 : « work failed to complete: 14 » → UNINITIALIZED → appel
+        // effondré à la 1ʳᵉ trame, 6/6). La config audio est FIXE des deux
+        // côtés (AAC-LC 16 kHz mono — aucune négociation dans le protocole)
+        // : le csd local calculé est toujours le bon → v0.2.51 ↔ v0.2.50.
+        val csd = if (AacCsd.looksBroken(peerCsd)) {
+            AacCsd.aacLc(SAMPLE_RATE, 1).also {
+                net.nyx.messenger.diag.DiagLog.w(
+                    "nyx-call",
+                    "csd-0 pair INVALIDE (" + peerCsd.size + " o) — remplacé par " +
+                        "le calcul local (" + it.joinToString("") { b ->
+                            "%02x".format(b.toInt() and 0xFF) } + ") : pair " +
+                        "v0.2.50 ? décodeur sauvé, appel maintenu"
+                )
+            }
+        } else peerCsd
         val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, 1).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16 * 1024)
-            if (peerCsd.isNotEmpty()) setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(peerCsd))
+            setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(csd))
         }
         val dec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
         dec.configure(format, null, null, 0)
