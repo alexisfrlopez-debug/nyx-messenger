@@ -375,7 +375,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie v0.2.52 · Console v0.8.12 · Serveur v0.2.38 "
+              ["Versions livrées", "Messagerie v0.2.53 · Console v0.8.12 · Serveur v0.2.38 "
                                    "(25 octobre 2026)"],
           ],
           [0.28, 0.72],
@@ -643,7 +643,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.52 / v0.8.12).",
+                  "(version v0.2.53 / v0.8.12).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -811,8 +811,17 @@ def build_story():
                "le « csd 0 o » du terrain dégradait l'appel en audio-only) et le "
                "raccroché libère l'écran immédiatement même tor mort (fin "
                "immédiate, BYE en tâche de fond, démon tor relancé "
-               "automatiquement) — la confirmation de bout en bout reste "
-               "attendue."],
+               "automatiquement) ; la v0.2.53 termine le cycle visio sur "
+               "le terrain du 25/10 : l'audio et l'image fonctionnent, "
+               "mais les autorisations n'étaient jamais demandées au "
+               "démarrage (une visio ENTRANTE tombait en audio-only faute "
+               "de permission caméra — elles sont désormais demandées au "
+               "premier lancement en une seule boîte) et l'image partait "
+               "en orientation capteur, couchée à 90° et figée (la "
+               "rotation devient une métadonnée de présentation : les "
+               "vues tournent par matrice, une trame de 4 octets suit "
+               "chaque rotation de l'écran sans coupure) — la validation "
+               "de ce dernier lot reste attendue."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -843,7 +852,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "25 octobre 2026 (soir). Les horizons reprennent la roadmap officielle "
+                 "25 octobre 2026 (matin, v0.2.53). Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
     table(story,
@@ -860,11 +869,13 @@ def build_story():
                "câblage + onion servi confirmé), du routage rétabli v0.2.50 "
                "(sonnerie + raccroché sans crash), du csd calculé v0.2.51 "
                "(le décodeur du pair ne meurt plus : l'appel tient après le "
-               "décroché) et du lot v0.2.52 (sonnerie stoppée au décroché, "
-               "visio avec image, raccroché libre même tor mort) ; relais "
+               "décroché), du lot v0.2.52 (sonnerie stoppée au décroché, "
+               "visio avec image, raccroché libre même tor mort — CONFIRMÉ "
+               "TERRAIN 25/10) et du lot v0.2.53 (permissions au premier "
+               "démarrage, orientation vidéo suivie) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.52 puis phase 2",
-               "Correctifs livrés, validation terrain en cours"],
+               "v0.2.44-v0.2.53 puis phase 2",
+               "Audio et visio confirmés terrain ; dernier lot en validation"],
               ["Android uniquement", "Étude d'un client bureau (le noyau réseau "
                "et les codecs sont déjà multiplateformes par conception)",
                "Post-v1.0 (à l'étude)", "Hors périmètre v1"],
@@ -1008,6 +1019,23 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["14ᵉ édition", "25 octobre 2026", "Messagerie v0.2.53 · "
+               "Console v0.8.12 · Serveur v0.2.38",
+               "Retour terrain v0.2.52 : l'audio ET la visio fonctionnent "
+               "(image des deux côtés dès la permission caméra accordée, "
+               "sonnerie stoppée au décroché ×5, csd H.264 lu après la "
+               "première trame ×2 — toute la couche v0.2.48-52 a tenu) ; "
+               "restaient deux demandes opérateur : les autorisations "
+               "n'étaient jamais demandées au démarrage (une visio ENTRANTE "
+               "tombait en audio-only faute de permission caméra — Android "
+               "interdit toute demande à l'installation, la v0.2.53 les "
+               "demande au premier lancement en une seule boîte caméra + "
+               "micro + notification) et l'image vidéo partait en "
+               "orientation capteur, couchée à 90° et figée (la rotation "
+               "devient une métadonnée de présentation : le flux H.264 ne "
+               "change pas, les vues tournent par matrice et une trame de "
+               "4 octets suit chaque rotation de l'écran sans coupure ; "
+               "interop garantie avec un pair v0.2.52) ; 302 tests JVM × 2."],
               ["13ᵉ édition", "25 octobre 2026", "Messagerie v0.2.52 · "
                "Console v0.8.12 · Serveur v0.2.38",
                "Retour terrain v0.2.51 : l'appel audio tient enfin — mais la "
@@ -1111,8 +1139,8 @@ def build_story():
 
     para(story,
          "La qualité est suivie en continu par une batterie de tests "
-         "automatisés : 278 tests JVM exécutés sur deux variantes de build "
-         "(556 exécutions), les tests Go du serveur, et 57 tests pour la "
+         "automatisés : 302 tests JVM exécutés sur deux variantes de build "
+         "(604 exécutions), les tests Go du serveur, et 57 tests pour la "
          "console. Chaque livraison passe un audit de code strict (zéro défaut "
          "critique ou majeur toléré), et les APK sont signés avec la clé de "
          "release officielle — les sommes de contrôle SHA-256 sont publiées "
@@ -1212,7 +1240,7 @@ html, body {
     messages, appels et visio compris — et les serveurs, eux-mêmes anonymes,
     se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · Versions v0.2.52 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · Versions v0.2.53 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
