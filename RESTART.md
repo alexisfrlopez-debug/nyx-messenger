@@ -59,7 +59,10 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    identité/onion, conversations, chat E2E ; appels audio/visio
 >    média-codec = suivi). Décisions d'architecture = **nouvel ADR
 >    obligatoire (ADR-019)** + specs d'abord (§9) comme toute évolution.
->    **ÉTAT : EN COURS (session 70 — portage desktop démarré).**
+>    **ÉTAT : TRAITÉ (sessions 70-71 — v0.3.0 livrée, puis correctif v0.3.1
+>    après le premier retour terrain : crash de démarrage libsodium/MinGW
+>    sur Windows vierge, résolu — release GitHub v0.3.1-desktop + Drive à
+>    jour ; appels audio/visio = phase 2 documentée ADR-019 §6).**
 
 > 🔴 **INSTRUCTIONS SESSION 68 — REÇUES 2026-10-23/24, ENREGISTRÉES AVANT
 > TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
@@ -360,6 +363,48 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 > (plus JAMAIS « csd 0 o ») ; (3) pendant une sonnerie sortante sans
 > réponse, Raccrocher referme l'écran < 1 s ; (4) si tor meurt → « RELANCE
 > AUTOMATIQUE n/3 » puis onion re-publié.**
+
+> **Pointeur rapide (session 71 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS
+> v0.3.1** (correctif démarrage — tag v0.3.1-desktop, release GitHub + zip
+> portable + installateur.exe dans Drive dernieres-livrables, v0.3.0
+> archivée dans archives/nyx-desktop-v0.3.0/ ; serveur 0.2.38, console
+> v0.8.12 et APK v0.2.53 INCHANGÉS) — **RETOUR TERRAIN 27/10 v0.3.0 :
+> « UnsatisfiedLinkError: Unable to load library 'sodium' » au premier
+> lancement** : la dll libsodium de lazysodium-java est une build MinGW-w64
+> dépendant de libgcc_s_seh-1.dll (elle-même dépendante de
+> libwinpthread-1.dll), dll absentes de tout Windows vierge — le chargeur
+> groupé l'extrait SEULE vers un répertoire temporaire → résolution des
+> dépendances impossible → repli système silencieux → crash ; le natif
+> d'affichage skiko WINDOWS manquait aussi (compose.desktop.currentOs
+> n'embarque que la plateforme de BUILD) et le bac à sable Linux était
+> aveuglé par une libsodium.so.23 système. CORRECTIF : **Natives.kt**
+> (extraction autonome AVANT toute initialisation JNA vers
+> <tmp>/nyx-natives/libsodium/ avec les DEUX compagnes MinGW dans le même
+> répertoire + jna.library.path — le repli « système » charge notre copie) ;
+> compagnes posées aussi par l'installateur dans runtime\bin (fichiers
+> essentiels vérifiés) ; miroir des natifs aux conventions de ressources
+> JNA dans le fat jar (filet de sécurité) ;
+> skiko-awt-runtime-windows-x64:0.8.4 (zéro téléchargement implicite au
+> premier lancement — anonymat + démarrage hors ligne) ; slf4j-nop ;
+> **--selftest** (autotest headless : libsodium, onion v3, identité scellée
+> PBKDF2+AES-GCM, sealed box + signature NYX1 — sortie 0/3) ;
+> scripts/build-desktop-release.sh (pipeline PERSISTÉ : tests + fat jar +
+> vérifications de contenu + selftest + payload + zip + installateur Go
+> GOOS=windows + smoke installateur réel -silent + SHA256SUMS + audit).
+> QUALITÉ : 122 tests JVM verts (NativesTest verrouille la régression —
+> aucune libsodium.so système utilisable sur le bac à sable : reproduction
+> exacte de la situation Windows du terrain) ; audit strict PASSED 0/0/1
+> MIN préexistant ; livrables nyx-messenger-windows-v0.3.1.zip (04ba43a6…)
+> + installateur.exe (973caab6…). Clôture : publication Drive complétée
+> (correctif publish-drive.sh — BASH_REMATCH[2] non lié sous set -u + zip
+> portable sans suffixe jamais archivé), session_closeout.py étendu à la
+> famille desktop (tag/release/Drive/fiche), fiche 15ᵉ édition (§9.10).
+> **VALIDATION TERRAIN : (1) relancer l'installateur v0.3.1 PAR-DESSUS
+> l'installation v0.3.0 (mise à jour en place, données
+> %USERPROFILE%\.nyx-messenger préservées) ; (2) l'application s'ouvre SANS
+> crash (libsodium chargée) ; (3) nyx-messenger.bat --selftest → marqueurs
+> [SELFTEST], sortie 0 ; (4) créer l'identité → tor démarre → onion publié
+> (~1-3 min) ; (5) échanger messages/fichiers avec l'Android v0.2.53.**
 
 > **Pointeur rapide (session 70 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS
 > v0.3.0** (ADR-019, module `desktop/` + `installer/`, tag
@@ -1359,7 +1404,7 @@ nyx/
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config,transportxmpp,turn})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
-├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.0 — Gradle propre, noyau pur partagé 1:1, app/ + installer/ + scripts/release-desktop.sh)
+├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.1 — Gradle propre, noyau pur partagé 1:1, app/ + installer/ + scripts/{build-desktop-release,release-desktop}.sh, natifs libsodium autonomes + --selftest)
 ├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh, publish-drive.sh
 ```
@@ -1470,6 +1515,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 
 | Date | Session | Résumé |
 |---|---|---|
+| 2026-10-27 | 71 | **CORRECTIF DÉMARRAGE WINDOWS v0.3.1 (retour terrain v0.3.0)** : UnsatisfiedLinkError « Unable to load library 'sodium' » au premier lancement — CAUSE RACINE : dll libsodium lazysodium-java = build MinGW dépendant de libgcc_s_seh-1.dll + libwinpthread-1.dll (absentes d'un Windows vierge ; le chargeur groupé l'extrait seule en temp → résolution de dépendances impossible → repli système silencieux → crash) + skiko Windows absent (currentOs = plateforme de BUILD) + bac à sable Linux aveuglé par libsodium.so.23 système. Natives.kt (extraction autonome avant JNA + compagnes MinGW + jna.library.path), compagnes aussi dans runtime\bin via l'installateur (essentielles vérifiées), miroir conventions JNA dans le fat jar, skiko-awt-runtime-windows-x64:0.8.4, slf4j-nop, --selftest headless (libsodium, onion v3, identité scellée, sealed box + NYX1, sortie 0/3), scripts/build-desktop-release.sh (pipeline persisté : tests + vérifications de contenu + selftest + payload + zip + installateur GOOS=windows + smoke -silent + SHA256SUMS + audit). 122 tests JVM verts ; NativesTest verrouille la régression ; audit PASSED 0/0/1. Livré : v0.3.1-desktop (zip 126 Mo 04ba43a6… + exe 130 Mo 973caab6… + SHA256SUMS + audit) — release GitHub + Drive, v0.3.0 archivée. CLÔTURE : publish-drive.sh corrigé (BASH_REMATCH[2] non lié sous set -u ; zip portable sans suffixe jamais archivé — le v0.3.0.zip resté en place a été rattrapé), session_closeout.py étendu à la famille desktop (tag v0.3.1-desktop, release + assets, Drive, fiche), fiche 15ᵉ édition (§9.10) — couverture + Tableaux 1/2/5/6 + ligne Windows, RESTART.md + tar.gz synchronisés Drive. |
 | 2026-10-27 | 70 | **VERSION WINDOWS DU MESSAGER (ADR-019)** : instructions enregistrées + Drive OK (§9.9). Module `desktop/` (Compose Desktop, Kotlin 2.0.20) : noyau pur Android copié 1:1 (OnionCodec, AliasValidator, RecoveryKey, BootstrapReplicas, Loopback, SeqResync, RepoRouting, ChunkCodec, ReceiptCodec, DeleteCodec, ReplicaCodec, LinkFallback, ReplicaValidate, ReplicaHttp, RendezvousList, TorControlClient) + MessageCipher sur LazySodium JAVA + Wire/RelayClient + ReplicaRegistry fichier + EmbeddedReplica desktop (journal jsonl, mêmes quotas) + DesktopRepository (postSigned/SeqResync, DepositRouting, receipts, invitations/acks, annonces réplica, alias, profils) + DesktopStore JSON atomique + DesktopTor (tor.exe, torrc miroir NyxTorConfig, ADD_ONION Detach) + UI Compose Desktop thème Nuit de Nyx (onboarding/conversations/chat/contacts/connexions/mon adresse/réglages) ; `installer/` Go cross-compilé Windows (payload zip go:embed, SHA ldflags, Zip-Slip, raccourcis, désinstalleur). 119 tests JVM verts ; audit strict PASSED (audit.py + allowlist étendus portage-miroir) ; smoke tests installateur + jar réels. Livré : v0.3.0-desktop (zip 114 Mo 0c2d2c18… + exe 117 Mo 95ee7340… + SHA256SUMS + audit) — release GitHub + Drive dernieres-livrables (publish-drive.sh --kind desktop). android/ INTACT. |
 | 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts. **Dépôt GitHub `nyx-messenger` créé + push initial. Sauvegarde Drive complète (RESTART.md + README.md + archive tar.gz).** |
 | 2026-10-12 | 2 | **Demande utilisateur : « comment lancer tout ça, options 1 et 2 »** → rédaction de GUIDE_DEMARRAGE.md (option 1 serveurs / option 2 Android + dépannage) ; scripts/dev-server.sh v2 (cookie Tor explicite — bug de premier lancement corrigé, câblage auto des pairs, stop, idempotent) ; ajout server/cmd/nyx-devtool (keygen/show/event/verify, smoke testé). Mécanique validée avec Tor factice (réplication Tor réel à faire sur machine de l'utilisateur). Push GitHub + sauvegarde Drive. |

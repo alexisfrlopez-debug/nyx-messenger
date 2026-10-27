@@ -67,9 +67,18 @@ while IFS= read -r line; do
     FAM="client"; OLDVER="${BASH_REMATCH[1]}"
   elif [[ "$NAME" =~ ^nyx-admin-[a-z]+-v([0-9]+\.[0-9]+\.[0-9]+)- ]] || [[ "$NAME" =~ ^SHA256SUMS-nyx-admin-v([0-9]+\.[0-9]+\.[0-9]+)\.txt$ ]]; then
     FAM="admin"; OLDVER="${BASH_REMATCH[1]}"
-  elif [[ "$NAME" =~ ^nyx-messenger-(windows|linux|macos)-v([0-9]+\.[0-9]+\.[0-9]+)- ]] || [[ "$NAME" =~ ^SHA256SUMS-desktop-v([0-9]+\.[0-9]+\.[0-9]+)\.txt$ ]]; then
-    # session 70 — famille desktop (ADR-019) : zip portable + installateur.exe
+  elif [[ "$NAME" =~ ^nyx-messenger-(windows|linux|macos)-v([0-9]+\.[0-9]+\.[0-9]+)[.-] ]]; then
+    # session 70 — famille desktop (ADR-019) : zip portable + installateur.exe.
+    # session 71 — le ZIP PORTABLE n'a PAS de suffixe après la version
+    # (« nyx-messenger-windows-v0.3.1.zip ») alors que l'installateur en a un
+    # (« …-installer.exe ») : le motif doit accepter « - » OU « . » juste après
+    # la version, sinon le zip remplacé n'est JAMAIS archivé (constaté v0.3.0).
     FAM="desktop"; OLDVER="${BASH_REMATCH[2]}"
+  elif [[ "$NAME" =~ ^SHA256SUMS-desktop-v([0-9]+\.[0-9]+\.[0-9]+)\.txt$ ]]; then
+    # session 71 — les DEUX motifs desktop ont des nombres de groupes DIFFÉRENTS
+    # (2 vs 1) : jamais de `||` entre eux, sinon BASH_REMATCH[2] est non lié
+    # sous set -u quand seul le second motif matche (SHA256SUMS-desktop-…).
+    FAM="desktop"; OLDVER="${BASH_REMATCH[1]}"
   else
     continue   # SHA256SUMS-latest.txt, documents égarés… : jamais archivés d'ici
   fi

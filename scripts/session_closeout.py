@@ -67,7 +67,8 @@ def parse_attendus(restart_path):
         end = marks[i + 1].start() if i + 1 < len(marks) else min(len(text), m.start() + 6000)
         blocks.append((int(m.group(1)), text[m.start():end]))
     zero = (0, 0, 0)
-    best = {"app": ("", zero), "serveur": ("", zero), "console": ("", zero)}
+    best = {"app": ("", zero), "serveur": ("", zero), "console": ("", zero),
+            "desktop": ("", zero)}
     sess = {}
     for num, raw in blocks:
         flat = re.sub(r">\s*|\n", " ", raw)  # recoud les lignes blockquote
@@ -80,8 +81,14 @@ def parse_attendus(restart_path):
         m = re.search(r"console\s*\*\*v(\d+\.\d+\.\d+)", flat)
         if m and semver(m.group(1)) > best["console"][1]:
             best["console"] = (m.group(1), semver(m.group(1)))
+        # session 71 — famille desktop (ADR-019) : « CLIENT DESKTOP WINDOWS
+        # vX.Y.Z » dans les pointeurs (jamais « messagerie **v… » pour ne pas
+        # polluer la détection de l'app Android).
+        m = re.search(r"CLIENT DESKTOP WINDOWS\s*\**\s*v(\d+\.\d+\.\d+)", flat)
+        if m and semver(m.group(1)) > best["desktop"][1]:
+            best["desktop"] = (m.group(1), semver(m.group(1)))
         sess[num] = raw
-    missing = [k for k, v in best.items() if not v[0]]
+    missing = [k for k, v in best.items() if not v[0] and k != "desktop"]
     if missing:
         raise SystemExit(f"RESTART.md : version(s) annoncée(s) introuvable(s) : {missing}")
     last_session = max(sess)
@@ -163,6 +170,26 @@ def check_release(app, pat):
     if not any(fnmatch.fnmatch(a, srv_asset) for a in assets):
         add("WARN", "gh-rel/app", "aucun binaire serveur en asset de la release "
              "(convention v0.2.44+ : il DOIT être au moins dans le Drive)")
+
+
+def check_release_desktop(desktop, pat):
+    """Release GitHub de la famille desktop (session 71) : zip portable +
+    installateur.exe + SHA256SUMS en assets."""
+    rel, err = gh(f"/repos/{REPO_MESSENGER}/releases/tags/v{desktop}-desktop", pat)
+    if err:
+        add("FAIL", "gh-rel/desktop", f"release v{desktop}-desktop injoignable ({err})")
+        return
+    assets = [a["name"] for a in rel.get("assets", [])]
+    wanted = [f"nyx-messenger-*-v{desktop}.zip",
+              f"nyx-messenger-*-v{desktop}-installer.exe",
+              f"SHA256SUMS-desktop-v{desktop}.txt"]
+    miss = [w for w in wanted if not any(fnmatch.fnmatch(a, w) for a in assets)]
+    if miss:
+        add("FAIL", "gh-rel/desktop",
+            f"release v{desktop}-desktop : assets manquants {miss} (présents : {assets})")
+    else:
+        add("PASS", "gh-rel/desktop",
+            f"release v{desktop}-desktop complète ({len(assets)} assets)")
 
 
 # ---------------------------------------------------------------- Drive API
@@ -265,11 +292,23 @@ def check_drive(drive, project, attendus, repo):
     want(f"nyx-admin-windows-v{cons}-*.zip", "console")
     want(f"nyx-admin-windows-v{cons}-*-installer.exe", "console")
     want(f"SHA256SUMS-nyx-admin-v{cons}.txt", "console")
+    desk = attendus.get("desktop")
+    if desk:
+        want(f"nyx-messenger-*-v{desk}.zip", "desktop")
+        want(f"nyx-messenger-*-v{desk}-installer.exe", "desktop")
+        want(f"SHA256SUMS-desktop-v{desk}.txt", "desktop")
 
     # versions périmées encore dans dernieres-livrables → à archiver (WARN)
-    for pat, comp, cur in [(r"nyx-admin-android-v(\d+\.\d+\.\d+)-", "console", cons),
-                           (r"nyx-server-(\d+\.\d+\.\d+)-linux", "serveur", srv),
-                           (r"nyx-v(\d+\.\d+\.\d+)-\d{8}-", "app", app)]:
+    stale = [(r"nyx-admin-android-v(\d+\.\d+\.\d+)-", "console", cons),
+             (r"nyx-server-(\d+\.\d+\.\d+)-linux", "serveur", srv),
+             (r"nyx-v(\d+\.\d+\.\d+)-\d{8}-", "app", app)]
+    if desk:
+        # session 71 — le zip portable n'a PAS de suffixe après la version
+        # (« nyx-messenger-windows-v0.3.0.zip ») d'où [.-] ; le SHA256SUMS
+        # desktop est traité à part (même leçon que publish-drive.sh).
+        stale += [(r"nyx-messenger-(?:windows|linux|macos)-v(\d+\.\d+\.\d+)[.-]", "desktop", desk),
+                  (r"SHA256SUMS-desktop-v(\d+\.\d+\.\d+)\.txt", "desktop", desk)]
+    for pat, comp, cur in stale:
         for n in names:
             m = re.match(pat, n)
             if m and m.group(1) != cur:
@@ -308,6 +347,13 @@ def check_fiche(repo, attendus):
         else:
             add("FAIL", "fiche/" + label,
                 f"la fiche NE CITE PAS la version {label} {v} annoncée livrée — régénérer la fiche")
+    desk = attendus.get("desktop")
+    if desk:
+        if f"v{desk}" in text:
+            add("PASS", "fiche/desktop", f"version desktop {desk} citée dans la fiche")
+        else:
+            add("FAIL", "fiche/desktop",
+                f"la fiche NE CITE PAS la version desktop {desk} annoncée livrée — régénérer la fiche")
 
 
 def check_worklog(last_session):
@@ -331,7 +377,9 @@ def main():
 
     attendus, last_session = parse_attendus(os.path.join(args.repo, "RESTART.md"))
     print(f"Attendus (max des pointeurs RESTART.md, session la + récente : {last_session}) :")
-    print(f"  app v{attendus['app']} · serveur v{attendus['serveur']} · console v{attendus['console']}\n")
+    desk = attendus.get("desktop")
+    print(f"  app v{attendus['app']} · serveur v{attendus['serveur']} · console v{attendus['console']}"
+          + (f" · desktop v{desk}" if desk else "") + "\n")
 
     pat = None
     pat_file = os.path.join(creds, "token_git.txt")
@@ -341,6 +389,16 @@ def main():
     check_git(args.repo, "messager", expected_tag=f"v{attendus['app']}")
     check_git(admin_dir, "console", expected_version=attendus["console"])
     check_release(attendus["app"], pat)
+    if desk:
+        check_release_desktop(desk, pat)
+        tags = git(args.repo, "ls-remote", "--tags", "origin",
+                   f"refs/tags/v{desk}-desktop", check=False)
+        if tags:
+            add("PASS", "git/messager", f"tag v{desk}-desktop présent sur le distant")
+        else:
+            add("FAIL", "git/messager", f"tag v{desk}-desktop ABSENT du distant — pousser")
+    else:
+        add("SKIP", "gh-rel/desktop", "aucun client desktop annoncé dans RESTART.md")
     if pat:
         rel, err = gh(f"/repos/{REPO_ADMIN}/branches/main", pat)
         if err:
