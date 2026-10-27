@@ -90,7 +90,7 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    des sauvegardes téléphone avec vecteur d'interopérabilité indépendant ;
 >    release GitHub v0.3.2-desktop + Drive + fiche 16ᵉ édition).**
 
-> **POINTEUR RAPIDE SESSION 73 (2026-10-27) — v0.3.3 VERSION TEST : connexion
+> **Pointeur rapide (session 73 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS v0.3.3 VERSION TEST** — connexion
 > Tor/réplicas + bouton d'envoi de logs.** Retour terrain verbatim : « l'appli
 > windows ne se connecte pas à tor ni aux replicas + je veux une version test
 > avec le bouton d'envoi de logs comme pour la version android ». ANALYSE CODE
