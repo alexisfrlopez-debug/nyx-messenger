@@ -44,6 +44,23 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 70 — REÇUES 2026-10-27, ENREGISTRÉES AVANT
+> TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
+>
+> 1. **VERSION WINDOWS DE L'APPLICATION DE MESSAGERIE** — verbatim
+>    opérateur : « on reprend sur ce projet : [lien Drive du dossier
+>    projet]. Maintenant je veux une version windows de cette application
+>    de messagerie » → créer une version **desktop Windows du client
+>    Nyx** (actuellement Android-only, Kotlin + Jetpack Compose). Référence
+>    interne : la console nyx-admin (dépôt privé) utilise déjà Compose
+>    Desktop + runtime jlink Java 21 + tor expert bundle + installateur
+>    Go multi-OS — même pipeline de livraison visé pour le messager
+>    Windows. Périmètre à cadrer avec l'opérateur (fonctionnalités v1 :
+>    identité/onion, conversations, chat E2E ; appels audio/visio
+>    média-codec = suivi). Décisions d'architecture = **nouvel ADR
+>    obligatoire (ADR-019)** + specs d'abord (§9) comme toute évolution.
+>    **ÉTAT : EN COURS (session 70 — portage desktop démarré).**
+
 > 🔴 **INSTRUCTIONS SESSION 68 — REÇUES 2026-10-23/24, ENREGISTRÉES AVANT
 > TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
 >
@@ -343,6 +360,41 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 > (plus JAMAIS « csd 0 o ») ; (3) pendant une sonnerie sortante sans
 > réponse, Raccrocher referme l'écran < 1 s ; (4) si tor meurt → « RELANCE
 > AUTOMATIQUE n/3 » puis onion re-publié.**
+
+> **Pointeur rapide (session 70 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS
+> v0.3.0** (ADR-019, module `desktop/` + `installer/`, tag
+> v0.3.0-desktop, release GitHub + zip portable 114 Mo + installateur.exe
+> 117 Mo dans Drive dernieres-livrables ; serveur 0.2.38, console v0.8.12 et
+> APK v0.2.53 INCHANGÉS — android/ INTACT, aucune recompilation APK) —
+> « MAINTENANT JE VEUX UNE VERSION WINDOWS DE CETTE APPLICATION DE
+> MESSAGERIE » : portage Compose Desktop (JVM) du messager. Périmètre cadré
+> opérateur : messagerie COMPLÈTE (identité/onion, alias, contacts,
+> conversations, chat E2E texte + FICHIERS 64 Mo ChunkCodec, accusés
+> ✓/✓✓, profils, réplique embarquée in-process, Tor expert bundle 15.0.26
+> embarqué tor.exe) ; appels audio/visio + P2P direct + NYX-LINK + maj-auto
+> = PHASE 2 documentée (ADR-019 §6). Noyau : fichiers purs Android copiés
+> 1:1 (OnionCodec, codecs, TorControlClient, ReplicaHttp/Validate,
+> BootstrapReplicas, RendezvousList, Loopback) + LazySodium JAVA (natives
+> win/linux/mac DANS le jar Maven) + OkHttp SOCKS5 + stockage JSON atomique
+> (DesktopStore) + EmbeddedReplica desktop (journal events.jsonl, mêmes
+> quotas) + scellement identité PBKDF2+AES-GCM (mêmes primitives que
+> PasswordVault Android). Livraison : zip portable (JRE 21 Temurin + tor +
+> jar + .bat) + installateur Go cross-compilé GOOS=windows (payload
+> go:embed, SHA-256 ldflags vérifié, anti Zip-Slip, raccourcis,
+> désinstalleur préservant %USERPROFILE%\.nyx-messenger) — miroir du
+> pipeline nyx-admin. QUALITÉ : 119 tests JVM verts (13 fichiers portés
+> d'Android + nouveaux MessageCipher/EmbeddedReplica desktop/identité/
+> torrc/store) ; audit strict PASSED 0/0/1 (audit.py ÉTENDU : motif stable
+> par bloc dupliqué + marqueur « portage-miroir » allowlist pour les copies
+> 1:1) ; smoke tests réels (installateur Linux payload identique → 324
+> fichiers extraits + essentiels ; jar exécuté → libsodium chargée, onion v3
+> généré, identité persistée). Scripts : release-desktop.sh (famille
+> desktop) + publish-drive.sh --kind desktop. **VALIDATION TERRAIN : (1)
+> installer l'exe → raccourcis créés → lancer ; (2) créer l'identité → tor
+> démarre → onion publié (~1-3 min) ; (3) échanger messages/fichiers avec
+> un téléphone Android v0.2.53 (invitation → acceptation → chat, ✓✓) ;
+> (4) console admin : le PC apparaît comme réplica découvert (annonce
+> automatique aux contacts).**
 
 > **Pointeur rapide (session 69septies — 2026-10-25)** : messagerie **v0.2.51**
 > (VC55, 2 APK dans Drive dernieres-livrables + release GitHub, v0.2.50
@@ -1307,6 +1359,7 @@ nyx/
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config,transportxmpp,turn})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
+├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.0 — Gradle propre, noyau pur partagé 1:1, app/ + installer/ + scripts/release-desktop.sh)
 ├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh, publish-drive.sh
 ```
@@ -1417,6 +1470,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 
 | Date | Session | Résumé |
 |---|---|---|
+| 2026-10-27 | 70 | **VERSION WINDOWS DU MESSAGER (ADR-019)** : instructions enregistrées + Drive OK (§9.9). Module `desktop/` (Compose Desktop, Kotlin 2.0.20) : noyau pur Android copié 1:1 (OnionCodec, AliasValidator, RecoveryKey, BootstrapReplicas, Loopback, SeqResync, RepoRouting, ChunkCodec, ReceiptCodec, DeleteCodec, ReplicaCodec, LinkFallback, ReplicaValidate, ReplicaHttp, RendezvousList, TorControlClient) + MessageCipher sur LazySodium JAVA + Wire/RelayClient + ReplicaRegistry fichier + EmbeddedReplica desktop (journal jsonl, mêmes quotas) + DesktopRepository (postSigned/SeqResync, DepositRouting, receipts, invitations/acks, annonces réplica, alias, profils) + DesktopStore JSON atomique + DesktopTor (tor.exe, torrc miroir NyxTorConfig, ADD_ONION Detach) + UI Compose Desktop thème Nuit de Nyx (onboarding/conversations/chat/contacts/connexions/mon adresse/réglages) ; `installer/` Go cross-compilé Windows (payload zip go:embed, SHA ldflags, Zip-Slip, raccourcis, désinstalleur). 119 tests JVM verts ; audit strict PASSED (audit.py + allowlist étendus portage-miroir) ; smoke tests installateur + jar réels. Livré : v0.3.0-desktop (zip 114 Mo 0c2d2c18… + exe 117 Mo 95ee7340… + SHA256SUMS + audit) — release GitHub + Drive dernieres-livrables (publish-drive.sh --kind desktop). android/ INTACT. |
 | 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts. **Dépôt GitHub `nyx-messenger` créé + push initial. Sauvegarde Drive complète (RESTART.md + README.md + archive tar.gz).** |
 | 2026-10-12 | 2 | **Demande utilisateur : « comment lancer tout ça, options 1 et 2 »** → rédaction de GUIDE_DEMARRAGE.md (option 1 serveurs / option 2 Android + dépannage) ; scripts/dev-server.sh v2 (cookie Tor explicite — bug de premier lancement corrigé, câblage auto des pairs, stop, idempotent) ; ajout server/cmd/nyx-devtool (keygen/show/event/verify, smoke testé). Mécanique validée avec Tor factice (réplication Tor réel à faire sur machine de l'utilisateur). Push GitHub + sauvegarde Drive. |
 | 2026-10-12 | 3 | **Demande utilisateur : « que l'appli installe son propre service Tor, autonomie totale »** → ADR-007 : Tor embarqué via tor-android (binaire `libtor.so` exécuté par notre `NyxTorService` au 1er plan, torrc généré, ports dynamiques) ; nouveau code : NyxTorConfig, TorControlClient (miroir Go), NyxTorService, TorManager réécrit (bootstrap %, publication auto ADD_ONION de l'identité), OnionServiceManager réel ; câblage MainActivity/Onboarding/bannière Tor/manifest/strings ; Gradle (Guardian maven, useLegacyPackaging). Orbot supprimé comme prérequis (repli censure documenté). Code non compilé ici (pas de SDK) — premier build device = TODO 1. Push GitHub + Drive v0.3. |

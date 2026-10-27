@@ -291,7 +291,11 @@ def check_redundancy(a: Audit):
         a.add(MAJOR, "RED-DEP", f"Dépendance déclarée deux fois : libs.{d}")
 
     # blocs dupliqués entre fichiers Kotlin (fenêtre de 6 lignes non triviales)
-    kt_files = [f for f in iter_files(a.root, ".kt", skip_dirs=("build", ".git", ".gradle", "tools", "data"))]
+    # v0.3.0 (session 70, client desktop) : un fichier marqué
+    # « chemin:portage-miroir » dans l'allowlist est EXCLU de la collecte —
+    # portage 1:1 volontaire Android↔desktop (ADR-019, codecs purs partagés).
+    kt_files = [f for f in iter_files(a.root, ".kt", skip_dirs=("build", ".git", ".gradle", "tools", "data"))
+                if not a.allowed(f, "portage-miroir")]
     windows = {}
     for f in kt_files:
         lines = [l.strip() for l in (read(f) or "").splitlines()]
@@ -299,12 +303,21 @@ def check_redundancy(a: Audit):
         for i in range(len(lines) - 5):
             key = "\n".join(lines[i:i + 6])
             if len(key) > 120:  # ignore blocs triviaux/imports
-                windows.setdefault(key, []).append(f.name)
+                windows.setdefault(key, []).append(f)
     reported = set()
     for key, files in windows.items():
-        if len(set(files)) > 1 and key not in reported:
+        # Sémantique d'origine (v0.2.x) : la duplication est comptée entre
+        # fichiers de NOMS DIFFÉRENTS (main↔test ou copies portage de même nom
+        # ne comptent pas) — les paths complets servent uniquement l'allowlist.
+        names = {f.name for f in files}
+        if len(names) > 1 and key not in reported:
             reported.add(key)
-            a.add(MAJOR, "RED-DUP", f"Bloc de 6 lignes dupliqué entre fichiers : {sorted(set(files))[:3]}")
+            # Motif STABLE dérivé du bloc : justification bloc par bloc possible.
+            import hashlib as _h
+            motif = "dup:" + _h.sha256(key.encode()).hexdigest()[:12]
+            first = sorted(files, key=str)[0]
+            a.add(MAJOR, "RED-DUP", f"Bloc de 6 lignes dupliqué entre fichiers : {sorted(names)[:3]}",
+                  path=first, motif=motif)
             if len(reported) >= 10:
                 break
     a.ok("RED")

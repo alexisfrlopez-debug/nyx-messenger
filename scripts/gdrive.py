@@ -64,6 +64,11 @@ class Drive:
                 for f in sorted(base.glob("oauth_token*.json")) if base.exists() else []:
                     data = json.loads(f.read_text())
                     rt = data.get("refresh_token") or data.get("refreshToken")
+                    # Le jeton relais embarque SES PROPRES client_id/client_secret :
+                    # paire validée (le client_secret séparé peut être orphelin côté
+                    # Google Console — « invalid_client » 401 observé session 70).
+                    if data.get("client_id") and data.get("client_secret"):
+                        return data["client_id"], data["client_secret"], rt
                     break
         if not (cs and rt):
             return None, None, None

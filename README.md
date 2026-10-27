@@ -42,6 +42,7 @@ nyx/
 ├── protocol/             ← spécifications des formats filaires (wire format, API)
 ├── server/               ← nœud serveur Go (hidden service + réplication)
 ├── android/              ← application Android (Kotlin, Jetpack Compose)
+├── desktop/              ← application Windows (Kotlin, Compose Desktop — ADR-019, v0.3.0)
 └── scripts/              ← bootstrap environnement, lancement dev
 ```
 

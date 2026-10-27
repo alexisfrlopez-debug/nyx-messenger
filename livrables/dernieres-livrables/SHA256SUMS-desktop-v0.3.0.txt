@@ -1,0 +1,2 @@
+0c2d2c18e5a495d557088c34711792b2441e7334d8f0c40ac125790f7fd0767a  nyx-messenger-windows-v0.3.0.zip
+95ee734019369d56647cf2c92e00e9eacd8348c5131012a51956b5d946eaeddf  nyx-messenger-windows-v0.3.0-installer.exe

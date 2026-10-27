@@ -48,3 +48,44 @@ android/app/src/test/java/net/nyx/messenger/tor/TorControlClientTest.kt:stopFake
 # que TorControlClientTest v0.2.34).
 android/app/src/test/java/net/nyx/messenger/replica/BackendLivenessTest.kt:setUp
 android/app/src/test/java/net/nyx/messenger/replica/BackendLivenessTest.kt:tearDown
+
+# ===== SESSION 70 — client desktop Windows (ADR-019) =====
+
+
+# ===== SESSION 70 — client desktop Windows (ADR-019) : portage miroir =====
+# Le module desktop/ porte le messager sur Windows. Les fichiers listés
+# ci-dessous sont des copies 1:1 (codecs purs partagés, ZÉRO divergence
+# tolérée : même protocole filaire, mêmes invariants terrain, mêmes vecteurs
+# de test JVM des deux côtés). La duplication est la GARANTIE d'interop
+# Android↔desktop — une divergence involontaire serait un bug.
+
+android/app/src/main/java/net/nyx/messenger/crypto/OnionCodec.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/crypto/AliasValidator.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/crypto/RecoveryKey.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/crypto/MessageCipher.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/net/BootstrapReplicas.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/net/Loopback.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/net/RendezvousList.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/tor/TorControlClient.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/repo/SeqResync.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/repo/RepoRouting.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/repo/ChunkCodec.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/repo/ReceiptCodec.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/repo/DeleteCodec.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/repo/ReplicaCodec.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/repo/LinkFallback.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/replica/ReplicaValidate.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/replica/ReplicaHttp.kt:portage-miroir
+# Source du portage DesktopRepository (logique messagerie — miroir adapté,
+# blocs de protocole identiques volontairement : postSigned/SeqResync,
+# invitations/acks, receipts, annonces réplica — apps distinctes Room/JSON).
+android/app/src/main/java/net/nyx/messenger/repo/NyxRepository.kt:portage-miroir
+# Ports desktop ADAPTÉS (blocs de protocole identiques, noms de fichiers
+# différents côté Android : Wire.kt porte le RelayClient, EmbeddedReplica.kt
+# reprend les blocs d'écoute de P2pServer, DesktopRepository.kt le NyxRepository).
+desktop/app/src/main/java/net/nyx/messenger/net/Wire.kt:portage-miroir
+desktop/app/src/main/java/net/nyx/messenger/replica/EmbeddedReplica.kt:portage-miroir
+desktop/app/src/main/java/net/nyx/messenger/repo/DesktopRepository.kt:portage-miroir
+# Palette « Nuit de Nyx » — thème porté à l'identique (mêmes couleurs verrouillées
+# par NyxContrastTest Android + Theme.kt desktop ; divergence = défaut visuel).
+android/app/src/main/java/net/nyx/messenger/ui/theme/NyxPalette.kt:portage-miroir

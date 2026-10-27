@@ -59,3 +59,10 @@ android/replica-bootstrap.properties
 
 # --- Rendezvous/amorçage (v0.2.23) — liste legacy non signée, git-ignorée à la RACINE ---
 /replica-bootstrap.properties
+
+# Session 70 — client desktop (ADR-019) : builds et payload hors git
+# (les binaires voyagent par Releases GitHub + Drive, règle §9.4).
+desktop/app/build/
+desktop/.gradle/
+desktop/installer/payload.zip
+desktop/installer/nyx-messenger-windows-*.exe

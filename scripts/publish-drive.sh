@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
     *) echo "option inconnue : $1"; exit 2 ;;
   esac
 done
-[ "$KIND" = "client" ] || [ "$KIND" = "admin" ] || { echo "✗ --kind client|admin requis"; exit 2; }
+[ "$KIND" = "client" ] || [ "$KIND" = "admin" ] || [ "$KIND" = "desktop" ] || { echo "✗ --kind client|admin|desktop requis"; exit 2; }
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "✗ --version X.Y.Z requis (reçu : '$VERSION')"; exit 2; }
 
 echo "${YLW}═══ PUBLICATION DRIVE — famille $KIND v$VERSION ═══${NC}"
@@ -67,12 +67,15 @@ while IFS= read -r line; do
     FAM="client"; OLDVER="${BASH_REMATCH[1]}"
   elif [[ "$NAME" =~ ^nyx-admin-[a-z]+-v([0-9]+\.[0-9]+\.[0-9]+)- ]] || [[ "$NAME" =~ ^SHA256SUMS-nyx-admin-v([0-9]+\.[0-9]+\.[0-9]+)\.txt$ ]]; then
     FAM="admin"; OLDVER="${BASH_REMATCH[1]}"
+  elif [[ "$NAME" =~ ^nyx-messenger-(windows|linux|macos)-v([0-9]+\.[0-9]+\.[0-9]+)- ]] || [[ "$NAME" =~ ^SHA256SUMS-desktop-v([0-9]+\.[0-9]+\.[0-9]+)\.txt$ ]]; then
+    # session 70 — famille desktop (ADR-019) : zip portable + installateur.exe
+    FAM="desktop"; OLDVER="${BASH_REMATCH[2]}"
   else
     continue   # SHA256SUMS-latest.txt, documents égarés… : jamais archivés d'ici
   fi
   [ "$FAM" = "$KIND" ] || continue          # chaque release gère sa famille
   [ "$OLDVER" != "$VERSION" ] || continue   # version courante → reste en place
-  ZONE="archives/v${OLDVER}"; [ "$FAM" = "admin" ] && ZONE="archives/nyx-admin-v${OLDVER}"
+  ZONE="archives/v${OLDVER}"; [ "$FAM" = "admin" ] && ZONE="archives/nyx-admin-v${OLDVER}"; [ "$FAM" = "desktop" ] && ZONE="archives/nyx-desktop-v${OLDVER}"
   if python3 "$GDRIVE" move "livrables/dernieres-livrables/$NAME" "livrables/$ZONE" >/dev/null; then
     echo "${GRN}  ↷ $NAME → $ZONE/${NC}"; ARCHIVED=$((ARCHIVED+1))
   else
