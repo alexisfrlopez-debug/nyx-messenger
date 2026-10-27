@@ -25,12 +25,17 @@ var embedded embed.FS
 //   -ldflags "-X main.payloadSHA=<sha256 hex du zip>"
 var payloadSHA = "INJECTED_AT_BUILD"
 
+// Version affichée (injectable : -X main.version=…).
+var version = "0.3.1"
+
 const appDirName = "NyxMessenger"
 
 func main() {
         silent := flag.Bool("silent", false, "installation silencieuse (aucune question)")
         dirFlag := flag.String("dir", "", "répertoire d'installation (défaut : %LOCALAPPDATA%\\NyxMessenger)")
         flag.Parse()
+
+        fmt.Printf("[nyx] installateur Nyx Desktop v%s\n", version)
 
         // 1. Lecture du payload embarqué + vérification d'intégrité.
         data, err := embedded.ReadFile("payload.zip")
@@ -66,6 +71,8 @@ func main() {
                 filepath.Join("nyx-messenger", "nyx-messenger.jar"),
                 filepath.Join("nyx-messenger", "nyx-messenger.bat"),
                 filepath.Join("nyx-messenger", "runtime", "bin", "java.exe"),
+                filepath.Join("nyx-messenger", "runtime", "bin", "libgcc_s_seh-1.dll"),
+                filepath.Join("nyx-messenger", "runtime", "bin", "libwinpthread-1.dll"),
                 filepath.Join("nyx-messenger", "tor", "tor.exe"),
         } {
                 if _, err := os.Stat(filepath.Join(dest, essential)); err != nil {

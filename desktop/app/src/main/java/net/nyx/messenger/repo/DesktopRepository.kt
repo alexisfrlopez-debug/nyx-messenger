@@ -665,7 +665,7 @@ class DesktopRepository(
         if (replicas.isEmpty()) return 0
         val me = identity.onionAddress ?: return 0
         val priv = runCatching { identity.secretKey() }.getOrNull() ?: return 0
-        val bodyJson = ReplicaCodec.encodeBody(identity.alias ?: "", replicaAddr, "0.3.0")
+        val bodyJson = ReplicaCodec.encodeBody(identity.alias ?: "", replicaAddr, "0.3.1")
         var sent = 0
         for (c in store.contacts().filter { it.status == ACCEPTED }) {
             runCatching {

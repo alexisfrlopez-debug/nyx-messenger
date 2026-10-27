@@ -33,8 +33,15 @@ import net.nyx.messenger.ui.SettingsPanel
 import net.nyx.messenger.ui.Sidebar
 import net.nyx.messenger.ui.SidebarTab
 import net.nyx.messenger.ui.TorBanner
+import kotlin.system.exitProcess
 
-fun main() = application {
+fun main(args: Array<String>) {
+    // Autotest headless (v0.3.1 — pipeline de build + diagnostics terrain) :
+    // aucun affichage, aucun Tor — marqueurs [SELFTEST] + code de sortie.
+    if ("--selftest" in args) {
+        exitProcess(if (SelfTest.run()) 0 else 3)
+    }
+    application {
     ServiceLocator.init()
 
     Window(
@@ -51,6 +58,7 @@ fun main() = application {
         NyxTheme(themeSetting) {
             App()
         }
+    }
     }
 }
 

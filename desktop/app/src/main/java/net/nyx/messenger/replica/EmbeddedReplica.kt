@@ -64,7 +64,7 @@ object EmbeddedReplica {
     private var journalFile: File? = null
     private val rows = ArrayList<EventRow>()        // ordre gid croissant
     private var ownOnion: String = ""
-    private var versionName: String = "0.3.0"
+    private var versionName: String = "0.3.1"
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val rate = ReplicaQuota.RateLimiter()

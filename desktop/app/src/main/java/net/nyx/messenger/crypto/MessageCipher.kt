@@ -93,7 +93,15 @@ class MessageCipher private constructor() {
 
 /**
  * Instance libsodium du processus desktop — chargement paresseux unique.
- * PREFER_BUNDLED : la dll/so embarquée dans le jar est extraite vers le
- * répertoire temporaire et chargée par JNA (repli : libsodium système).
+ * Correctif v0.3.1 : Natives.ensureSodium() extrait la bibliothèque embarquée
+ * ET ses compagnes MinGW sous Windows (libgcc_s_seh-1.dll / libwinpthread-1.dll,
+ * sans lesquelles la dll ne charge pas sur un Windows vierge) vers un répertoire
+ * stable déclaré via jna.library.path AVANT tout chargement JNA ; le mode reste
+ * PREFER_BUNDLED (le repli « système » trouve alors notre copie extraite).
  */
-object Sodium : LazySodiumJava(SodiumJava(LibraryLoader.Mode.PREFER_BUNDLED))
+object Sodium : LazySodiumJava(newSodiumJava())
+
+private fun newSodiumJava(): SodiumJava {
+    net.nyx.messenger.desktop.Natives.ensureSodium()
+    return SodiumJava(LibraryLoader.Mode.PREFER_BUNDLED)
+}

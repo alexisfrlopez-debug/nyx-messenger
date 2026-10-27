@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "net.nyx"
-version = "0.3.0"
+version = "0.3.1"
 
 repositories {
     mavenCentral()
@@ -32,6 +32,15 @@ dependencies {
 
     // org.json (rendezvous.json — même API que la version Android).
     implementation("org.json:json:20240303")
+
+    // Correctif v0.3.1 (retour terrain Windows v0.3.0) :
+    //  - natif Compose WINDOWS embarqué : compose.desktop.currentOs ne fournit
+    //    que la plateforme de BUILD (linux ici) — la dll skiko Windows
+    //    manquait donc dans le fat jar livré ;
+    //  - NOP SLF4J : skiko-awt tire slf4j-api (sinon avertissement NOP au
+    //    démarrage, cf. journal terrain).
+    implementation("org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.8.4")
+    runtimeOnly("org.slf4j:slf4j-nop:1.7.30")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -67,5 +76,32 @@ tasks.register<Jar>("fatJar") {
     from(sourceSets.main.get().output)
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) }) {
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/versions/**/module-info.class", "module-info.class")
+    }
+    // Correctif v0.3.1 : miroir des natifs libsodium aux CONVENTIONS DE
+    // RESSOURCES JNA (win32-x86-64/sodium.dll…) — filet de sécurité : si le
+    // repli système ne trouve pas le répertoire extrait par Natives.kt,
+    // JNA sait extraire lui-même depuis ces chemins. (lazysodium groupe ses
+    // natifs sous windows64/ linux64/ mac/… que JNA n'inspecte pas ; les
+    // chemins d'origine RESTENT embarqués — Natives.kt les lit.)
+    // NB : `into()` ne fait que PRÉFIXER — le re-path complet passe par
+    // filesMatching + FileCopyDetails.path.
+    val lazysodium = configurations.runtimeClasspath.get()
+        .filter { it.isFile && it.name.startsWith("lazysodium-java") }
+        .single()
+    from(zipTree(lazysodium)) {
+        include("windows64/libsodium.dll")
+        filesMatching("windows64/libsodium.dll") { path = "win32-x86-64/sodium.dll" }
+    }
+    from(zipTree(lazysodium)) {
+        include("linux64/libsodium.so")
+        filesMatching("linux64/libsodium.so") { path = "linux-x86-64/libsodium.so" }
+    }
+    from(zipTree(lazysodium)) {
+        include("mac/intel/libsodium.dylib")
+        filesMatching("mac/intel/libsodium.dylib") { path = "darwin-x86-64/libsodium.dylib" }
+    }
+    from(zipTree(lazysodium)) {
+        include("mac/aarch64/libsodium.dylib")
+        filesMatching("mac/aarch64/libsodium.dylib") { path = "darwin-aarch64/libsodium.dylib" }
     }
 }

@@ -27,7 +27,7 @@ import java.util.Base64
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.0"
+    const val VERSION = "0.3.1"
 
     lateinit var identity: DesktopIdentity
         private set
