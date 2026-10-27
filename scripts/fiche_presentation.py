@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.53 et client Windows v0.3.5, au "
+         "(messagerie Android v0.2.54 et client Windows v0.3.6, au "
          "27 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,7 +378,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.53 · Client Windows v0.3.5 · "
+              ["Versions livrées", "Messagerie Android v0.2.54 · Client Windows v0.3.6 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(27 octobre 2026)"],
           ],
@@ -641,7 +641,7 @@ def build_story():
                  "visionneuse, médias à affichage limité, suppression pour "
                  "moi/pour tous, mots de passe normal/panique/destruction, "
                  "session leurre, plateau système + notifications, éphémères, "
-                 "export/import des conversations, plan de tests) ; v0.3.5 "
+                 "export/import des conversations, plan de tests) ; v0.3.6 "
                  "(VERSION TEST) : VALIDATION TERRAIN v0.3.4 confirmée par "
                  "les journaux (Tor prêt en 8 s, message E2E déposé + accusé "
                  "« delivered » du téléphone — messagerie Windows ↔ Android "
@@ -655,7 +655,7 @@ def build_story():
                  "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
                  "au premier lancement, plus d'exception brute en rouge) ; "
                  "appels audio/visio = phase 2 documentée",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5"],
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -686,7 +686,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.53 / v0.8.12 · client Windows v0.3.5).",
+                  "(version v0.2.54 / v0.8.12 · client Windows v0.3.6).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -826,7 +826,7 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.5, ADR-019, parité Android complète, VALIDÉ TERRAIN — "
+               "(v0.3.6, ADR-019, parité Android complète + appels audio interop, VALIDÉ TERRAIN — "
                "messagerie confirmée opérationnelle dans les deux sens par les "
                "journaux v0.3.4) ; restent un client iOS et des builds "
                "officielles macOS/Linux (le jar livré est déjà multiplateforme) ; "
@@ -859,7 +859,10 @@ def build_story():
                "raccroché libère l'écran immédiatement même tor mort (fin "
                "immédiate, BYE en tâche de fond, démon tor relancé "
                "automatiquement) ; la v0.2.53 termine le cycle visio sur "
-               "le terrain du 25/10 : l'audio et l'image fonctionnent, "
+               "le terrain du 25/10 ; et depuis la v0.2.54 + le client "
+               "Windows v0.3.6, les appels AUDIO téléphONENT AU PC "
+               "(codec logiciel ADPCM négocié, miroir octet à octet des "
+               "deux côtés — l'audio et l'image fonctionnent, "
                "mais les autorisations n'étaient jamais demandées au "
                "démarrage (une visio ENTRANTE tombait en audio-only faute "
                "de permission caméra — elles sont désormais demandées au "
@@ -899,7 +902,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "27 octobre 2026 (messagerie v0.2.53 · client Windows v0.3.5). "
+                 "27 octobre 2026 (messagerie v0.2.54 · client Windows v0.3.6). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -922,14 +925,17 @@ def build_story():
                "TERRAIN 25/10) et du lot v0.2.53 (permissions au premier "
                "démarrage, orientation vidéo suivie) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.53 puis phase 2",
-               "Audio et visio confirmés terrain ; dernier lot en validation"],
-              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.5, ADR-019 : "
+               "v0.2.44-v0.2.54 puis phase 2",
+               "Audio et visio confirmés terrain ; v0.2.54/v0.3.6 : appels audio "
+               "téléphone↔PC par codec ADPCM négocié"],
+              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.6, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
                "portable, validé terrain v0.3.4 puis rendezvous signé corrigé "
-               "en v0.3.5) ; restent les builds macOS/Linux puis un client iOS",
-               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.5)"],
+               "en v0.3.5, accusés de réception réparés à la racine et appels "
+               "audio interop téléphone en v0.3.6) ; restent les builds "
+               "macOS/Linux puis un client iOS",
+               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.6)"],
               ["Un seul appareil", "Synchronisation multi-appareils sécurisée par "
                "dérivation de clés", "Phase 2 (à l'étude)", "Pré-étude"],
               ["Perte de clé = perte de compte", "Garde partagée (Shamir 2-sur-3) "
@@ -1070,6 +1076,24 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["20ᵉ édition", "27 octobre 2026", "Messagerie Android v0.2.54 · "
+              "Client Windows v0.3.6 (VERSION TEST) · Console v0.8.12 · "
+              "Serveur v0.2.38",
+              "Accusés + appels : le troisième export de logs PROUVE que la "
+              "messagerie fonctionne mais que le PC n'émettait AUCUN accusé "
+              "(test de reproduction JVM échouant sur v0.3.5 : l'accusé « lu » "
+              "ne partait JAMAIS — filtre impossible depuis v0.3.0 ; un accusé "
+              "en échec était PERDU sans retry — ~24 émissions fantômes "
+              "consommées en séquence ; modèle divergent de l'Android) — v0.3.6 "
+              "porte le mécanisme EXACT de l'Android (read-couvre-delivered, "
+              "lots de 50, vidage sur succès seulement, repartie au cycle "
+              "suivant, MIGRATION de guérison du backlog). Et l'exception "
+              "assumée devient une fonctionnalité : APPELS AUDIO "
+              "téléphone↔PC (ADR-015 porté — codec logiciel ADPCM miroir "
+              "octet à octet des deux côtés, négocié par HELLO/ACCEPT ; "
+              "téléphone↔téléphone reste AAC matériel ; le téléphone v0.2.54 "
+              "est requis). 205 tests desktop + 316×2 Android ; visio reste "
+              "entre téléphones (H.264)."],
               ["19ᵉ édition", "27 octobre 2026", "Messagerie Android v0.2.53 · "
               "Client Windows v0.3.5 (VERSION TEST) · Console v0.8.12 · "
               "Serveur v0.2.38",
