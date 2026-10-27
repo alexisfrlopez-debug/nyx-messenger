@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.53 et client Windows v0.3.4, au "
+         "(messagerie Android v0.2.53 et client Windows v0.3.5, au "
          "27 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,7 +378,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.53 · Client Windows v0.3.4 · "
+              ["Versions livrées", "Messagerie Android v0.2.53 · Client Windows v0.3.5 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(27 octobre 2026)"],
           ],
@@ -641,9 +641,21 @@ def build_story():
                  "visionneuse, médias à affichage limité, suppression pour "
                  "moi/pour tous, mots de passe normal/panique/destruction, "
                  "session leurre, plateau système + notifications, éphémères, "
-                 "export/import des conversations, plan de tests) ; appels "
-                 "audio/visio = phase 2 documentée",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4"],
+                 "export/import des conversations, plan de tests) ; v0.3.5 "
+                 "(VERSION TEST) : VALIDATION TERRAIN v0.3.4 confirmée par "
+                 "les journaux (Tor prêt en 8 s, message E2E déposé + accusé "
+                 "« delivered » du téléphone — messagerie Windows ↔ Android "
+                 "opérée dans les deux sens) + RENDEZVOUS SIGNÉ ENFIN VÉRIFIÉ "
+                 "(cause racine : la signature était valide depuis v0.2.23 "
+                 "mais le fichier .sig, du TEXTE base64, était passé octets "
+                 "bruts au vérificateur — corrigé, vérification une seule "
+                 "fois par session, réplique d'amorçage prouvé vivant par "
+                 "sonde Tor : une installation à froid connaît enfin le "
+                 "réseau sans contact ni sauvegarde) + échauffement du "
+                 "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
+                 "au premier lancement, plus d'exception brute en rouge) ; "
+                 "appels audio/visio = phase 2 documentée",
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -674,7 +686,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.53 / v0.8.12 · client Windows v0.3.4).",
+                  "(version v0.2.53 / v0.8.12 · client Windows v0.3.5).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -814,7 +826,9 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.4, ADR-019, parité Android complète) ; restent un client iOS et des builds "
+               "(v0.3.5, ADR-019, parité Android complète, VALIDÉ TERRAIN — "
+               "messagerie confirmée opérationnelle dans les deux sens par les "
+               "journaux v0.3.4) ; restent un client iOS et des builds "
                "officielles macOS/Linux (le jar livré est déjà multiplateforme) ; "
                "les appels audio/visio du bureau attendent la phase 2."],
               ["Un seul appareil par identité", "Pas de synchronisation multi-appareils ; "
@@ -885,7 +899,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "27 octobre 2026 (messagerie v0.2.53 · client Windows v0.3.4). "
+                 "27 octobre 2026 (messagerie v0.2.53 · client Windows v0.3.5). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -910,11 +924,12 @@ def build_story():
                "TURN (ADR-014) pour les réseaux hostiles",
                "v0.2.44-v0.2.53 puis phase 2",
                "Audio et visio confirmés terrain ; dernier lot en validation"],
-              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.4, ADR-019 : "
+              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.5, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
-               "portable) ; restent les builds macOS/Linux puis un client iOS",
-               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.4)"],
+               "portable, validé terrain v0.3.4 puis rendezvous signé corrigé "
+               "en v0.3.5) ; restent les builds macOS/Linux puis un client iOS",
+               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.5)"],
               ["Un seul appareil", "Synchronisation multi-appareils sécurisée par "
                "dérivation de clés", "Phase 2 (à l'étude)", "Pré-étude"],
               ["Perte de clé = perte de compte", "Garde partagée (Shamir 2-sur-3) "
@@ -1055,6 +1070,31 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["19ᵉ édition", "27 octobre 2026", "Messagerie Android v0.2.53 · "
+              "Client Windows v0.3.5 (VERSION TEST) · Console v0.8.12 · "
+              "Serveur v0.2.38",
+              "Validation terrain + cause racine historique : le second export "
+              "de logs PROUVE que la v0.3.4 fonctionne sur le terrain (Tor "
+              "prêt en 8 s, onion publié, réplique 1/1 joignable, message E2E "
+              "dépôt + accusé « delivered » du téléphone, boîte du PC servie "
+              "— messagerie Windows ↔ Android DANS LES DEUX SENS). Deux "
+              "frictions closes : (1) « rendezvous signé INVALIDE » répété "
+              "toutes les 30 s — RÉSOLU À LA RACINE avec un TWIST : la liste "
+              "signée embarquée était PARFAITEMENT VALIDE depuis la v0.2.23 "
+              "(preuves OpenSSL + libsodium + outil du dépôt), mais le "
+              "fichier .sig (TEXTE base64, 89 octets) était passé OCTETS BRUTS "
+              "au vérificateur qui en attendait 64 décodés — rejet instantané "
+              "des deux côtés Android ET Windows depuis toujours (le fallback "
+              "legacy Android masquait tout en contenant la même adresse) ; "
+              "corrigé côté vérificateur (le .sig livré est INCHANGÉ dans "
+              "git), vérification une seule fois par session, et le réplique "
+              "d'amorçage est PROUVÉ VIVANT par sonde Tor (HTTP 200, 414 "
+              "événements) : l'amorçage à froid sans contact fonctionne enfin "
+              "(mécanisme ADR-009/016) ; (2) l'exception brute « Connect timed "
+              "out » affichée en rouge pendant les ~75 s de construction du "
+              "premier circuit Tor vers le réplique — remplacée par une "
+              "explication d'échauffement (90 s de grâce, testée). 180 tests "
+              "JVM desktop."],
               ["18ᵉ édition", "27 octobre 2026", "Messagerie Android v0.2.53 · "
               "Client Windows v0.3.4 (VERSION TEST) · Console v0.8.12 · "
               "Serveur v0.2.38",
@@ -1342,7 +1382,7 @@ html, body {
     Tor — messages, appels et visio compris — et les serveurs, eux-mêmes
     anonymes, se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · v0.2.53 / Windows v0.3.4 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · v0.2.53 / Windows v0.3.5 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
