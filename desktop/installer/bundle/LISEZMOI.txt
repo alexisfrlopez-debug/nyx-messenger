@@ -1,8 +1,44 @@
 Nyx — Messagerie anonyme, chiffree de bout en bout, entierement sur Tor
 ========================================================================
-Version desktop Windows v0.3.4 VERSION TEST (connexion Tor corrigee par
-preuve des logs terrain + barre de progression au demarrage + parite
-complete des interfaces Android — portage ADR-019 du client Android v0.2.53)
+Version desktop Windows v0.3.5 VERSION TEST (rendezvous signe ENFIN
+VERIFIE + echauffement du circuit Tor froid explique — portage ADR-019 du
+client Android v0.2.53 ; valide terrain : la messagerie Windows <-> Android
+est confirmee operationnelle par les journaux v0.3.4)
+
+VALIDATION TERRAIN v0.3.4 (journaux recus)
+-------------------------------------------
+  L'analyse des logs envoyes par le bouton PROUVE que tout fonctionne :
+  Tor demarre et se connecte en ~8 s, l'onion d'identite est publie, le
+  replica est joignable, un message envoye au telephone a ete DEPOSE puis
+  ACCUSE « delivered », et le telephone depose sur la boite du PC — la
+  messagerie marche DANS LES DEUX SENS. Un « POST /client/event -> 400 »
+  occasionnel est la resynchronisation de sequence normale, pas un defaut.
+
+NOUVEAUTE v0.3.5 — RENDEZVOUS SIGNE ENFIN VERIFIE (cause racine trouvee)
+--------------------------------------------------------------------------
+  L'avertissement « rendezvous signe INVALIDE » (repete toutes les 30 s)
+  est RESOLU A LA RACINE : la liste signee embarquee etait PARFAITEMENT
+  VALIDE depuis la v0.2.23, mais le fichier de signature (du TEXTE base64)
+  etait passe OCTETS BRUTS au verificateur, qui attendait 64 octets codes —
+  rejet instantane, des deux cotes (Android comme Windows). Desormais :
+   - la liste est VERIFIEE et chargee (journal : « rendezvous signe VERIFIE :
+     1 entree(s) embarquee(s) ») — une installation a froid, sans contact ni
+     sauvegarde, connait le replique d'amorcage DES LE PREMIER lancement
+     (ce replique a ete PROUVE VIVANT par sonde Tor : 200 OK, 414 evenements) ;
+   - la verification n'a lieu QU'UNE SEULE fois par session (plus de
+     repetition toutes les 30 s) ;
+   - le fichier de signature lui-meme est INCHANGE (preuve que la signature
+     etait valide — le correctif est purement client).
+
+NOUVEAUTE v0.3.5 — CIRCUIT TOR FROID EXPLIQUE AU PREMIER LANCEMENT
+--------------------------------------------------------------------
+  Au TOUT premier lancement, la construction du premier circuit Tor vers le
+  replica prend jusqu'a environ UNE MINUTE (recuperation du descripteur +
+  construction du circuit) : l'etape « Replicas » de l'ecran de connexion
+  l'EXPLIQUE desormais (« Premier circuit Tor en construction… c'est normal,
+  la verification reprend automatiquement ») au lieu d'afficher une erreur
+  rouge technique. Apres ~90 s, l'erreur detaillee reapparait s'il y a un
+  VRAI blocage (bouton « Reessayer » toujours present).
 
 NOUVEAUTE v0.3.4 — CONNEXION TOR : CAUSE REELLE TROUVEE ET CORRIGEE
 --------------------------------------------------------------------
@@ -60,10 +96,10 @@ NOUVEAUTE v0.3.4 — MEMES FONCTIONNALITES ET BOUTONS QUE LE TELEPHONE
    - THEME reactif (nuit / aube / suit le systeme) sans redemarrer ;
    - EXPORT/IMPORT des CONVERSATIONS chiffre par mot de passe (fichier
      relisible sur telephone ou PC) ;
-   - REG LAGES complets : replique embarquee (adresse, statistiques, Purger),
+   - REGLAGES complets : replique embarquee (adresse, statistiques, Purger),
      liste des replicas personnalises, sauvegarde de compte, mise a jour
      (canal test en option), deconnexion du compte ;
-   - build test : carte PLAN DE TESTS v0.3.4 (cases a cocher, resultats
+   - build test : carte PLAN DE TESTS v0.3.5 (cases a cocher, resultats
      journalises et envoyes avec les logs) a cote de la carte d'envoi de
      logs.
 
@@ -83,13 +119,13 @@ CORRECTIFS v0.3.2 (rappel)
   contacts et position de lecture ; Reglages > « Sauvegarde de compte » :
   export chiffre PC -> telephone.
 
-REPLIQUES — SI L'ETAPE 2 RESTE ROUGE
--------------------------------------
-  Tor pret mais replicas injoignables : Reglages > « Repliques
-  personnalises » > collez l'adresse onion d'un replique vivant de votre
-  flotte (console d'admin > repliques) — la liste signee embarquee ne
-  contient qu'un tres vieux replique d'amorcage. Les boites de vos contacts
-  acceptes servent aussi d'amorcage automatique.
+REPLIQUES — SI L'ETAPE 2 RESTE ROUGE APRES ~2 MINUTES
+------------------------------------------------------
+  Tor pret mais replicas injoignables MALGRE le delai d'echauffement :
+  Reglages > « Repliques personnalises » > collez l'adresse onion d'un
+  replique vivant de votre flotte (console d'admin > repliques) — la liste
+  signee embarquee ne contient qu'un replique d'amorcage. Les boites de vos
+  contacts acceptes servent aussi d'amorcage automatique.
 
 CONTENU
 -------

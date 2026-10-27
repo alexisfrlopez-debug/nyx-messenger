@@ -1,8 +1,10 @@
 package net.nyx.messenger.net
 
 import java.util.Base64
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -103,6 +105,44 @@ class RendezvousListTest {
     fun `verify refuse signature tronquée`() {
         assertFalse(RendezvousList.verify(json.toByteArray(), ByteArray(10), pubB64))
         assertFalse(RendezvousList.verify(json.toByteArray(), Base64.getDecoder().decode(sigB64), "courte="))
+    }
+
+    // ---- v0.3.5 : le .sig est du TEXTE base64 (cause racine session 75) ----
+
+    @Test
+    fun `signature texte base64 avec fin de ligne acceptée`() {
+        // LE format produit par scripts/gen_rendezvous.py : base64 + '\n'.
+        // AVANT v0.3.5, ServiceLocator/NyxApplication passaient CES octets
+        // (89 ≠ 64) → rejet instantané d'une liste pourtant valide.
+        val sigFile = (sigB64 + "\n").toByteArray(Charsets.US_ASCII)
+        assertEquals(89, sigFile.size)
+        val v = RendezvousList.load(json.toByteArray(), sigFile, pubB64)
+        assertNotNull("le .sig TEL QUE LU dans le fichier doit être accepté", v)
+        assertEquals(onion, v!!.entries[0].onion)
+    }
+
+    @Test
+    fun `signature texte base64 sans fin de ligne acceptée`() {
+        val v = RendezvousList.load(json.toByteArray(), sigB64.toByteArray(Charsets.US_ASCII), pubB64)
+        assertNotNull(v)
+    }
+
+    @Test
+    fun `decodeSignature - bornes et garbage`() {
+        // 64 octets → tels quels.
+        val raw64 = Base64.getDecoder().decode(sigB64)
+        assertArrayEquals(raw64, RendezvousList.decodeSignature(raw64))
+        // Texte base64 + espaces/fins de ligne → décodé.
+        assertArrayEquals(raw64, RendezvousList.decodeSignature("  $sigB64 \r\n".toByteArray(Charsets.US_ASCII)))
+        // Garbage : vide, longueurs non multiples de 4, base64 illisible,
+        // base64 décodant à ≠ 64 octets → null (rejet).
+        assertNull(RendezvousList.decodeSignature(ByteArray(0)))
+        assertNull(RendezvousList.decodeSignature("abc".toByteArray()))
+        assertNull(RendezvousList.decodeSignature("!!!".toByteArray()))
+        assertNull(RendezvousList.decodeSignature("AAAAA".toByteArray()))
+        assertNull(RendezvousList.decodeSignature(Base64.getEncoder().encode(ByteArray(32))))
+        assertNull(RendezvousList.decodeSignature(ByteArray(63)))
+        assertNull(RendezvousList.decodeSignature(ByteArray(65)))
     }
 
     /** Signature locale via la clé de test (vecteur RFC 8032 n°1) — implémentation BC (vérification croisée Python↔Kotlin). */

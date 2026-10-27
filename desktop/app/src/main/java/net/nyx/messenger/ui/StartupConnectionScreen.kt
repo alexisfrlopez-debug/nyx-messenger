@@ -208,9 +208,27 @@ fun StartupConnectionScreen(onConnected: () -> Unit, onSkip: () -> Unit) {
                         "Vérification des réplicas via Tor… (répétée automatiquement toutes les 8 s)",
                         fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    probe.detail?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(it.take(160), fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                    // v0.3.5 (session 75 — preuve par l'export terrain v0.3.4) :
+                    // les ~75 premières secondes, la sonde expire en timeout
+                    // parce que le PREMIER circuit Tor vers l'onion du réplica
+                    // se construit (fetch de descripteur + circuit ≈ 1 min) —
+                    // c'est NORMAL, pas une erreur. On l'EXPLIQUE au lieu de
+                    // cracher l'exception brute en rouge (l'opérateur voyait
+                    // « SocketTimeoutException » pendant que TOUT se
+                    // connectait — message envoyé 74 s après le backend PRÊT).
+                    if (!showRawProbeError(elapsedS, probeOk)) {
+                        Text(
+                            "Premier circuit Tor vers le(s) réplica(s) en construction — " +
+                                "jusqu'à environ une minute au premier lancement. C'est normal, " +
+                                "la vérification reprend automatiquement.",
+                            fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    } else {
+                        probe.detail?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text(it.take(160), fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                     TextButton(onClick = { probeAttempt++ }, modifier = Modifier.fillMaxWidth()) {
@@ -305,3 +323,16 @@ internal fun startupProgress(
     }
     return ((torPct + repPct) / 100f).coerceIn(0f, 1f)
 }
+
+/**
+ * v0.3.5 — l'étape réplicas doit-elle MONTRER l'erreur brute ? Avant
+ * [COLD_CIRCUIT_GRACE_S] on affiche l'explication d'échauffement (circuit
+ * Tor froid — preuve export terrain v0.3.4 : premier /health OK 74 s après
+ * le backend PRÊT), ensuite seulement le détail technique. Pure + internal :
+ * testée JVM (StartupProgressTest).
+ */
+internal fun showRawProbeError(elapsedS: Long, probeOk: Boolean?): Boolean =
+    probeOk != true && elapsedS >= COLD_CIRCUIT_GRACE_S
+
+/** Délai de grâce avant d'exposer l'erreur brute de sonde (circuit froid). */
+internal const val COLD_CIRCUIT_GRACE_S = 90L

@@ -44,6 +44,35 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 75 — REÇUES 2026-10-27 ~18:19 (retour terrain
+> v0.3.4 opérateur Alek : « logs de l'app windows envoyés » — second export
+> du bouton d'envoi de logs, nyx-logs-desktop-v0.3.4-20261027-181926.txt),
+> ENREGISTRÉES AVANT TRAVAIL (règle §9.9). Toute session qui reprend ce
+> fichier DOIT les traiter :**
+>
+> 1. **ANALYSER LE SECOND EXPORT DE LOGS + CLORE LES FRICTIONS RÉSIDUELLES** —
+>    l'analyse EST LA RÉPONSE : v0.3.4 **FONCTIONNE SUR LE TERRAIN** (preuve :
+>    control port ouvert à 18:16:15, bootstrap 100 % en 8 s, onion publié,
+>    backend PRÊT, réplica 1/1 joignable à 18:17:37, message E2E déposé
+>    seq=2 + accusé « delivered » du téléphone, boîte du PC servie au téléphone
+>    — la messagerie Windows ↔ Android marche DANS LES DEUX SENS). Restent
+>    DEUX frictions visibles dans l'export : (a) les ~75 premières secondes
+>    de sonde réplicas exprient en timeout (circuit Tor FROID vers l'onion —
+>    fetch descriptor + construction circuit ≈ 1 min) → l'écran de démarrage
+>    affiche l'exception brute en rouge pendant que tout se connecte ;
+>    (b) « rendezvous signé INVALIDE » craché TOUTES LES ~30 s (re-vérification
+>    à chaque cycle de poll au lieu du une-fois Android) + en-tête d'export
+>    « REJETÉE ». CORRIGER : (b') la clé privée de release rendezvous a été
+>    RETROUVÉE sur le Drive (keystore/rendezvous-ed25519.json — pub
+>    M//9JU3… IDENTIQUE à la clé compilée clients) et le réplica d'amorçage
+>    5myvqkcm…:80 a été PROUVÉ VIVANT par sonde Tor depuis le bac à sable
+>    (HTTP 200 en 7,2 s, 414 événements) → RE-SIGNER la liste embarquée avec
+>    la clé de release (le mécanisme ADR-016 fonctionne ENFIN des deux côtés,
+>    y compris amorçage à froid sans contacts) + mettre la vérification en
+>    cache (une seule fois par process, miroir Android) ; (a') message
+>    d'échauffement de circuit dans l'écran de démarrage pendant ~90 s avant
+>    de montrer l'erreur brute. Livrer v0.3.5-desktop VERSION TEST.
+
 > 🔴 **INSTRUCTIONS SESSION 74 — REÇUES 2026-10-27 (retours terrain v0.3.3
 > opérateur Alek, export logs reçu via le bouton d'envoi), ENREGISTRÉES
 > (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**

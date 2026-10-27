@@ -33,13 +33,21 @@ object TestPlan {
     data class Item(val id: String, val label: String)
 
     /**
-     * v0.3.4 — items de validation (miroir de docs/releases/v0.3.4-desktop.md) :
-     * correctif connexion Tor (course du port de contrôle prouvée par les logs
-     * terrain), écran de progression au démarrage, et la vague de parité
-     * Android (vocaux, médias, vue unique, suppressions, mots de passe,
-     * plateau, exports).
+     * v0.3.5 — items de validation (miroir de docs/releases/v0.3.5-desktop.md) :
+     * v0.3.4 garde ses items (connexion, progression, parité Android) + les
+     * DEUX nouveautés v0.3.5 : rendezvous signé ENFIN VÉRIFIÉ (cause racine
+     * session 75 : la base64 du .sig n'était jamais décodée) et l'explication
+     * du circuit Tor froid au premier lancement.
      */
-    val ITEMS_V0_3_4 = listOf(
+    val ITEMS_V0_3_5 = listOf(
+        Item(
+            "rendezvous-signe",
+            "Rendezvous signé : l'export de logs affiche « rendezvous signé VÉRIFIÉ : 1 entrée(s) embarquée(s) » — plus AUCUNE ligne « INVALIDE » (même après 10 min : vérifiée une seule fois)"
+        ),
+        Item(
+            "circuit-froid",
+            "Premier lancement : pendant ~1 min l'étape réplicas affiche « Premier circuit Tor en construction… c'est normal » (PAS d'erreur rouge), puis passe au vert et l'app s'ouvre"
+        ),
         Item(
             "tor-premiere-connexion",
             "Connexion Tor : l'application se connecte AU PREMIER lancement (plus d'échec instantané « control port : écriture impossible »)"
@@ -90,7 +98,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_4
+    fun items(): List<Item> = ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

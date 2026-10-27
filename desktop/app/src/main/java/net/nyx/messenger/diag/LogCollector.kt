@@ -129,6 +129,12 @@ object LogCollector {
      * PAS contre la pubkey de release compilée — les deux côtés Android ET
      * desktop ont TOUJOURS rejeté la liste ; l'Android masquait cela par son
      * fallback legacy). L'export doit désormais le DIRE.
+     *
+     * v0.3.5 — RÉSOLU : la signature était VALIDE depuis v0.2.23 ; le .sig
+     * (TEXTE base64) était passé OCTETS BRUTS au vérificateur (89 ≠ 64 →
+     * rejet instantané) — corrigé dans [RendezvousList] (décodage base64).
+     * Le diagnostic reste en place : une future liste réellement corrompue
+     * doit continuer de s'afficher ici.
      */
     private fun rendezvousRejected(): String = runCatching {
         val raw = LogCollector::class.java.getResourceAsStream("/rendezvous.json")?.readBytes()

@@ -2,9 +2,11 @@ package net.nyx.messenger.desktop
 
 import kotlinx.coroutines.runBlocking
 import net.nyx.messenger.repo.DepositRouting
+import net.nyx.messenger.ui.showRawProbeError
 import net.nyx.messenger.ui.startupProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -139,22 +141,65 @@ class DesktopStartupV4Test {
         assertEquals(0.5f, startupProgress(ServiceLocator.TorPhase.OFF, null, true, true))
     }
 
-    // ---- 4. Rendezvous signé (constat session 74) ----
+    // ---- 3bis. Grâce circuit froid (v0.3.5 — preuve export terrain v0.3.4) ----
 
     @Test
-    fun `rendezvous embarque - signature actuelle REJETEE (constat session 74)`() {
+    fun `circuit froid - erreur brute masquee pendant la premiere minute et demie`() {
+        // L'export terrain v0.3.4 : premier /health OK 74 s APRÈS le backend
+        // PRÊT (circuit Tor froid vers l'onion : descripteur + circuit ≈ 1
+        // min) — pendant ce délai l'écran EXPLIQUE l'échauffement au lieu de
+        // cracher « SocketTimeoutException » en rouge.
+        assertFalse(showRawProbeError(0L, false))
+        assertFalse(showRawProbeError(30L, false))
+        assertFalse(showRawProbeError(89L, false))
+        assertTrue(showRawProbeError(90L, false))
+        assertTrue(showRawProbeError(300L, false))
+        // Sonde OK (ou inconnue) : jamais d'erreur brute à montrer.
+        assertFalse(showRawProbeError(300L, true))
+        assertFalse(showRawProbeError(0L, null))
+        assertTrue(showRawProbeError(300L, null))
+    }
+
+    // ---- 4. Rendezvous signé (RÉSOLU session 75 : la base64 n'était jamais décodée) ----
+
+    @Test
+    fun `rendezvous embarque - signature actuelle VERIFIEE (resolution session 75)`() {
         val raw = javaClass.getResourceAsStream("/rendezvous.json")!!.readBytes()
         val sig = javaClass.getResourceAsStream("/rendezvous.json.sig")!!.readBytes()
         val verified = net.nyx.messenger.net.RendezvousList.load(
             raw, sig, ServiceLocator.RENDEZVOUS_PUBKEY
         )
-        // LA signature embarquée v0.2.23 ne vérifie PAS contre la pubkey de
-        // release compilée des clients — sur Android comme desktop, la liste
-        // a donc TOUJOURS été rejetée (l'Android retombait sur le bootstrap
-        // legacy, le desktop n'avait rien). Si ce test ÉCHOUE un jour, c'est
-        // que la liste a été re-signée : mettre à jour le diagnostic
-        // LogCollector + ce commentaire.
-        assertNull("la signature embarquée DOIT être rejetée (état constaté session 74)", verified)
+        // v0.3.5 — LA CAUSE RACINE DU « rendezvous signé INVALIDE » (terrain
+        // v0.3.3/v0.3.4 ET production Android depuis v0.2.23) : le fichier
+        // .sig est du TEXTE base64 (88 caractères + fin de ligne = 89 octets)
+        // et les clients le passaient OCTETS BRUTS à verify() qui exigeait
+        // 64 octets → rejet INSTANTANÉ d'une signature PARFAITEMENT VALIDE
+        // (preuve session 75 : OpenSSL 3.5.7 + libsodium/PyNaCl +
+        // ed25519lib valident la signature embarquée sous la clé de release
+        // M//9JU3… ; l'outil scripts/gen_rendezvous.py verify dit VALIDE).
+        // Le verdict « clé inconnue » de la session 74 était un artefact de
+        // la bibliothèque cryptography du bac à sable (cassée : elle échoue
+        // son propre aller-retour sign→verify). Correction : RendezvousList
+        // accepte désormais le .sig tel que lu (base64) OU décodé (64 o).
+        assertNotNull("la signature embarquée DOIT être acceptée (base64 décodée)", verified)
+        assertEquals(1, verified!!.entries.size)
+        assertEquals(
+            "5myvqkcmmigkibiuy7glzpkx4rt3ewqdzx4uydnbsrp65b23mc2jisqd.onion:80",
+            verified.entries[0].onion
+        )
+    }
+
+    @Test
+    fun `rendezvous embarque - fichier sig altere reste rejete`() {
+        // La TOLÉRANCE base64 ne doit JAMAIS accepter une signature altérée :
+        // 1 caractère changé dans le texte base64 → rejet en bloc.
+        val raw = javaClass.getResourceAsStream("/rendezvous.json")!!.readBytes()
+        val sig = javaClass.getResourceAsStream("/rendezvous.json.sig")!!.readBytes()
+            .clone()
+        for (i in sig.indices) {
+            if (sig[i] == 'T'.code.toByte()) { sig[i] = 'U'.code.toByte(); break }
+        }
+        assertNull(net.nyx.messenger.net.RendezvousList.load(raw, sig, ServiceLocator.RENDEZVOUS_PUBKEY))
     }
 
     @Test

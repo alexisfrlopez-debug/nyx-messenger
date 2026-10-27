@@ -13,6 +13,7 @@ import net.nyx.messenger.crypto.MessageCipher
 import net.nyx.messenger.crypto.RecoveryKey
 import net.nyx.messenger.net.BootstrapReplicas
 import net.nyx.messenger.net.RendezvousList
+import net.nyx.messenger.net.RendezvousOnce
 import net.nyx.messenger.net.RelayClient
 import net.nyx.messenger.net.ReplicaRegistry
 import net.nyx.messenger.replica.EmbeddedReplica
@@ -32,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.4"
+    const val VERSION = "0.3.5"
 
     /** v0.3.4 — mode de session (miroir SessionMode Android v0.2.18) :
      * PANIC = session LEURRE (données vides dans un répertoire séparé,
@@ -239,27 +240,42 @@ object ServiceLocator {
         rebuildReplicaList()
     }
 
-    private fun rendezvousEntries(): List<String> {
-        return runCatching {
+    private fun rendezvousEntries(): List<String> = rendezvousOnce.entries()
+
+    /**
+     * v0.3.5 (session 75) — vérification du rendezvous signé UNE SEULE FOIS par
+     * process (miroir NyxApplication Android : vérifiée au boot, jamais
+     * re-vérifiée). AVANT : [rebuildReplicaList] est appelé à CHAQUE cycle de
+     * poll (30 s) et re-vérifiait la signature + rejouait l'avertissement —
+     * l'export terrain v0.3.4 montrait « rendezvous signé INVALIDE » toutes
+     * les ~30 s (spam + travail inutile : la ressource embarquée est
+     * immuable). [RendezvousOnce] garantit le calcul unique, testé JVM.
+     */
+    private val rendezvousOnce = RendezvousOnce {
+        runCatching {
             val raw = ServiceLocator::class.java.getResourceAsStream("/rendezvous.json")?.readBytes()
-                ?: return emptyList()
+                ?: return@runCatching emptyList()
             val sig = ServiceLocator::class.java.getResourceAsStream("/rendezvous.json.sig")?.readBytes()
-                ?: return emptyList()
+                ?: return@runCatching emptyList()
             val verified = RendezvousList.load(raw, sig, RENDEZVOUS_PUBKEY)
             if (verified == null) {
-                // v0.3.4 — miroir du log Android « rendezvous signé INVALIDE —
-                // fallback legacy » : le SILENCE (0 entrée sans explication)
-                // a coûté une session de diagnostic terrain. Le dépôt v0.2.23
-                // embarque une signature qui ne VÉRIFIE PAS contre la clé de
-                // release compilée (constat session 74, testée contre RFC
-                // 8032 + variantes de canonicalisation) — le fallback assume
-                // le relais (boîtes des contacts + réplique personnalisée).
+                // v0.3.5 — RÉSOLU À LA RACINE : la signature embarquée était
+                // VALIDE depuis v0.2.23, mais le .sig (TEXTE base64) était
+                // passé OCTETS BRUTS au vérificateur (89 ≠ 64) → rejet
+                // instantané (constat session 75 ; le fallback « boîtes des
+                // contacts + réplique personnalisée » reste le filet si une
+                // future liste était réellement corrompue).
                 DesktopLog.w(
                     "nyx-boot",
                     "rendezvous signé INVALIDE (signature/format) — fallback : boîtes des contacts + réplique personnalisée"
                 )
-                return emptyList()
+                return@runCatching emptyList()
             }
+            DesktopLog.i(
+                "nyx-boot",
+                "rendezvous signé VÉRIFIÉ : ${verified.entries.size} entrée(s) embarquée(s)" +
+                    " (${verified.entries.joinToString(", ") { it.onion }})"
+            )
             verified.entries.map { it.onion }
         }.getOrDefault(emptyList())
     }
