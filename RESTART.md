@@ -61,6 +61,13 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    une version test avec le BOUTON D'ENVOI DE LOGS miroir Android (gros
 >    bouton rouge → collecte → dépôt Drive logs-terrain) pour objectiver les
 >    échecs réseaux terrain Windows.
+>    **ÉTAT : TRAITÉ (session 73 — CLIENT DESKTOP WINDOWS v0.3.3 VERSION TEST :
+>    startBackend non bloquant + retry auto 1× + bouton « Réessayer » +
+>    killLeftoverTor porté + erreurs enrichies (console tor + tor.log) +
+>    journal persistant + BOUTON D'ENVOI DE LOGS miroir Android (DriveUploader
+>    + LogCollector + carte rouge, credentials embarqués, pipeline VÉRIFIÉ en
+>    conditions réelles) ; release GitHub v0.3.3-desktop + Drive + fiche 17ᵉ
+>    édition).**
 
 > 🔴 **INSTRUCTIONS SESSION 72 — REÇUES 2026-10-27 (retour terrain
 > v0.3.1 opérateur Alek), ENREGISTRÉES AVANT TRAVAIL (règle §9.9). Toute
@@ -82,6 +89,50 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    résolus par l'API shell GetFolderPath + icône nyx.ico + import complet
 >    des sauvegardes téléphone avec vecteur d'interopérabilité indépendant ;
 >    release GitHub v0.3.2-desktop + Drive + fiche 16ᵉ édition).**
+
+> **POINTEUR RAPIDE SESSION 73 (2026-10-27) — v0.3.3 VERSION TEST : connexion
+> Tor/réplicas + bouton d'envoi de logs.** Retour terrain verbatim : « l'appli
+> windows ne se connecte pas à tor ni aux replicas + je veux une version test
+> avec le bouton d'envoi de logs comme pour la version android ». ANALYSE CODE
+> (journaux attendus via le nouveau bouton) : (1) `startBackend` était appelé
+> sur le thread UI AWT (LaunchedEffect) et BLOQUAIT jusqu'à 4 min (cookie 60 s
+> + bootstrap 180 s) — fenêtre « Ne répond pas », progression jamais peinte,
+> échec invisible jusqu'au dégel → **corrigé : non bloquant (Dispatchers.IO),
+> bannière peinte en direct** ; (2) stdout du démon tor AVALÉ par le drain —
+> un tor.exe mort immédiatement (antivirus, dll, verrou) était INDIQUABLE →
+> **capturé (queue 400 lignes) + injecté dans les messages d'erreur** ;
+> (3) AUCUN retry/killLeftoverTor (portage ADR-007 v0.2.9 manquant) — un
+> tor.exe orphelin verrouille le DataDirectory → « Tor is already running »
+> jusqu'au reboot → **killLeftoverTor porté (ciblage STRICT par chemin
+> d'exécutable : PowerShell Win32_Process borné 8 s, jamais le tor du Tor
+> Browser) + retry auto 1× + bouton « Réessayer » dans la bannière** ;
+> (4) journaux mémoire seule → **journal persistant `<dataDir>/logs/
+> nyx-desktop.log` (borné 512 Ko, miroir DiagLog v0.2.33)** + progression
+> bootstrap journalisée + geoip de l'expert bundle livré + message antivirus
+> explicite. BOUTON D'ENVOI DE LOGS (portage trio Android) : `diag/
+> DriveUploader.kt` (OAuth refresh + multipart Drive API v3, zéro dépendance ;
+> credentials DANS LE FAT JAR depuis `desktop/test-upload.properties`
+> git-ignoré miroir android/ + override terrain sans rebuild ; injection au
+> fatJar SEULEMENT — via sourceSets la ressource fuit sur le classpath de
+> test) + `diag/LogCollector.kt` (en-tête complet + tor.log + console du
+> démon + journal persistant — aucune donnée de conversation) + `ui/
+> TestLogExportCard.kt` (carte repliable rouge en tête des conversations,
+> leçons v0.2.38/v0.2.42 ; dépôt Drive logs-terrain MÊME dossier que les
+> exports Android + recours « Enregistrer dans un fichier… »). PIPELINE
+> Drive VÉRIFIÉ EN CONDITIONS RÉELLES au build (refresh + upload + delete du
+> fichier de test — scripts/verify_drive_upload.py). GUIDANCE réplicas : le
+> rendezvous signé n'a qu'1 vieux réplica v0.2.23 et la sauvegarde de compte
+> ne transporte PAS les réplicas découverts du téléphone → Réglages →
+> « Réplique personnalisé » (onion vivant de la flotte, console) puis la
+> découverte reprend par annonces — consigné au LISEZMOI. 157 tests JVM verts
+> (15 nouveaux) ; selftest 5/5 ; audit PASSED 0/0/1 ; android/ INTACT.
+> Livré : v0.3.3-desktop (zip 126 Mo 4f3a5f44… + exe 8722002a… + SHA256SUMS +
+> audit) — release GitHub id 425548717 + Drive (v0.3.2 archivée) + fiche 17ᵉ
+> édition. VALIDATION TERRAIN ATTENDUE : (1) fenêtre répond PENDANT le
+> bootstrap (pourcentage vivant) ; (2) si échec → cause lisible + « Réessayer » ;
+> (3) ENVOYER LES LOGS dès le premier souci → fichier dans Drive logs-terrain
+> (tor.log + console + journal persistant : cause racine noire sur blanc) ;
+> (4) « binaire tor introuvable » → exclusion antivirus + réinstallation.
 
 > 🔴 **INSTRUCTIONS SESSION 70 — REÇUES 2026-10-27, ENREGISTRÉES AVANT
 > TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
@@ -1485,7 +1536,7 @@ nyx/
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config,transportxmpp,turn})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
-├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.2 — Gradle propre, noyau pur partagé 1:1, app/ + installer/ {+ bundle/ : bat, LISEZMOI, nyx.ico VERSIONNÉS} + scripts/{build-desktop-release,release-desktop}.sh, natifs libsodium autonomes + --selftest + sauvegarde de compte interop téléphone)
+├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.3 VERSION TEST — Gradle propre, noyau pur partagé 1:1, app/ + installer/ {+ bundle/ : bat, LISEZMOI, nyx.ico VERSIONNÉS} + scripts/{build-desktop-release,release-desktop}.sh, natifs libsodium autonomes + --selftest + sauvegarde de compte interop téléphone + diag/{DriveUploader,LogCollector} BOUTON D'ENVOI DE LOGS + journal persistant + killLeftoverTor/retry)
 ├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh, publish-drive.sh
 ```
@@ -1596,6 +1647,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 
 | Date | Session | Résumé |
 |---|---|---|
+| 2026-10-27 | 73 | **v0.3.3 VERSION TEST — CONNEXION TOR/RÉPLIQUES + BOUTON D'ENVOI DE LOGS (demande opérateur verbatim : « l'appli windows ne se connecte pas à tor ni aux replicas + je veux une version test avec le bouton d'envoi de logs comme pour la version android »)** : instructions enregistrées + Drive OK (§9.9). ANALYSE CODE (le journal terrain confirmera via le bouton) : startBackend BLOQUAIT le thread UI AWT jusqu'à 4 min (cookie 60 s + bootstrap 180 s via LaunchedEffect — fenêtre « Ne répond pas », progression jamais peinte) ; stdout du démon tor avalé (mort immédiate dll/antivirus/verrou INDIQUABLE) ; aucun retry ni killLeftoverTor (portage ADR-007 v0.2.9 manquant — tor.exe orphelin = verrou DataDirectory = « Tor is already running » jusqu'au reboot) ; journaux mémoire seule. CORRECTIFS : startBackend NON BLOQUANT (Dispatchers.IO) + retry auto 1× + bouton « Réessayer » bannière + killLeftoverTor (ciblage STRICT par chemin d'exécutable, PowerShell Win32_Process borné 8 s / pgrep sandbox — jamais le tor du Tor Browser) + erreurs enrichies (queue console démon + fin tor.log dans l'exception → bannière + journal) + journal persistant logs/nyx-desktop.log (borné 512 Ko, UTF-8 explicite — writeBytes mangle les accents) + progression bootstrap journalisée + geoip expert bundle (torrc best-effort + essentiels installateur) + message antivirus. BOUTON D'ENVOI DE LOGS miroir Android : diag/DriveUploader.kt (OAuth refresh + multipart Drive v3 stdlib ; credentials dans le FAT JAR depuis desktop/test-upload.properties git-ignoré + override terrain <dataDir>/drive-upload.properties sans rebuild ; injection fatJar SEULEMENT — sourceSets = fuite classpath de test, faux-positif constaté et corrigé) + diag/LogCollector.kt (en-tête version/OS/Java/Tor/onion/binaire/réplicas actifs-découverts-rendezvous + tor.log + console + journal persistant — aucune donnée de conversation) + ui/TestLogExportCard.kt (carte repliable rouge tête des conversations, leçons v0.2.38/v0.2.42 : gros bouton ENVOYER LES LOGS → Drive logs-terrain MÊME dossier qu'Android + « Enregistrer dans un fichier… » = ACTION_SEND desktop). PIPELINE VÉRIFIÉ EN CONDITIONS RÉELLES : OAuth refresh + upload + delete test (scripts/verify_drive_upload.py). GUIDANCE réplicas (rendezvous = 1 vieux réplica v0.2.23, sauvegarde de compte sans réplicas découverts) : Réglages → Réplique personnalisé (onion vivant console) → découverte par annonces — consigné LISEZMOI. 157 tests JVM verts (15 nouveaux : journal persistant append/queue/rotation, torrc geoip, queues tor, killLeftoverTor bénin, helpers DriveUploader + override, LogCollector dégradé) ; selftest 5/5 rc=0 ; audit PASSED 0/0/1 (allowlist portage-miroir DriveUploader) ; android/ INTACT. Livré : v0.3.3-desktop (zip 126 Mo 4f3a5f44… + exe 8722002a… + SHA256SUMS + audit) — release GitHub id 425548717 (4 assets) + Drive (v0.3.2 archivée) + fiche 17ᵉ édition (§9.10). |
 | 2026-10-27 | 72 | **CORRECTIFS RETOUR TERRAIN v0.3.2 — RACCOURCI BUREAU + RESTAURATION DE SAUVEGARDE TÉLÉPHONE** : (1) raccourci invisible car %OneDrive% désigne la RACINE synchronisée (pas le Bureau) et %USERPROFILE%\Desktop n'existe pas sur Windows localisé (« Bureau ») → dossier résolu PAR L'API SHELL dans PowerShell ([Environment]::GetFolderPath → SHGetKnownFolderPath ; codes de sortie dédiés 2/3, existence du .lnk vérifiée, chemin résolu imprimé) + nyx.ico (lune/constellation miroir Android, 6 tailles, générée PIL) + IconLocation réelle + lanceur javaw sans argument (console résiduelle supprimée) ; (2) import impossible des fichiers téléphone (enveloppe chiffrée nyx-enc-v1) → PORTAGES MIROIR crypto/PasswordCrypto.kt + crypto/IdentityBackup.kt + desktop/BackupRestore.kt (export v2 clé+alias+profil+contacts+curseurs ; application : identité re-dérivée, alias normalisé, profil propre, contacts SANS régresser — incoming→accepted réparé, archivé intact —, curseurs insertion seule) + OnboardingScreen « Importer un fichier de sauvegarde… » (JFileChooser, mot de passe auto-détecté enveloppe, erreurs explicites) + Réglages carte « Sauvegarde de compte » (export chiffré bidirectionnel PC↔téléphone) + selftest étape « sauvegarde » (5/5). 142 tests JVM verts (21 nouveaux DONT PasswordCryptoInteropTest : vecteur scellé par implémentation TIERCE Python cryptography → garantie d'ouverture des enveloppes téléphone) ; audit strict PASSED 0/0/1 (code mort restoreIdentity supprimé sur blocage MAJOR) ; sources bundle versionnées desktop/installer/bundle/. Livré : v0.3.2-desktop (zip 121 Mo ce91f108… + exe bfd99991… + SHA256SUMS + audit) — release GitHub + Drive, v0.3.1 archivée, fiche 16ᵉ édition (§9.10). |
 | 2026-10-27 | 71 | **CORRECTIF DÉMARRAGE WINDOWS v0.3.1 (retour terrain v0.3.0)** : UnsatisfiedLinkError « Unable to load library 'sodium' » au premier lancement — CAUSE RACINE : dll libsodium lazysodium-java = build MinGW dépendant de libgcc_s_seh-1.dll + libwinpthread-1.dll (absentes d'un Windows vierge ; le chargeur groupé l'extrait seule en temp → résolution de dépendances impossible → repli système silencieux → crash) + skiko Windows absent (currentOs = plateforme de BUILD) + bac à sable Linux aveuglé par libsodium.so.23 système. Natives.kt (extraction autonome avant JNA + compagnes MinGW + jna.library.path), compagnes aussi dans runtime\bin via l'installateur (essentielles vérifiées), miroir conventions JNA dans le fat jar, skiko-awt-runtime-windows-x64:0.8.4, slf4j-nop, --selftest headless (libsodium, onion v3, identité scellée, sealed box + NYX1, sortie 0/3), scripts/build-desktop-release.sh (pipeline persisté : tests + vérifications de contenu + selftest + payload + zip + installateur GOOS=windows + smoke -silent + SHA256SUMS + audit). 122 tests JVM verts ; NativesTest verrouille la régression ; audit PASSED 0/0/1. Livré : v0.3.1-desktop (zip 126 Mo 04ba43a6… + exe 130 Mo 973caab6… + SHA256SUMS + audit) — release GitHub + Drive, v0.3.0 archivée. CLÔTURE : publish-drive.sh corrigé (BASH_REMATCH[2] non lié sous set -u ; zip portable sans suffixe jamais archivé — le v0.3.0.zip resté en place a été rattrapé), session_closeout.py étendu à la famille desktop (tag v0.3.1-desktop, release + assets, Drive, fiche), fiche 15ᵉ édition (§9.10) — couverture + Tableaux 1/2/5/6 + ligne Windows, RESTART.md + tar.gz synchronisés Drive. |
 | 2026-10-27 | 70 | **VERSION WINDOWS DU MESSAGER (ADR-019)** : instructions enregistrées + Drive OK (§9.9). Module `desktop/` (Compose Desktop, Kotlin 2.0.20) : noyau pur Android copié 1:1 (OnionCodec, AliasValidator, RecoveryKey, BootstrapReplicas, Loopback, SeqResync, RepoRouting, ChunkCodec, ReceiptCodec, DeleteCodec, ReplicaCodec, LinkFallback, ReplicaValidate, ReplicaHttp, RendezvousList, TorControlClient) + MessageCipher sur LazySodium JAVA + Wire/RelayClient + ReplicaRegistry fichier + EmbeddedReplica desktop (journal jsonl, mêmes quotas) + DesktopRepository (postSigned/SeqResync, DepositRouting, receipts, invitations/acks, annonces réplica, alias, profils) + DesktopStore JSON atomique + DesktopTor (tor.exe, torrc miroir NyxTorConfig, ADD_ONION Detach) + UI Compose Desktop thème Nuit de Nyx (onboarding/conversations/chat/contacts/connexions/mon adresse/réglages) ; `installer/` Go cross-compilé Windows (payload zip go:embed, SHA ldflags, Zip-Slip, raccourcis, désinstalleur). 119 tests JVM verts ; audit strict PASSED (audit.py + allowlist étendus portage-miroir) ; smoke tests installateur + jar réels. Livré : v0.3.0-desktop (zip 114 Mo 0c2d2c18… + exe 117 Mo 95ee7340… + SHA256SUMS + audit) — release GitHub + Drive dernieres-livrables (publish-drive.sh --kind desktop). android/ INTACT. |

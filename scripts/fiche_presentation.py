@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.53 et client Windows v0.3.2, au "
+         "(messagerie Android v0.2.53 et client Windows v0.3.3, au "
          "27 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,7 +378,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.53 · Client Windows v0.3.2 · "
+              ["Versions livrées", "Messagerie Android v0.2.53 · Client Windows v0.3.3 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(27 octobre 2026)"],
           ],
@@ -628,9 +628,13 @@ def build_story():
                  "Windows (OneDrive/localisation) + icône dédiée + SAUVEGARDE "
                  "DE COMPTE interopérable téléphone↔PC (enveloppe chiffrée "
                  "PBKDF2+AES-GCM, import/export complets : alias, profil, "
-                 "contacts, position de lecture) ; appels audio/visio = phase 2 "
-                 "documentée",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2"],
+                 "contacts, position de lecture) ; v0.3.3 (VERSION TEST) : connexion "
+                 "Tor/réplicas corrigée (démarrage non bloquant, retry + "
+                 "bouton Réessayer, nettoyage des Tor orphelins, erreurs "
+                 "explicites, journal persistant) + BOUTON D'ENVOI DE LOGS "
+                 "miroir Android (dépôt Drive de diagnostic) ; appels "
+                 "audio/visio = phase 2 documentée",
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -661,7 +665,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.53 / v0.8.12 · client Windows v0.3.2).",
+                  "(version v0.2.53 / v0.8.12 · client Windows v0.3.3).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -801,7 +805,7 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.2, ADR-019) ; restent un client iOS et des builds "
+               "(v0.3.3, ADR-019) ; restent un client iOS et des builds "
                "officielles macOS/Linux (le jar livré est déjà multiplateforme) ; "
                "les appels audio/visio du bureau attendent la phase 2."],
               ["Un seul appareil par identité", "Pas de synchronisation multi-appareils ; "
@@ -872,7 +876,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "27 octobre 2026 (messagerie v0.2.53 · client Windows v0.3.2). "
+                 "27 octobre 2026 (messagerie v0.2.53 · client Windows v0.3.3). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -897,11 +901,11 @@ def build_story():
                "TURN (ADR-014) pour les réseaux hostiles",
                "v0.2.44-v0.2.53 puis phase 2",
                "Audio et visio confirmés terrain ; dernier lot en validation"],
-              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.2, ADR-019 : "
+              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.3, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
                "portable) ; restent les builds macOS/Linux puis un client iOS",
-               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.2)"],
+               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.3)"],
               ["Un seul appareil", "Synchronisation multi-appareils sécurisée par "
                "dérivation de clés", "Phase 2 (à l'étude)", "Pré-étude"],
               ["Perte de clé = perte de compte", "Garde partagée (Shamir 2-sur-3) "
@@ -1042,6 +1046,20 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["17ᵉ édition", "27 octobre 2026", "Messagerie Android v0.2.53 · "
+               "Client Windows v0.3.3 (VERSION TEST) · Console v0.8.12 · "
+               "Serveur v0.2.38",
+               "Retour terrain Windows corrigé : « l'appli ne se connecte pas "
+               "à tor ni aux replicas » — le démarrage de Tor gelait la "
+               "fenêtre jusqu'à 4 minutes (progression invisible, échec "
+               "illisible) : il est désormais non bloquant avec retry "
+               "automatique, bouton Réessayer, nettoyage des processus Tor "
+               "orphelins et causes d'erreur explicites (console du démon + "
+               "tor.log) ; demande opérateur « comme pour la version "
+               "android » satisfaite : BOUTON D'ENVOI DE LOGS rouge en tête "
+               "des conversations (même dépôt Drive de diagnostic que le "
+               "téléphone, journal persistant qui survit aux redémarrages) ; "
+               "157 tests JVM desktop ; 302 tests JVM Android × 2 inchangés."],
               ["16ᵉ édition", "27 octobre 2026", "Messagerie Android v0.2.53 · "
                "Client Windows v0.3.2 · Console v0.8.12 · Serveur v0.2.38",
                "Deux retours terrain du client Windows corrigés : le "
@@ -1291,7 +1309,7 @@ html, body {
     Tor — messages, appels et visio compris — et les serveurs, eux-mêmes
     anonymes, se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · v0.2.53 / Windows v0.3.2 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · v0.2.53 / Windows v0.3.3 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
