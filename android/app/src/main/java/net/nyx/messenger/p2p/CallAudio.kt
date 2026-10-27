@@ -16,8 +16,16 @@ import android.media.MediaFormat
  * AudioTrack. Un thread par sens ; le mute coupe l'ÉMISSION (plus aucune
  * trame partie) ; le haut-parleur passe par AudioManager.
  *
- * Budget Tor : ~3 Ko/s par sens — très en dessous de la bande passante d'un
- * circuit onion ; la latence (0,5-3 s) reste le prix de l'anonymat (ADR-015).
+ * v0.2.54 — CODEC ADPCM LOGICIEL (interop appels PC↔téléphone) : le bureau
+ * Nyx ne peut NI encoder NI décoder l'AAC (pas de MediaCodec sur JVM). Négocié
+ * par HELLO/ACCEPT « ac » ([P2pProtocol.AC_ADPCM]) : quand le pair est le
+ * bureau (ou l'a choisi), l'émission ET la réception basculent sur
+ * [Adpcm] (pur Java, miroir exact du code bureau) — téléphone↔téléphone
+ * reste AAC matériel (qualité supérieure, inchangé).
+ *
+ * Budget Tor : ~3 Ko/s par sens (AAC) / ~8 Ko/s (ADPCM) — très en dessous de
+ * la bande passante d'un circuit onion ; la latence (0,5-3 s) reste le prix
+ * de l'anonymat (ADR-015).
  */
 class CallAudio(
     private val input: java.io.InputStream,
@@ -28,6 +36,19 @@ class CallAudio(
 
     /** v0.2.18 : l'audio ne part QU'après acceptation (pas d'écoute à l'insu). */
     @Volatile var transmit = false
+
+    /**
+     * v0.2.54 — MODE ADPCM : vrai = émission/réception via [Adpcm] (pair
+     * bureau ou choix interop). Mis AVANT [startSending] (appelé dont le pair
+     * ne sait pas l'AAC) ou par [switchSendingToAdpcm] (appelant dont l'appelé
+     * vient de choisir l'ADPCM dans son ACCEPT).
+     */
+    @Volatile var useAdpcm = false
+
+    /** v0.2.54 — condition de sortie de la BOUCLE AAC (fausse après bascule). */
+    @Volatile private var aacSending = true
+
+    private var aacEncThread: Thread? = null
 
     /**
      * v0.2.20 — ROUTAGE des trames vidéo : la boucle de lecture ci-dessous est
@@ -138,12 +159,20 @@ class CallAudio(
             return AacCsd.aacLc(SAMPLE_RATE, 1)   // réception seule, pas de onFatal
         }
         record = rec
+        if (useAdpcm) {
+            // v0.2.54 — émission ADPCM dès le départ (l'appelant ne SAIT pas
+            // l'AAC — bureau) : csd-0 AAC CALCULÉ pour le HELLO (compat pair
+            // ancien qui lirait le champ avant refus).
+            startAdpcmEncoder(rec)
+            return AacCsd.aacLc(SAMPLE_RATE, 1)
+        }
         val t = Thread({
             try {
                 rec.startRecording()
                 val pcm = ByteArray(PCM_FRAME)
                 val bufferInfo = MediaCodec.BufferInfo()
-                while (!stopped) {
+                // v0.2.54 — aacSending : bascule ADPCM demandée (switchSendingToAdpcm)
+                while (!stopped && aacSending) {
                     val n = rec.read(pcm, 0, pcm.size)
                     if (n <= 0) continue
                     if (muted) continue // pas de trame émise = silence chez le pair
@@ -163,7 +192,55 @@ class CallAudio(
         t.isDaemon = true
         t.start()
         threads.add(t)
+        aacEncThread = t
         return csd
+    }
+
+    /**
+     * v0.2.54 — BASCULE D'ÉMISSION VERS L'ADPCM (appelant dont l'appelé — le
+     * bureau — vient de répondre ACCEPT ac=adpcm). La boucle AAC s'arrête
+     * proprement (elle n'a RIEN émis : transmit n'était pas encore vrai), le
+     * micro est RÉUTILISÉ par la boucle ADPCM.
+     */
+    fun switchSendingToAdpcm() {
+        if (useAdpcm || stopped) return
+        useAdpcm = true
+        aacSending = false
+        val old = aacEncThread
+        val rec = record
+        if (old != null) {
+            runCatching { old.join(1000) }   // la boucle AAC sort en ≤ 20 ms (un read)
+        }
+        runCatching { encoder?.stop() }
+        runCatching { encoder?.release() }
+        encoder = null
+        if (rec != null) startAdpcmEncoder(rec)
+        net.nyx.messenger.diag.DiagLog.i("nyx-call", "émission basculée sur le codec ADPCM (interop bureau)")
+    }
+
+    /** v0.2.54 — boucle d'émission ADPCM (miroir bureau — blocs fermes 20 ms). */
+    private fun startAdpcmEncoder(rec: AudioRecord) {
+        val t = Thread({
+            try {
+                val pcm = ByteArray(Adpcm.PCM_BLOCK)
+                while (!stopped && useAdpcm) {
+                    var n = 0
+                    while (n < pcm.size && !stopped) {
+                        val r = rec.read(pcm, n, pcm.size - n)
+                        if (r <= 0) break
+                        n += r
+                    }
+                    if (n < pcm.size) continue
+                    if (muted || !transmit) continue
+                    write(P2pProtocol.F_AUDIO, Adpcm.encodeBlock(pcm))
+                }
+            } catch (e: Exception) {
+                if (!stopped) onFatal("micro (adpcm) : ${e.message}")
+            }
+        }, "nyx-call-enc-adpcm")
+        t.isDaemon = true
+        t.start()
+        threads.add(t)
     }
 
     private fun drainEncoder(enc: MediaCodec, info: MediaCodec.BufferInfo) {
@@ -181,8 +258,12 @@ class CallAudio(
         }
     }
 
-    /** Démarre la RÉCEPTION (csd-0 du pair obligatoire). */
-    fun startReceiving(peerCsd: ByteArray) {
+    /**
+     * Démarre la RÉCEPTION (csd-0 du pair obligatoire).
+     * v0.2.54 — [peerAc] : codec du pair ("adpcm" = blocs ADPCM logiciels,
+     * décodés SANS MediaCodec ; "" / "aac" = chemin AAC matériel historique).
+     */
+    fun startReceiving(peerCsd: ByteArray, peerAc: String = "") {
         // v0.2.51 — csd du pair ASSAINI : un pair v0.2.50 expédie le « csd
         // factice » {0,0} qui tuait NOTRE décodeur au démarrage (terrain
         // 25/10 : « work failed to complete: 14 » → UNINITIALIZED → appel
@@ -200,15 +281,6 @@ class CallAudio(
                 )
             }
         } else peerCsd
-        val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, 1).apply {
-            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16 * 1024)
-            setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(csd))
-        }
-        val dec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-        dec.configure(format, null, null, 0)
-        dec.start()
-        decoder = dec
 
         val minBuf = AudioTrack.getMinBufferSize(
             SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
@@ -229,6 +301,49 @@ class CallAudio(
         )
         track = at
         at.play()
+
+        if (peerAc == P2pProtocol.AC_ADPCM) {
+            // v0.2.54 — RÉCEPTION ADPCM (pair bureau) : PAS de MediaCodec — les
+            // blocs fermes sont décodés en logiciel (miroir bureau) et servis
+            // directement au AudioTrack. Une trame de taille inattendue est
+            // IGNORÉE (aucune dérive d'état — résilience Tor).
+            val trackAdpcm = track
+            val t = Thread({
+                try {
+                    while (!stopped) {
+                        val frame = P2pProtocol.read(input) ?: break
+                        when (frame.type) {
+                            P2pProtocol.F_AUDIO -> {
+                                if (frame.payload.size == Adpcm.ADPCM_BLOCK && trackAdpcm != null) {
+                                    val pcm = Adpcm.decodeBlock(frame.payload)
+                                    trackAdpcm.write(pcm, 0, pcm.size)
+                                }
+                            }
+                            P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
+                            P2pProtocol.F_VIDEO_ROT -> rotSink?.invoke(frame.payload)
+                            P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (!stopped) onFatal("réception (adpcm) : ${e.message}")
+                }
+            }, "nyx-call-dec-adpcm")
+            t.isDaemon = true
+            t.start()
+            threads.add(t)
+            net.nyx.messenger.diag.DiagLog.i("nyx-call", "réception ADPCM active (interop bureau — ${Adpcm.ADPCM_BLOCK} o/bloc, 20 ms)")
+            return
+        }
+        val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, 1).apply {
+            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16 * 1024)
+            setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(csd))
+        }
+        val dec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+        dec.configure(format, null, null, 0)
+        dec.start()
+        decoder = dec
+
         val t = Thread({
             try {
                 val info = MediaCodec.BufferInfo()

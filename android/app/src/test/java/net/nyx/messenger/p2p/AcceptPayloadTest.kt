@@ -121,4 +121,63 @@ class AcceptPayloadTest {
         assertEquals(0, h2.vw)
         assertEquals(0, h2.vh)
     }
+
+    // ---------------- v0.2.54 — codec ADPCM (interop appels PC↔téléphone) ----------------
+
+    @Test
+    fun `v0254 - ACCEPT avec codec adpcm (choix du bureau)`() {
+        val payload = P2pProtocol.AcceptPayload.encode("AAQI", "", 0, 0, 0, "adpcm")
+        assertTrue(payload.startsWith("{"))
+        val info = P2pProtocol.AcceptPayload.parse(payload.toByteArray())
+        assertEquals("adpcm", info.ac)
+        assertEquals("AAQI", info.audioCsd)
+    }
+
+    @Test
+    fun `v0254 - ACCEPT sans codec (téléphone↔téléphone) reste historique`() {
+        // Pas de vidéo + pas de codec → format BRUT (un appelant v0.2.19 le lit).
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "")
+        assertEquals("AAEC", payload)
+        assertEquals("", P2pProtocol.AcceptPayload.parse(payload.toByteArray()).ac)
+    }
+
+    @Test
+    fun `v0254 - HELLO du bureau (adpcm seul) se parse`() {
+        val hello = P2pProtocol.Hello("call", "kxcwahchrto32cp3annifd5ndflgw4z4qalnhtprehrjoqy6774qklid.onion",
+            "pc", "cid1234567890abcd", "AAQI", 0, "sig==", ac = "adpcm")
+        val parsed = P2pProtocol.parseHello(P2pProtocol.encodeHello(hello, "sig=="))
+        assertEquals("adpcm", parsed!!.ac)
+        // Le choix CALLE : ADPCM seulement si l'appelant ne SAIT PAS l'AAC.
+        val codecs = parsed.ac.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        assertTrue(codecs.contains(P2pProtocol.AC_ADPCM))
+        assertTrue(!codecs.contains(P2pProtocol.AC_AAC))
+    }
+
+    @Test
+    fun `v0254 - HELLO du téléphone (aac,adpcm) se parse — l'appelé garde l'AAC`() {
+        val hello = P2pProtocol.Hello("call", "kxcwahchrto32cp3annifd5ndflgw4z4qalnhtprehrjoqy6774qklid.onion",
+            "tel", "cid1234567890abcd", "AAQI", 0, "sig==", ac = "aac,adpcm")
+        val parsed = P2pProtocol.parseHello(P2pProtocol.encodeHello(hello, "sig=="))
+        assertEquals("aac,adpcm", parsed!!.ac)
+        val codecs = parsed.ac.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        assertTrue(codecs.contains(P2pProtocol.AC_AAC)) // → l'appelé téléphone choisit AAC
+    }
+
+    @Test
+    fun `v0254 - HELLO d'un téléphone ≤ v0253 (sans ac) se parse, ac vide`() {
+        val oldHello = "{\"v\":1,\"t\":\"call\",\"onion\":\"kxcwahchrto32cp3annifd5ndflgw4z4qalnhtprehrjoqy6774qklid.onion\"," +
+            "\"alias\":\"tel\",\"cid\":\"cid1234567890abcd\",\"csd\":\"AAQI\",\"count\":0,\"sig\":\"sig==\"}"
+        assertEquals("", P2pProtocol.parseHello(oldHello.toByteArray())!!.ac)
+    }
+
+    @Test
+    fun `v0254 - offre de signalisation avec codecs se parse (champ informationnel)`() {
+        val sig = CallSignal(CallSignal.OP_OFFER, "0123456789abcdef0123456789abcdef", "tel", 1770000000L, "", "aac,adpcm")
+        val parsed = CallSignal.parse(sig.encode())
+        assertEquals("aac,adpcm", parsed!!.ac)
+        // Et un ancien format (sans ac) reste lisible.
+        val old = CallSignal.parse("{\"v\":1,\"kind\":\"call\",\"op\":\"offer\"," +
+            "\"cid\":\"0123456789abcdef\",\"alias\":\"tel\",\"ts\":1770000000}")
+        assertEquals("", old!!.ac)
+    }
 }

@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.5"
+    const val VERSION = "0.3.6"
 
     /** v0.3.4 — mode de session (miroir SessionMode Android v0.2.18) :
      * PANIC = session LEURRE (données vides dans un répertoire séparé,
@@ -166,7 +166,40 @@ object ServiceLocator {
         )
         repository.onChangeCallback = { rebuildReplicaList() }
         wireNotifier()
+        wireP2p()
         rebuildReplicaList()
+    }
+
+    /**
+     * v0.3.6 — PILE D'APPELS P2P (ADR-015, portage miroir Android) : écouteur
+     * média (port 47471 onion → local), authentification HELLO (signature
+     * ed25519 + contact accepté), client SOCKS sortant, gestionnaire d'appels.
+     * L'écouteur démarre ICI — AVANT la publication onion, pour que le port
+     * média soit servi dès l'annonce (miroir P2pServer Android).
+     */
+    private fun wireP2p() {
+        net.nyx.messenger.p2p.DesktopP2pServer.verifier = { onion, canonical, sig ->
+            val pub = runCatching { net.nyx.messenger.crypto.OnionCodec.onionToPubKey(onion) }.getOrNull()
+            pub != null && MessageCipher.INSTANCE.verifyEvent(canonical, sig, pub)
+        }
+        net.nyx.messenger.p2p.DesktopP2pServer.isAllowed = { onion ->
+            store.contact(onion)?.let { it.status == DesktopStore.ContactStatus.ACCEPTED || it.status == DesktopStore.ContactStatus.PENDING } == true
+        }
+        net.nyx.messenger.p2p.DesktopP2pServer.callSink = { conn ->
+            net.nyx.messenger.p2p.DesktopCallManager.onIncomingConnection(conn)
+        }
+        net.nyx.messenger.p2p.DesktopP2pServer.start()
+        net.nyx.messenger.p2p.DesktopP2pClient.signer = { canonical ->
+            identity.onionAddress?.let { me ->
+                runCatching { MessageCipher.INSTANCE.signEvent(canonical, identity.secretKey()) }.getOrDefault("")
+            } ?: ""
+        }
+        net.nyx.messenger.p2p.DesktopP2pClient.me = identity.onionAddress
+        net.nyx.messenger.p2p.DesktopP2pClient.socksPort = { if (tor.bootstrapped) tor.socksPort else 0 }
+        net.nyx.messenger.p2p.DesktopP2pClient.descriptorRefresher = { onion ->
+            runCatching { tor.forceDescriptorRefresh(onion) }
+        }
+        net.nyx.messenger.p2p.DesktopCallManager.init(repository)
     }
 
     /** v0.3.4 — notifications plateau (miroir MessageNotifier/ContactNotifier). */
@@ -365,7 +398,11 @@ object ServiceLocator {
 
         val priv = identity.secretKey()
         tor.onBootstrap = { pct -> _torState.value = _torState.value.copy(percent = pct) }
-        tor.startAndWait(priv, EmbeddedReplica.localPort)
+        // v0.3.6 — écouteur média (appels directs) publié avec l'onion : le
+        // port 47471 est mappé sur l'écouteur P2P démarré à l'init.
+        val mediaPort = if (net.nyx.messenger.p2p.DesktopP2pServer.localPort > 0)
+            net.nyx.messenger.p2p.DesktopP2pServer.localPort else 0
+        tor.startAndWait(priv, EmbeddedReplica.localPort, mediaPort)
     }
 
     /** v0.3.3 — relance manuelle depuis la bannière (état FAILED). */

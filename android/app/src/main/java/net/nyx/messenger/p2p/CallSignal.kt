@@ -25,12 +25,16 @@ data class CallSignal(
     // repli (v0.2.43 et avant ignorent le champ — MiniJson = extraction par
     // clé, aucun rejet de payload inconnu).
     val relay: String = "",
+    // v0.2.54 — codecs audio supportés par l'appelant (informationnel : la
+    // négociation réelle se fait au HELLO/ACCEPT ; un pair ancien ignore la clé).
+    val ac: String = "",
 ) {
     fun encode(): String {
         fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
         val relayField = if (relay.isNotEmpty()) ",\"relay\":\"${esc(relay)}\"" else ""
+        val acField = if (ac.isNotEmpty()) ",\"ac\":\"${esc(ac)}\"" else ""
         return "{\"v\":1,\"kind\":\"call\",\"op\":\"${esc(op)}\",\"cid\":\"${esc(cid)}\"," +
-            "\"alias\":\"${esc(alias)}\",\"ts\":$ts$relayField}"
+            "\"alias\":\"${esc(alias)}\",\"ts\":$ts$relayField$acField}"
     }
 
     companion object {
@@ -53,7 +57,8 @@ data class CallSignal(
             val alias = MiniJson.str(plain, "alias") ?: ""
             val ts = MiniJson.num(plain, "ts") ?: 0L
             val relay = MiniJson.str(plain, "relay") ?: ""
-            return CallSignal(op, cid, alias, ts, relay)
+            val ac = MiniJson.str(plain, "ac") ?: ""
+            return CallSignal(op, cid, alias, ts, relay, ac)
         }
 
         fun newCid(): String {

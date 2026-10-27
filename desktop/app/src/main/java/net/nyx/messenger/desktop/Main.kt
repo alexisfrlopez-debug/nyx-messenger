@@ -199,6 +199,10 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
         return
     }
 
+    // v0.3.6 — OVERLAY D'APPEL par-dessus TOUT (sonnerie entrante/sortante,
+    // appel actif, motif de fin) tant que la phase ≠ IDLE (miroir Android).
+    net.nyx.messenger.ui.CallOverlay()
+
     // Sélection d'un contact → conversation ouverte (accusé « lu »).
     LaunchedEffect(selectedPeer) {
         selectedPeer?.let {

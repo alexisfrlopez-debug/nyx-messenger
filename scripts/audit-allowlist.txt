@@ -73,6 +73,22 @@ android/app/src/main/java/net/nyx/messenger/repo/ChunkCodec.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/repo/ReceiptCodec.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/repo/DeleteCodec.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/repo/ReplicaCodec.kt:portage-miroir
+
+# ===== SESSION 76 — appels audio bureau↔téléphone (v0.3.6 / v0.2.54) : portage miroir =====
+# Même convention : les fichiers du canal direct P2P et du codec ADPCM sont
+# des copies partagées Android↔desktop (même protocole filaire — trames
+# [type:1][len:4 BE], HELLO signé nyx-p2p|…, négociation codec « ac »,
+# blocs ADPCM fermes 324 o — tout écart brise l'interop des appels). Les
+# vecteurs de test JVM sont identiques des deux côtés (AdpcmTest même graine).
+android/app/src/main/java/net/nyx/messenger/p2p/P2pProtocol.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/CallSignal.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/MiniJson.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/Adpcm.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/AacCsd.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/P2pClient.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/CallAudio.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/P2pServer.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/CallManager.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/repo/LinkFallback.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/replica/ReplicaValidate.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/replica/ReplicaHttp.kt:portage-miroir

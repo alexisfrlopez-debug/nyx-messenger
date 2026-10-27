@@ -170,7 +170,10 @@ object CallManager {
             //    l'appelé saura où se brancher si le direct n'arrive pas.
             val relayHint = r.relayHintFor(peer) ?: ""
             val offered = r.sendCallSignal(
-                peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS(), relayHint).encode()
+                peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS(), relayHint,
+                // v0.2.54 — codecs audio supportés (informationnel ; le bureau
+                // qui sonne saura déjà qu'un chemin ADPCM existe).
+                "aac," + P2pProtocol.AC_ADPCM).encode()
             )
             if (offered.isFailure) {
                 end("réplica injoignable — appel impossible")
@@ -329,8 +332,11 @@ object CallManager {
             // plus la coroutine sans nettoyage — BYE + fin propre.
             runCatching {
                 c.send(P2pProtocol.F_HELLO, P2pProtocol.encodeHello(
-                    // v0.2.53 — vrot/vw/vh : présentation vidéo (un pair v0.2.52 ignore ces clés)
-                    P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64, vRot, vW, vH), sig
+                    // v0.2.53 — vrot/vw/vh : présentation vidéo (un pair v0.2.52 ignore ces clés).
+                    // v0.2.54 — ac : codecs audio SUPPORTÉS (le bureau ne sait pas
+                    // l'AAC → il choisira adpcm dans son ACCEPT ; un pair ≤ v0.2.53 ignore la clé).
+                    P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64, vRot, vW, vH,
+                        "aac," + P2pProtocol.AC_ADPCM), sig
                 ))
             }.getOrElse { e ->
                 net.nyx.messenger.diag.DiagLog.w("nyx-call", "HELLO non remis : ${e.message}")
@@ -349,7 +355,19 @@ object CallManager {
                     val peerCsd = runCatching {
                         java.util.Base64.getDecoder().decode(accept.audioCsd)
                     }.getOrElse { ByteArray(0) }
-                    runCatching { audioEngine.startReceiving(peerCsd) }
+                    // v0.2.54 — CODEC CHOISI PAR L'APPELÉ : le bureau ne fait
+                    // QUE l'ADPCM → il répond ac=adpcm : on bascule émission ET
+                    // réception sur le codec logiciel (miroir bureau). Un pair
+                    // téléphone répond sans ac (ou aac) → AAC matériel inchangé.
+                    if (accept.ac == P2pProtocol.AC_ADPCM) {
+                        runCatching { audioEngine.switchSendingToAdpcm() }
+                        runCatching { audioEngine.startReceiving(peerCsd, P2pProtocol.AC_ADPCM) }
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-call", "codec ADPCM négocié — interop bureau (cid ${cid.take(8)}…)"
+                        )
+                    } else {
+                        runCatching { audioEngine.startReceiving(peerCsd) }
+                    }
                     audioEngine.transmit = true // acceptation explicite → l'audio part
                     if (_ui.value.videoEnabled && accept.videoCsd.isNotEmpty()) {
                         runCatching {
@@ -705,7 +723,20 @@ object CallManager {
         val peerCsd = runCatching {
             java.util.Base64.getDecoder().decode(c.hello.csd)
         }.getOrElse { ByteArray(0) }
+        // v0.2.54 — CHOIX DU CODEC : l'appelant annonce ses codecs supportés
+        // (HELLO.ac — liste « aac,adpcm » téléphone ≥ v0.2.54 ; « adpcm » seul
+        // bureau ; ABSENT = téléphone ≤ v0.2.53 qui ne sait PAS décoder
+        // l'ADPCM). Règle : ADPCM seulement si l'appelant ne SAIT PAS l'AAC
+        // (c'est le bureau) — téléphone↔téléphone garde l'AAC matériel.
+        val callerCodecs = c.hello.ac.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val chosenAdpcm = callerCodecs.contains(P2pProtocol.AC_ADPCM) && !callerCodecs.contains(P2pProtocol.AC_AAC)
+        if (chosenAdpcm) {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-call", "appelant ${c.hello.onion.take(16)}… ADPCM seul (bureau) — codec logiciel interop"
+            )
+        }
         val engine = CallAudio(c.input, { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
+        if (chosenAdpcm) engine.useAdpcm = true   // AVANT startSending — boucle ADPCM d'emblée
         audio = engine
         val myCsdB64 = runCatching {
             java.util.Base64.getEncoder().encodeToString(engine.startSending())
@@ -754,14 +785,18 @@ object CallManager {
         runCatching {
             // v0.2.53 — la présentation de l'appelé accompagne son csd
             // (un appelant v0.2.52 ignore ces clés du JSON).
+            // v0.2.54 — ac : le codec CHOISI (adpcm = interop bureau ; ABSENT
+            // sinon → format/téléphone↔téléphone inchangés).
             c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(
-                myCsdB64, myVCsdB64, myVRot, myVW, myVH
+                myCsdB64, myVCsdB64, myVRot, myVW, myVH,
+                if (chosenAdpcm) P2pProtocol.AC_ADPCM else ""
             ).toByteArray(Charsets.UTF_8))
         }.getOrElse { e ->
             net.nyx.messenger.diag.DiagLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
             end("connexion perdue"); return
         }
-        runCatching { engine.startReceiving(peerCsd) }
+        // v0.2.54 — réception : le codec de L'APPELANT (bureau = ADPCM).
+        runCatching { engine.startReceiving(peerCsd, if (chosenAdpcm) P2pProtocol.AC_ADPCM else "") }
         engine.transmit = true // l'appelé a accepté explicitement
         _ui.value = _ui.value.copy(
             phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "",

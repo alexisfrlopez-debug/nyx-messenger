@@ -87,6 +87,21 @@ object DesktopNotifier {
         balloon("Mise à jour Nyx prête", "La version $version a été téléchargée — installez-la depuis les Réglages.")
     }
 
+    /** v0.3.6 — APPEL ENTRANT : info-bulle persistante (miroir ContactNotifier.incomingCall
+     * Android) — l'acceptation se fait DANS l'overlay d'appel de l'application. */
+    fun incomingCall(onion: String, alias: String) {
+        if (!enabled()) return
+        val label = alias.ifBlank { onion.take(10) + "…" }
+        balloon("Appel entrant — $label", "Appuyez sur Accepter dans la fenêtre Nyx (l'appel est anonyme et chiffré).")
+    }
+
+    /** v0.3.6 — fin de sonnerie (décroché/refusé/manqué — miroir cancelCall). */
+    fun cancelCall(onion: String) {
+        // Pas d'annulation d'info-bulle portable en AWT — no-op volontaire
+        // (l'overlay d'appel EST la source de vérité ; miroir des limites
+        // documentées pour les invitations).
+    }
+
     private fun enabled(): Boolean = trayIcon != null &&
         runCatching { ServiceLocator.settings.get().notificationsEnabled }.getOrDefault(true)
 

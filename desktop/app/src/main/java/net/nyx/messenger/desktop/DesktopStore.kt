@@ -166,6 +166,28 @@ class DesktopStore {
             myProfile = JsonStore.read(fMyProfile, MyProfile.serializer()) ?: MyProfile()
             cursors = HashMap(JsonStore.read(fCursors, MapSerializer(String.serializer(), Long.serializer())) ?: emptyMap())
             delPending = JsonStore.read(fDelPending, ListSerializer(DelPending.serializer()))?.toCollection(ArrayList()) ?: ArrayList()
+            // v0.3.6 — GUÉRISON DU BACKLOG DES ACCUSÉS (retour terrain « les
+            // accusés de réception ne fonctionnent pas » Tel↔PC) : les messages
+            // ENTRANTS DÉJÀ LUS (readLocal=1 — jamais de faux « lu » : un message
+            // non ouvert ne doit rien révéler au pair) dont l'accusé n'est jamais
+            // parti (rcptRead=0 et rcptPending=0 — reçus sous v0.3.0-v0.3.5 dont
+            // l'émission, quand elle partait, était effacée SANS retry et jamais
+            // renvoyée) redeviennent « read » à déposer (rcptPending=2 — « read »
+            // couvre « delivered » côté expéditeur, miroir Android v0.2.15). Le
+            // prochain poll les flushera — le téléphone verra ENFIN ses ✓✓.
+            var healed = 0
+            for (m in messages) {
+                if (!m.outgoing && m.readLocal == 1 && m.rcptRead == 0L && m.rcptPending == 0) {
+                    m.rcptPending = 2; healed++
+                }
+            }
+            if (healed > 0) {
+                persistMessagesLocked()
+                DesktopLog.i(
+                    "nyx-boot",
+                    "migration accusés : $healed message(s) entrant(s) jamais acquitté(s) → accusé « lu » à déposer"
+                )
+            }
             loaded = true
         }
     }
@@ -287,6 +309,70 @@ class DesktopStore {
         var changed = false
         for (m in messages) {
             if (m.peer == peer && !m.outgoing && m.readLocal == 0) { m.readLocal = 1; changed = true }
+        }
+        if (changed) persistMessagesLocked()
+    }
+
+    /**
+     * v0.3.6 — PROMOTION « delivered » → « read » (miroir promoteDeliveredToRead
+     * Android v0.2.15) : la conversation VIENT de s'ouvrir — tout accusé
+     * « delivered » en attente (rcptPending=1) devient « read » (2), qui COUVRE
+     * le delivered côté expéditeur ; les messages dont le delivered seul est
+     * parti (rcptPending=0 mais jamais accusés LUS — rcptRead=0, modèle
+     * v0.3.5 ou delivered déjà flushé) montent aussi à 2. Un seul état à
+     * vider par message.
+     */
+    fun promoteDeliveredToRead(peer: String): Int = synchronized(lock) {
+        ensureLoadedLocked()
+        var n = 0
+        for (m in messages) {
+            if (m.peer == peer && !m.outgoing &&
+                (m.rcptPending == 1 || (m.rcptPending == 0 && m.rcptRead == 0L))
+            ) { m.rcptPending = 2; n++ }
+        }
+        if (n > 0) persistMessagesLocked()
+        n
+    }
+
+    /** v0.3.6 — horodate rcptRead sur les messages ENTRANTS d'un accusé « lu » PARTI (anti re-émission au redémarrage : la migration ne re-promut que rcptRead=0). */
+    fun markReceiptsRead(ids: List<String>) = synchronized(lock) {
+        if (ids.isEmpty()) return
+        ensureLoadedLocked()
+        val set = ids.toHashSet()
+        val now = System.currentTimeMillis()
+        var changed = false
+        for (m in messages) {
+            if (m.id in set && !m.outgoing && m.rcptRead == 0L) { m.rcptRead = now; changed = true }
+        }
+        if (changed) persistMessagesLocked()
+    }
+
+    /** v0.3.6 — ids des messages d'un pair avec accusé « read » en attente (miroir readPendingIds). */
+    fun readPendingIds(peer: String): List<String> = synchronized(lock) {
+        ensureLoadedLocked()
+        messages.filter { it.peer == peer && !it.outgoing && it.readLocal == 1 && it.rcptPending > 0 }.map { it.id }
+    }
+
+    /** v0.3.6 — ids des messages d'un pair avec accusé « delivered » SEUL en attente (miroir deliveredPendingIds). */
+    fun deliveredPendingIds(peer: String): List<String> = synchronized(lock) {
+        ensureLoadedLocked()
+        messages.filter { it.peer == peer && !it.outgoing && it.rcptPending == 1 }.map { it.id }
+    }
+
+    /** v0.3.6 — pairs ayant au moins un accusé en attente (miroir peersWithPendingReceipts). */
+    fun peersWithPendingReceipts(): List<String> = synchronized(lock) {
+        ensureLoadedLocked()
+        messages.filter { !it.outgoing && it.rcptPending > 0 }.map { it.peer }.distinct()
+    }
+
+    /** v0.3.6 — règle rcptPending=0 pour des ids donnés — UNIQUEMENT si fournis (l'appelant ne vide que ce qu'il a déposé). */
+    fun clearRcptPending(ids: List<String>) = synchronized(lock) {
+        if (ids.isEmpty()) return
+        ensureLoadedLocked()
+        val set = ids.toHashSet()
+        var changed = false
+        for (m in messages) {
+            if (m.id in set && m.rcptPending != 0) { m.rcptPending = 0; changed = true }
         }
         if (changed) persistMessagesLocked()
     }

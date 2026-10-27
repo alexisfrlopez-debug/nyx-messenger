@@ -39,6 +39,13 @@ object P2pProtocol {
     const val F_BYE = 0x15       // raccroché
     const val F_ACK = 0x7F       // payload = [reçus:4 BE]
 
+    // v0.2.54 — codecs audio négociés (interop appels PC↔téléphone) :
+    // HELLO.ac = liste SUPPORTÉE par l'appelant, ACCEPT.ac = codec CHOISI par
+    // l'appelé. Le bureau Nyx ne fait QUE l'ADPCM (pur Java) ; le téléphone
+    // garde l'AAC MediaCodec entre téléphones (qualité supérieure).
+    const val AC_AAC = "aac"
+    const val AC_ADPCM = "adpcm"
+
     data class Frame(val type: Int, val payload: ByteArray)
 
     fun write(out: OutputStream, type: Int, payload: ByteArray = ByteArray(0)) {
@@ -109,6 +116,11 @@ object P2pProtocol {
         val vrot: Int = 0,     // rotation horaire qui rend l'image droite (0/90/180/270)
         val vw: Int = 0,       // largeur d'encodage de l'émetteur
         val vh: Int = 0,       // hauteur d'encodage de l'émetteur
+        // v0.2.54 — CODECS AUDIO SUPPORTÉS PAR L'APPELANT (liste « aac,adpcm »
+        // téléphone ; « adpcm » seul bureau ; ABSENT = AAC seul ≤ v0.2.53 —
+        // l'interop appels PC↔téléphone). L'APPELÉ choisit et répond dans
+        // AcceptPayload.ac.
+        val ac: String = "",
     )
 
     fun encodeHello(h: Hello, sigB64: String): ByteArray {
@@ -126,6 +138,10 @@ object P2pProtocol {
             sb.append(",\"vrot\":").append(h.vrot.coerceIn(0, 359))
                 .append(",\"vw\":").append(h.vw.coerceIn(0, 4096))
                 .append(",\"vh\":").append(h.vh.coerceIn(0, 4096))
+        }
+        // v0.2.54 — codecs audio supportés (un pair ≤ v0.2.53 ignore la clé).
+        if (h.ac.isNotEmpty()) {
+            sb.append(",\"ac\":\"").append(esc(h.ac)).append('"')
         }
         sb.append(",\"sig\":\"").append(esc(sigB64)).append("\"}")
         return sb.toString().toByteArray(Charsets.UTF_8)
@@ -145,7 +161,9 @@ object P2pProtocol {
             // v0.2.53 — absents chez un émetteur v0.2.52 → 0 (présentation d'alors)
             MiniJson.num(s, "vrot")?.toInt() ?: 0,
             MiniJson.num(s, "vw")?.toInt() ?: 0,
-            MiniJson.num(s, "vh")?.toInt() ?: 0
+            MiniJson.num(s, "vh")?.toInt() ?: 0,
+            // v0.2.54 — codecs audio (absent = AAC seul, pair ≤ v0.2.53)
+            MiniJson.str(s, "ac") ?: ""
         )
     }
 
@@ -160,6 +178,9 @@ object P2pProtocol {
         val vrot: Int = 0,
         val vw: Int = 0,
         val vh: Int = 0,
+        // v0.2.54 — codec CHOISI par l'appelé ("" / absent = AAC ; "adpcm" =
+        // interop appels PC↔téléphone — le bureau ne fait QUE l'ADPCM).
+        val ac: String = "",
     )
 
     /**
@@ -171,13 +192,17 @@ object P2pProtocol {
     object AcceptPayload {
         fun encode(
             audioCsdB64: String, videoCsdB64: String,
-            vrot: Int = 0, vw: Int = 0, vh: Int = 0
+            vrot: Int = 0, vw: Int = 0, vh: Int = 0,
+            ac: String = "",
         ): String {
-            if (videoCsdB64.isEmpty()) return audioCsdB64 // format historique
+            // v0.2.54 — ac vide ET pas de vidéo → format historique (un
+            // appelant v0.2.19 lit le b64 brut) ; sinon JSON (v0.2.20+).
+            if (videoCsdB64.isEmpty() && ac.isEmpty()) return audioCsdB64
             fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
             return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"" +
                 ",\"vrot\":${vrot.coerceIn(0, 359)},\"vw\":${vw.coerceIn(0, 4096)}" +
-                ",\"vh\":${vh.coerceIn(0, 4096)}}"
+                ",\"vh\":${vh.coerceIn(0, 4096)}" +
+                (if (ac.isEmpty()) "" else ",\"ac\":\"${esc(ac)}\"") + "}"
         }
 
         /** Infos d'acceptation — tolère l'ancien format brut ET le JSON v0.2.20. */
@@ -190,7 +215,8 @@ object P2pProtocol {
                     audio, video,
                     MiniJson.num(s, "vrot")?.toInt() ?: 0,
                     MiniJson.num(s, "vw")?.toInt() ?: 0,
-                    MiniJson.num(s, "vh")?.toInt() ?: 0
+                    MiniJson.num(s, "vh")?.toInt() ?: 0,
+                    MiniJson.str(s, "ac") ?: ""
                 )
             }
             return AcceptInfo(s, "")

@@ -71,6 +71,10 @@ class DesktopRepository(
     var onIncomingInvite: ((peer: String, alias: String) -> Unit)? = null
     var onContactAck: ((peer: String, ack: String, alias: String) -> Unit)? = null
 
+    /** v0.3.6 — signalisation d'appel reçue (kind=call — offert au DesktopCallManager,
+     * JAMAIS stockée comme message ; miroir callSignalHandler Android). */
+    var callSignalHandler: ((author: String, signal: net.nyx.messenger.p2p.CallSignal) -> Unit)? = null
+
     // ---------------- envoi ----------------
 
     suspend fun send(peerOnion: String, text: String, ttlSeconds: Long = 0L): Result<Unit> =
@@ -232,6 +236,54 @@ class DesktopRepository(
         }
     }
 
+    // ---------------- appels (v0.3.6 — portage miroir Android) ----------------
+
+    /** Alias local déclaré (sonnerie du pair — miroir myAlias Android). */
+    fun myAlias(): String = identity.alias ?: ""
+
+    /** Contact bloqué localement ? (défense en profondeur CallManager.) */
+    fun isContactBlocked(peer: String): Boolean =
+        (store.contact(peer)?.blockedAt ?: 0L) > 0L
+
+    /**
+     * Signalisation d'appel sur le journal (ADR-015) : corps « msg » chiffré
+     * E2E, JSON kind=call — type DÉJÀ whitelisté par le réplica (zéro
+     * changement serveur), INVISIBLE pour lui. CIBLE DÉTERMINISTE (v0.2.50
+     * Android miroir) : LA BOÎTE DU PAIR sinon la flotte.
+     */
+    suspend fun sendCallSignal(peerLower: String, json: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val me = identity.onionAddress ?: error("identité absente")
+                val priv = identity.secretKey()
+                val peerPub = OnionCodec.onionToPubKey(peerLower)
+                val body = cipher.encryptFor(peerPub, json.toByteArray(Charsets.UTF_8))
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "msg", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, ttl = 0,
+                    to = peerLower, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
+                val depositAddr = depositTargetFor(peerLower) ?: error("aucun réplica configuré")
+                postSigned(relayFor(depositAddr), me, signed, canonical, priv).getOrThrow()
+            }
+        }
+
+    /**
+     * Trace d'appel dans la conversation (miroir addCallInfo Android v0.2.18 —
+     * « Appel manqué » etc. ; jamais comptée comme non lue).
+     */
+    suspend fun addCallInfo(peer: String, outgoing: Boolean, text: String) {
+        store.insertMessage(
+            DesktopStore.Msg(
+                id = "call-${System.nanoTime()}", peer = peer, outgoing = outgoing, text = text,
+                ts = System.currentTimeMillis() / 1000, state = DesktopStore.STATE_RECEIVED, readLocal = 1
+            )
+        )
+    }
+
     /** v0.3.4 — intitulé de la bulle locale (miroir Android "🖼/🎬/🎤/📄 <nom>"). */
     internal fun placeholderFor(mime: String, name: String): String = when {
         mime.startsWith("image/") -> "🖼 $name"
@@ -279,7 +331,10 @@ class DesktopRepository(
                 var inserted = 0
                 inserted += pollOwnReplica(me, priv)
                 inserted += pollFleetReplicas(me, priv)
-                emitPendingReceipts()
+                // v0.3.6 — accusés en attente (miroir Android : tentative
+                // immédiate en fin de poll, DIFFÉRÉ au cycle suivant en cas
+                // d'échec — l'état n'est plus jamais perdu).
+                runCatching { ensureReceiptsSent() }
                 // v0.3.4 — repartie des suppressions différées à chaque poll (miroir Android).
                 runCatching { ensureDeletionsSent() }
                 inserted
@@ -373,9 +428,20 @@ class DesktopRepository(
             return if (chunk.index == 0) Ingest.NEW else Ingest.APPLIED
         }
 
-        // Signalisation d'appel (phase 2 desktop) — ignorée proprement.
-        if (Regex("\"kind\"\\s*:\\s*\"call\"").containsMatchIn(plain)) {
-            return Ingest.APPLIED
+        // Signalisation d'appel (v0.3.6 — portage miroir Android) : parse AVANT
+        // le stockage — une offre/rejet/raccroché n'est JAMAIS un message.
+        // Garde anti-sonnerie fantôme (v0.2.21 miroir) : une signalisation
+        // VIEILLE (re-livrée après restauration ou très en retard) ne doit pas
+        // déclencher d'appel — 120 s de marge sur un poll de 30 s.
+        val callSignal = net.nyx.messenger.p2p.CallSignal.parse(plain)
+        if (callSignal != null) {
+            if (ev.ts >= System.currentTimeMillis() / 1000 - 120) {
+                callSignalHandler?.invoke(author, callSignal)
+                return Ingest.APPLIED
+            } else {
+                DesktopLog.i("nyx-recv", "   · signalisation d'appel périmée de ${author.take(16)}… — ignorée")
+                return Ingest.REJECTED
+            }
         }
 
         // Éphémère expiré ?
@@ -672,34 +738,82 @@ class DesktopRepository(
 
     // ---------------- accusés ----------------
 
-    /** Accusé « delivered » pour tout message reçu non encore acquitté. */
-    private suspend fun emitPendingReceipts() {
+    /**
+     * v0.3.6 — DÉPÔT DES ACCUSÉS EN ATTENTE (miroir EXACT de ensureReceiptsSent
+     * Android v0.2.15, retour terrain « les accusés de réception ne fonctionnent
+     * pas entre l'app tel et l'app windows ») :
+     *  - « read » D'ABORD (il couvre le « delivered » — impliqué côté
+     *    expéditeur) puis « delivered » seul ;
+     *  - lots de [RECEIPT_BATCH] ids (body raisonnable) ;
+     *  - rcptPending n'est vidé QUE SI LE DÉPÔT RÉUSSIT — avant, l'échec
+     *    (SOCKS/Tor passager) était ignoré ET l'état effacé : l'accusé était
+     *    PERDU À JAMAIS sans retry (l'Android retente chaque cycle —
+     *    « DIFFÉRÉ ») ;
+     *  - seuls les liens ACCEPTÉS reçoivent des accusés (pas d'accusé vers un
+     *    pair archivé/supprimé — même verrou que l'envoi de messages).
+     * Appelé en fin de pollInbox (tentative immédiate) — le cycle suivant
+     * recommence tant qu'un accusé reste en attente.
+     */
+    suspend fun ensureReceiptsSent() {
+        if (replicas.isEmpty()) return
         val me = identity.onionAddress ?: return
         val priv = runCatching { identity.secretKey() }.getOrNull() ?: return
-        val byPeer = store.messages().filter { !it.outgoing && it.rcptPending == 1 }.groupBy { it.peer }
-        for ((peer, msgs) in byPeer) {
-            emitReceipt(me, priv, peer, ReceiptCodec.KIND_DELIVERED, msgs.map { it.id })
-            msgs.forEach { store.updateMessage(it.id) { m -> m.rcptPending = 0 } }
+        for (peer in store.peersWithPendingReceipts()) {
+            if (store.contact(peer)?.status != ACCEPTED) continue
+            // « read » d'abord — il couvre le « delivered » (impliqué côté
+            // expéditeur) et libère le plus d'état d'un coup.
+            val readIds = store.readPendingIds(peer)
+            for (batch in readIds.chunked(RECEIPT_BATCH)) {
+                emitReceipt(me, priv, peer, ReceiptCodec.KIND_READ, batch).fold(
+                    onSuccess = {
+                        store.markReceiptsRead(batch)
+                        store.clearRcptPending(batch)
+                        DesktopLog.i("nyx-send", "✓ accusé « read » déposé pour ${peer.take(16)}… (${batch.size} msg)")
+                    },
+                    onFailure = { e ->
+                        DesktopLog.w("nyx-send", "✗ accusé « read » DIFFÉRÉ pour ${peer.take(16)}… : ${e.message?.take(80)}")
+                    }
+                )
+            }
+            val deliveredIds = store.deliveredPendingIds(peer)
+            for (batch in deliveredIds.chunked(RECEIPT_BATCH)) {
+                emitReceipt(me, priv, peer, ReceiptCodec.KIND_DELIVERED, batch).fold(
+                    onSuccess = {
+                        store.clearRcptPending(batch)
+                        DesktopLog.i("nyx-send", "✓ accusé « delivered » déposé pour ${peer.take(16)}… (${batch.size} msg)")
+                    },
+                    onFailure = { e ->
+                        DesktopLog.w("nyx-send", "✗ accusé « delivered » DIFFÉRÉ pour ${peer.take(16)}… : ${e.message?.take(80)}")
+                    }
+                )
+            }
         }
     }
 
-    /** Accusé « read » — appelé à l'ouverture de la conversation. */
+    /** v0.3.6 — lot maximum d'ids par accusé (miroir RECEIPT_BATCH Android). */
+    private val RECEIPT_BATCH = 50
+
+    /**
+     * v0.3.6 — LA CONVERSATION EST OUVERTE (écran chat visible) : tout ce qui
+     * vient d'être reçu devient « lu » (indicateur destinataire de la liste),
+     * les « delivered » en attente sont PROMUS « read » (un seul état à vider,
+     * qui couvre l'autre) et les accusés partent immédiatement (différé si le
+     * réplica ne répond pas — le poll suivant retente, miroir Android).
+     */
     suspend fun markConversationRead(peer: String) {
         store.markConversationRead(peer)
-        val me = identity.onionAddress ?: return
-        val priv = runCatching { identity.secretKey() }.getOrNull() ?: return
-        val ids = store.messagesWith(peer)
-            .filter { !it.outgoing && it.readLocal == 1 && it.rcptRead == 0L && it.rcptDelivered > 0L }
-            .map { it.id }
-        if (ids.isNotEmpty()) {
-            emitReceipt(me, priv, peer, ReceiptCodec.KIND_READ, ids)
-            ids.forEach { id -> store.updateMessage(id) { it.rcptRead = System.currentTimeMillis() } }
-        }
+        store.promoteDeliveredToRead(peer)
+        runCatching { ensureReceiptsSent() }
     }
 
-    private suspend fun emitReceipt(me: String, priv: ByteArray, peer: String, kind: String, ids: List<String>) {
-        runCatching {
-            if (ids.isEmpty()) return
+    /**
+     * v0.3.6 — émission d'UN accusé signé chiffré (miroir sendReceipt Android).
+     * Renvoie le résultat du DÉPÔT (plus jamais avalé — avant, « ✓ déposé »
+     * était journalisé même en échec et l'état effacé sans retry).
+     */
+    private suspend fun emitReceipt(me: String, priv: ByteArray, peer: String, kind: String, ids: List<String>): Result<Unit> {
+        return runCatching {
+            if (ids.isEmpty()) return@runCatching
             val peerPub = OnionCodec.onionToPubKey(peer)
             val alias = identity.alias ?: ""
             val bodyJson = ReceiptCodec.encode(alias, kind, ids)
@@ -710,11 +824,8 @@ class DesktopRepository(
                 ts = System.currentTimeMillis() / 1000, to = peer, body = body, sig = ""
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
-            val depositAddr = depositTargetFor(peer) ?: return
-            postSigned(relayFor(depositAddr), me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv)
-            DesktopLog.i("nyx-send", "✓ accusé « $kind » déposé (${ids.size} msg → ${peer.take(16)}…)")
-        }.onFailure {
-            DesktopLog.w("nyx-send", "✗ accusé « $kind » échoué : ${it.message?.take(80)}")
+            val depositAddr = depositTargetFor(peer) ?: error("aucun réplica configuré")
+            postSigned(relayFor(depositAddr), me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
         }
     }
 

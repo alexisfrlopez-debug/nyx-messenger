@@ -142,8 +142,10 @@ class DesktopTor(private val bin: File?) {
      * Lance le démon et attend le bootstrap. Retourne les ports résolus.
      * @param identityPriv64 clé ed25519 (64 o seed||pk) pour la publication
      * @param backendLocalPort port local du réplica embarqué (port 80 onion)
+     * @param mediaLocalPort v0.3.6 — port local de l'écouteur média (2ᵉ directive
+     * Port= de ADD_ONION : 47471 → appels P2P directs, ADR-015) ; 0 = port 80 seul.
      */
-    fun startAndWait(identityPriv64: ByteArray, backendLocalPort: Int): Ports {
+    fun startAndWait(identityPriv64: ByteArray, backendLocalPort: Int, mediaLocalPort: Int = 0): Ports {
         val binFile = bin ?: error(
             "binaire tor introuvable — tor.exe a été supprimé ou bloqué ? " +
                 "(antivirus : ajoutez le dossier Nyx aux exclusions et réinstallez) " +
@@ -248,9 +250,13 @@ class DesktopTor(private val bin: File?) {
                 // (v0.2.34+) Flags=Detach : le service survit à la fermeture de CETTE
                 // connexion contrôle ; DEL_ONION reste possible depuis une nouvelle
                 // connexion authentifiée à l'arrêt.
-                val sid = ctl.publishOnionEd25519V3(identityPriv64, backendLocalPort, 0)
+                val sid = ctl.publishOnionEd25519V3(identityPriv64, backendLocalPort, mediaLocalPort)
                 serviceId = sid
-                DesktopLog.i("nyx-tor", "onion d'identité publié : $sid.onion (port 80 → local $backendLocalPort)")
+                DesktopLog.i(
+                    "nyx-tor",
+                    "onion d'identité publié : $sid.onion (port 80 → local $backendLocalPort" +
+                        (if (mediaLocalPort > 0) ", média 47471 → local $mediaLocalPort)" else ")")
+                )
             }
         } catch (e: Exception) {
             // Le démon peut mourir PENDANT le bootstrap (antivirus…) : la sortie

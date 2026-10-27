@@ -1,9 +1,38 @@
 Nyx — Messagerie anonyme, chiffree de bout en bout, entierement sur Tor
 ========================================================================
-Version desktop Windows v0.3.5 VERSION TEST (rendezvous signe ENFIN
-VERIFIE + echauffement du circuit Tor froid explique — portage ADR-019 du
-client Android v0.2.53 ; valide terrain : la messagerie Windows <-> Android
-est confirmee operationnelle par les journaux v0.3.4)
+Version desktop Windows v0.3.6 VERSION TEST (ACCUSES DE RECEPTION repares
+a la racine + APPELS AUDIO avec le telephone — portage ADR-019 du client
+Android ; valide terrain : la messagerie Windows <-> Android est confirmee
+operationnelle par les journaux v0.3.4-v0.3.5)
+
+NOUVEAUTE v0.3.6 — APPELS AUDIO AVEC LE TELEPHONE
+---------------------------------------------------
+  Le bouton 📞 du conversation lance enfin un APPEL AUDIO anonyme (direct
+  onion-to-onion, ADR-015) : sonnerie via le journal chiffre, puis audio
+  temps reel sur le port media 47471 de l'onion du pair. Une fenetre
+  d'appel plein ecran gere sonnerie entrante (Accepter/Refuser), duree
+  vivante, Micro (mute) et Raccroche.
+   - CODEC : le telephone encode en AAC materiel, inexistant sur PC — les
+     DEUX applications embarquent desormais un codec logiciel commun ADPCM
+     (16 kHz, ~8 Ko/s par sens, blocs autonomes de 20 ms : une trame perdue
+     ne corrompt rien). TELEPHONE >= v0.2.54 REQUIS : les appels
+     PC <-> telephone exigent la mise a jour de l'appli telephone (canal
+     test : automatique) ; un vieux telephone recoit un refus PROPRE avec
+     message de mise a jour, jamais d'audio muet.
+   - Telephone <-> telephone : AAC materiel INCHANGE (aucune regression).
+   - Visio : entre telephones seulement (H.264) — les appels PC sont audio.
+   - Latence 0,5 a 3 secondes : le prix de l'anonymat (ADR-015), normal.
+
+NOUVEAUTE v0.3.6 — ACCUSES DE RECEPTION REPARES (les ✓✓ passent enfin)
+------------------------------------------------------------------------
+  Trois defauts corriges (proves par vos journaux + test de reproduction) :
+   - l'accuse « LU » ne partait JAMAIS (filtre impossible depuis v0.3.0) ;
+   - un accuse qui echouait (Tor passager) etait PERDU sans nouvelle
+     tentative — desormais DIFFERE puis reparti au cycle suivant ;
+   - MIGRATION : au premier lancement v0.3.6, les messages recus jamais
+     accuses-sus redeviennent en attente (« migration accuses : N message(s)
+     … ») — le telephone verra enfin ses ✓✓ d'avant la mise a jour.
+  Telephone -> PC et PC -> telephone, ouverture de conversation = « lu ».
 
 VALIDATION TERRAIN v0.3.4 (journaux recus)
 -------------------------------------------
@@ -70,7 +99,7 @@ NOUVEAUTE v0.3.4 — BARRE DE PROGRESSION AU DEMARRAGE (comme le telephone)
 NOUVEAUTE v0.3.4 — MEMES FONCTIONNALITES ET BOUTONS QUE LE TELEPHONE
 ---------------------------------------------------------------------
   Audit systematique ecran par ecran, bouton par bouton ; desormais a parite
-  (seule exception documentee : les appels audio/visio, phase 2) :
+  (visio entre telephones seulement — les appels PC sont audio) :
    - messages VOCAUX (bouton micro : enregistrement + lecture, les deux sens
      avec le telephone) ;
    - PIECES JOINTES : image / video / fichier, visionneuse plein ecran,
@@ -99,7 +128,7 @@ NOUVEAUTE v0.3.4 — MEMES FONCTIONNALITES ET BOUTONS QUE LE TELEPHONE
    - REGLAGES complets : replique embarquee (adresse, statistiques, Purger),
      liste des replicas personnalises, sauvegarde de compte, mise a jour
      (canal test en option), deconnexion du compte ;
-   - build test : carte PLAN DE TESTS v0.3.5 (cases a cocher, resultats
+   - build test : carte PLAN DE TESTS v0.3.6 (cases a cocher, resultats
      journalises et envoyes avec les logs) a cote de la carte d'envoi de
      logs.
 

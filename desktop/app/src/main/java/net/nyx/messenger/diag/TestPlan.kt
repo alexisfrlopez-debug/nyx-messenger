@@ -33,11 +33,45 @@ object TestPlan {
     data class Item(val id: String, val label: String)
 
     /**
-     * v0.3.5 — items de validation (miroir de docs/releases/v0.3.5-desktop.md) :
-     * v0.3.4 garde ses items (connexion, progression, parité Android) + les
-     * DEUX nouveautés v0.3.5 : rendezvous signé ENFIN VÉRIFIÉ (cause racine
-     * session 75 : la base64 du .sig n'était jamais décodée) et l'explication
-     * du circuit Tor froid au premier lancement.
+     * v0.3.6 — items de validation (miroir de docs/releases/v0.3.6-desktop.md) :
+     * accusés de réception Corrigés à la racine (read-qui-ne-partait-jamais +
+     * retry + guérison du backlog) et APPELS AUDIO bureau↔téléphone (ADPCM
+     * négocié, téléphone ≥ v0.2.54 requis).
+     */
+    val ITEMS_V0_3_6 = listOf(
+        Item(
+            "accuses-read",
+            "Accusés « lu » : ouvrir une conversation reçue → le TÉLÉPHONE affiche ✓✓ Lu sous ses bulles (l'accusé part enfin — filtre rcptDelivered impossible avant v0.3.6)"
+        ),
+        Item(
+            "accuses-retry",
+            "Accusés « reçu/lu » avec réseau instable : un échec de dépôt est DIFFÉRÉ (log « ✗ accusé … DIFFÉRÉ ») puis REPARTI au cycle suivant — plus jamais perdu"
+        ),
+        Item(
+            "accuses-backlog",
+            "Migration au démarrage : « migration accusés : N message(s) entrant(s) jamais acquitté(s) » au premier lancement → le téléphone voit passer ses ✓✓ d'avant-v0.3.6"
+        ),
+        Item(
+            "appel-pc-vers-tel",
+            "Appel PC→téléphone (téléphone ≥ v0.2.54) : bouton 📞 → sonnerie « appel sortant… » → décroché côté téléphone → les DEUX sens s'entendent (latence 0,5-3 s normale)"
+        ),
+        Item(
+            "appel-tel-vers-pc",
+            "Appel téléphone→PC : la fenêtre Nyx sonne (Accepter/Refuser) → Accepter → conversation audio établie — codec ADPCM négocié dans les journaux (« codec ADPCM négocié » côté téléphone)"
+        ),
+        Item(
+            "appel-ancien-tel",
+            "Appel avec un téléphone ≤ v0.2.53 : message explicite « l'appli du téléphone doit être mise à jour (v0.2.54+) » — jamais d'audio muet/déchets"
+        ),
+        Item(
+            "appel-mute-raccroche",
+            "En appel : bouton Micro (mute — le pair n'entend plus rien) + Raccrocher des deux côtés → fin propre (« terminé »)"
+        ),
+    )
+
+    /**
+     * v0.3.5 — items conservés (connexion, progression, parité Android,
+     * rendezvous signé, circuit froid).
      */
     val ITEMS_V0_3_5 = listOf(
         Item(
@@ -98,7 +132,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

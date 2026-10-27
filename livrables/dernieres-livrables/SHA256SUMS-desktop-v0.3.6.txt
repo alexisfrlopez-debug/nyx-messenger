@@ -1,0 +1,2 @@
+78199bee6fa8609ee2a81adf42a0643a86c270c56876a3266f11cfb78c05ac81  nyx-messenger-windows-v0.3.6.zip
+25dcfb475be8f012ac59bceafe5726ead13fced6d59cc690020412269346042c  nyx-messenger-windows-v0.3.6-installer.exe
