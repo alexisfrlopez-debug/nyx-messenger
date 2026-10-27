@@ -56,6 +56,7 @@ __pycache__/
 # --- Build test : credentials Drive de l'export de logs (dossier « Tokens », §6) ---
 android/test-upload.properties
 android/replica-bootstrap.properties
+desktop/test-upload.properties
 
 # --- Rendezvous/amorçage (v0.2.23) — liste legacy non signée, git-ignorée à la RACINE ---
 /replica-bootstrap.properties

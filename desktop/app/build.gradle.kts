@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "net.nyx"
-version = "0.3.2"
+version = "0.3.3"
 
 repositories {
     mavenCentral()
@@ -55,6 +55,19 @@ application {
     mainClass.set("net.nyx.messenger.desktop.MainKt")
 }
 
+// v0.3.3 (session 73) — credentials Drive du BOUTON D'ENVOI DE LOGS (miroir
+// android/test-upload.properties, même mécanique, même git-ignore) : le
+// fichier `desktop/test-upload.properties` (racine du projet Gradle, hors git,
+// alimenté depuis le dossier « Tokens » §6) est recopié DANS LE FAT JAR sous
+// le nom drive-upload.properties → lu par diag/DriveUploader.kt. En son
+// absence : build fonctionnel, le bouton affiche « credentials absents » et
+// le recours « Enregistrer dans un fichier… » reste opérable (leçon v0.2.9).
+// NB : injection au NIVEAU DU fatJar SEULEMENT (jamais dans sourceSets) —
+// sinon la ressource fuite sur le CLASSPATH DE TEST et les tests « non
+// configuré » deviennent faux-positifs quand le poste de build possède le
+// fichier (constaté session 73).
+val drivePropsFile = rootProject.file("test-upload.properties")
+
 tasks.test {
     useJUnit()
     // Bornes mémoire du conteneur (miroir gradle.properties Android session 11).
@@ -74,6 +87,13 @@ tasks.register<Jar>("fatJar") {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest { attributes["Main-Class"] = "net.nyx.messenger.desktop.MainKt" }
     from(sourceSets.main.get().output)
+    // v0.3.3 — credentials Drive du bouton d'envoi de logs (build test) :
+    // recopie du fichier git-ignoré SOUS le nom de ressource attendu, dans le
+    // SEUL artefact livré (jamais sur le classpath de test — cf. commentaire
+    // de drivePropsFile).
+    if (drivePropsFile.isFile) {
+        from(drivePropsFile) { rename { "drive-upload.properties" } }
+    }
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) }) {
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/versions/**/module-info.class", "module-info.class")
     }

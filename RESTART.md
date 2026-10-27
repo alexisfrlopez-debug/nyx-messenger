@@ -44,6 +44,24 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 73 — REÇUES 2026-10-27 (retour terrain v0.3.2
+> opérateur Alek), ENREGISTRÉES AVANT TRAVAIL (règle §9.9). Toute session qui
+> reprend ce fichier DOIT les traiter :**
+>
+> 1. **CONNEXION TOR + RÉPLICAS IMPOSSIBLE SUR LE DESKTOP + BOUTON D'ENVOI DE
+>    LOGS** — verbatim opérateur : « l'appli windows ne se connecte pas à tor
+>    ni aux replicas + je veux une version test avec le bouton d'envoi de logs
+>    comme pour la version android » → (a) diagnostiquer et corriger les causes
+>    de l'échec de connexion Tor/réplicas du client Windows (analyse code :
+>    startBackend BLOQUAIT le thread UI AWT jusqu'à 4 min — fenêtre « ne
+>    répond pas », progression jamais affichée ; stdout du démon tor avalé
+>    silencieusement — la cause d'un mort immédiate est INDIQUABLE ; aucun
+>    retry ; killLeftoverTor Android jamais porté — tor.exe orphelin verrouille
+>    le DataDirectory ; journaux mémoire = perdus au redémarrage) ; (b) livrer
+>    une version test avec le BOUTON D'ENVOI DE LOGS miroir Android (gros
+>    bouton rouge → collecte → dépôt Drive logs-terrain) pour objectiver les
+>    échecs réseaux terrain Windows.
+
 > 🔴 **INSTRUCTIONS SESSION 72 — REÇUES 2026-10-27 (retour terrain
 > v0.3.1 opérateur Alek), ENREGISTRÉES AVANT TRAVAIL (règle §9.9). Toute
 > session qui reprend ce fichier DOIT les traiter :**

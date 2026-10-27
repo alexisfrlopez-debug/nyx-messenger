@@ -27,7 +27,7 @@ var embedded embed.FS
 var payloadSHA = "INJECTED_AT_BUILD"
 
 // Version affichée (injectable : -X main.version=…).
-var version = "0.3.2"
+var version = "0.3.3"
 
 const appDirName = "NyxMessenger"
 
@@ -75,6 +75,10 @@ func main() {
 		filepath.Join("nyx-messenger", "runtime", "bin", "libgcc_s_seh-1.dll"),
 		filepath.Join("nyx-messenger", "runtime", "bin", "libwinpthread-1.dll"),
 		filepath.Join("nyx-messenger", "tor", "tor.exe"),
+		// v0.3.3 — geoip de l'expert bundle (torrc les référence ; un tor
+		// privé de geoip bootstrap mais avec des avertissements bruités).
+		filepath.Join("nyx-messenger", "tor", "geoip"),
+		filepath.Join("nyx-messenger", "tor", "geoip6"),
 	} {
 		if _, err := os.Stat(filepath.Join(dest, essential)); err != nil {
 			fatal("fichier essentiel absent après extraction : %s", essential)

@@ -1,5 +1,5 @@
 @echo off
-rem Nyx — lanceur desktop (v0.3.2)
+rem Nyx — lanceur desktop (v0.3.3)
 rem Le repertoire de donnees vit dans %USERPROFILE%\.nyx-messenger
 setlocal
 set DIR=%~dp0

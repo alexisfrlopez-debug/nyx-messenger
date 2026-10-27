@@ -1,33 +1,52 @@
 Nyx — Messagerie anonyme, chiffree de bout en bout, entierement sur Tor
 ========================================================================
-Version desktop Windows v0.3.2 (correctifs retour terrain v0.3.1 — portage
-ADR-019 du client Android v0.2.53)
+Version desktop Windows v0.3.3 VERSION TEST (correctifs retour terrain
+v0.3.2 — portage ADR-019 du client Android v0.2.53)
 
-CORRECTIFS v0.3.2
-----------------
-  1. RACCOURCI BUREAU : v0.3.1 le posait dans un dossier qui n'est pas le
-     bureau reel des Windows modernes (racine OneDrive quand la
-     synchronisation est activee, ou %USERPROFILE%\Desktop qui n'existe pas
-     sur un Windows francais — le dossier s'appelle « Bureau »). Le chemin
-     est desormais resolu par l'API Windows elle-meme : le raccourci
-     apparait sur votre bureau ET dans le menu Demarrer, avec l'icone Nyx
-     (lune etoilee). Relancez simplement l'installateur v0.3.2 par-dessus
-     v0.3.1 : les raccourcis sont recrees au bon endroit, les donnees sont
-     preservees.
-  2. RESTAURATION DE SAUVEGARDE : les fichiers de sauvegarde de compte
-     generes par l'application TELEPHONE (chiffres par mot de passe depuis
-     la v0.2.26 Android) sont desormais importables sur le bureau :
-     bouton « Restaurer une sauvegarde » > « Importer un fichier… » >
-     choisissez le fichier, saisissez le mot de passe du compte telephone.
-     La restauration recree la meme adresse onion ET l'alias, le profil,
-     les contacts et la position de lecture (identique a la restauration
-     entre deux telephones). Les anciens formats restent acceptes :
-     JSON en clair (v0.2.21-v0.2.25) et cle nue « nyx1.… » collee.
-  3. La fenetre console qui restait ouverte derriere l'application au
-     lancement par le raccourci est supprimee (javaw).
-  + Reglages > « Sauvegarde de compte » : export d'un fichier de sauvegarde
-    CHIFFRE (mot de passe de votre choix), importable sur un autre PC ou
-    sur l'application telephone.
+NOUVEAUTE v0.3.3 — BOUTON D'ENVOI DE LOGS (version test)
+--------------------------------------------------------
+  Carte rouge « ENVOI DE LOGS (test) » en tete de la liste Conversations
+  (depliable) — le meme bouton que la version test de l'application
+  telephone : un clic depose les journaux de diagnostic (etat Tor, tor.log,
+  progression du bootstrap, sondes de repliques, version, aucune donnee de
+  conversation) directement dans le dossier Drive de debogage de
+  l'operateur. En cas d'echec d'envoi (credentials expires…), le bouton
+  « Enregistrer dans un fichier… » produit le meme fichier localement.
+
+CORRECTIFS v0.3.3 — CONNEXION TOR / REPLIQUES
+---------------------------------------------
+  1. FENETRE QUI GELAIT AU DEMARRAGE : le demarrage de Tor bloquait la
+     fenetre jusqu'a 4 minutes (« Ne repond pas », progression jamais
+     affichee). Il s'execute desormais en arriere-plan : la banniere Tor
+     montre le pourcentage de bootstrap en direct.
+  2. REESSAYER : apres un echec de connexion, un bouton « Reessayer »
+     apparait dans la banniere Tor (l'echec n'est plus une impasse jusqu'au
+     redemarrage complet). En cas d'echec, une 2e tentative automatique est
+     deja lancee (avec nettoyage des processus Tor orphelins d'une session
+     precedente — un tor.exe orphelin verrouillait le dossier de donnees
+     Tor et empechait TOUTE connexion jusqu'au redemarrage de Windows).
+  3. ERREURS EXPLICITES : la cause reelle d'un Tor qui ne se connecte pas
+     (sortie du demon tor, fin du tor.log) est desormais affichee dans la
+     banniere ET dans les journaux envoyes par le bouton rouge.
+  4. ANTIVIRUS : les antivirus suppriment souvent tor.exe (faux positif
+     connu). Si la banniere indique « binaire tor introuvable », ajoutez le
+     dossier d'installation de Nyx aux exclusions de votre antivirus puis
+     reinstallez Nyx.
+  5. GEOIP : les fichiers geoip de Tor sont desormais embarques (selection
+     de relais plus propre).
+  + Si les repliques restent « injoignables » alors que Tor est pret :
+    Reglages > « Replique personnalise » > collez l'adresse onion d'un
+    replique vivant de votre flotte (console d'admin > repliques) — la
+    liste signee embarquee ne contient qu'un tres vieux replique
+    d'amorcage.
+
+CORRECTIFS v0.3.2 (rappel)
+--------------------------
+  RACCOURCI BUREAU resolu par l'API Windows (OneDrive + Windows francais),
+  icone Nyx ; RESTAURATION des sauvegardes de compte TELEPHONE (fichier
+  chiffre + mot de passe du compte) — meme adresse onion, alias, profil,
+  contacts et position de lecture ; plus de fenetre console residuelle ;
+  Reglages > « Sauvegarde de compte » : export chiffre PC -> telephone.
 
 CONTENU
 -------
@@ -53,6 +72,8 @@ VOS DONNEES
      identity.json   identite scellee (cle privee chiffree)
      store\          conversations, contacts, fichiers recus
      tor\            donnees Tor (caches) + journal tor.log
+     logs\           journal applicatif persistant (v0.3.3 — survit aux
+                     redemarrages ; inclus dans l'envoi de logs)
   La cle de recuperation (ecran « Mon adresse ») restaure votre compte sur
   toute machine ; la sauvegarde de compte (Reglages) embarque en plus
   l'alias, le profil, les contacts et la position de lecture.

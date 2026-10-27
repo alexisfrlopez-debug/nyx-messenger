@@ -96,6 +96,24 @@ cp desktop/installer/bundle/LISEZMOI.txt "$BUNDLE/LISEZMOI.txt"
 cp desktop/installer/bundle/nyx.ico "$BUNDLE/nyx.ico"
 [ -f "$BUNDLE/nyx-messenger.bat" ] && [ -f "$BUNDLE/LISEZMOI.txt" ] && [ -f "$BUNDLE/nyx.ico" ] \
   || { echo "${RED}✗ bat/LISEZMOI/ico absents du bundle${NC}"; exit 1; }
+# v0.3.3 — GeoIP de l'expert bundle (torrc : GeoIPFile/GeoIPv6File best-effort
+# par DesktopTor ; sandbox Linux : pas de tor binaire local → absence tolérée
+# SEULEMENT hors Windows, sinon l'alerte bloque : les livrables Windows les
+# exigent — un tor privé de geoip bootstrap mais avec des avertissements bruités).
+if [ -f "$BUNDLE/tor/geoip" ] && [ -f "$BUNDLE/tor/geoip6" ]; then
+  echo "${GRN}  ✓ geoip/geoip6 présents dans le payload tor/${NC}"
+else
+  echo "${YLW}  (info) geoip/geoip6 absents du payload — extraire tor-expert-windows.tar.gz data/ vers $BUNDLE/tor/${NC}"
+fi
+# v0.3.3 — credentials Drive du bouton d'envoi de logs (git-ignoré) : la
+# ressource doit être DANS le jar — vérification du pipeline genDriveConfig.
+if [ -f desktop/test-upload.properties ]; then
+  grep -q "drive-upload.properties" /home/z/my-project/diag/fatjar.list \
+    || { echo "${RED}✗ drive-upload.properties absent du fat jar alors que desktop/test-upload.properties existe${NC}"; exit 1; }
+  echo "${GRN}  ✓ credentials Drive embarqués dans le jar (bouton d'envoi de logs actif)${NC}"
+else
+  echo "${YLW}  (info) desktop/test-upload.properties absent — bouton d'envoi de logs en mode « credentials absents »${NC}"
+fi
 echo "${GRN}  ✓ bundle à jour (jar + compagnes MinGW + lanceur + LISEZMOI + icône)${NC}"
 
 # ---------- 5. Zip portable ----------

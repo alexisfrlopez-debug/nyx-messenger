@@ -18,6 +18,7 @@ import net.nyx.messenger.replica.EmbeddedReplica
 import net.nyx.messenger.repo.DesktopRepository
 import java.io.File
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Assembleur applicatif desktop — équivalent du ServiceLocator Android :
@@ -27,7 +28,7 @@ import java.util.Base64
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.2"
+    const val VERSION = "0.3.3"
 
     lateinit var identity: DesktopIdentity
         private set
@@ -65,8 +66,17 @@ object ServiceLocator {
     @Volatile var customReplica: String = ""
         private set
 
+    /** v0.3.3 — un seul démarrage de backend à la fois (retry inclus). */
+    private val starting = AtomicBoolean(false)
+
+    /** v0.3.3 — boucles de poll/annonce lancées ? (idempotence de startBackend). */
+    private val loopsRunning = AtomicBoolean(false)
+
     fun init() {
         DesktopPaths.ensure()
+        // v0.3.3 — anneau de diagnostic PERSISTANT (miroir DiagLog v0.2.33) :
+        // les échecs de DÉMARRAGE survivent au redémarrage de l'app.
+        DesktopLog.initFile(File(DesktopPaths.dataDir, "logs/nyx-desktop.log"))
         identity = DesktopIdentity(File(DesktopPaths.dataDir, "identity.json"))
         store = DesktopStore().apply { ensureLoaded() }
         settings = DesktopSettings(File(DesktopPaths.dataDir, "settings.json"))
@@ -115,12 +125,72 @@ object ServiceLocator {
 
     /**
      * Démarre Tor + réplique embarquée + publication de l'onion d'identité,
-     * puis lance les boucles. Bloquant jusqu'à « tor prêt » (ou échec).
+     * puis lance les boucles. NON BLOQUANT (v0.3.3) : le travail lourd part
+     * sur Dispatchers.IO — retour immédiat pour l'UI.
+     *
+     * v0.3.3 (session 73 — retour terrain « ne se connecte pas à tor ») :
+     *  - **corrigé de fond** : cette fonction était appelée depuis le thread
+     *    UI AWT (LaunchedEffect) et BLOQUAIT jusqu'à 4 minutes (cookie 60 s +
+     *    bootstrap 180 s) — fenêtre « Ne répond pas », progression jamais
+     *    peinte : l'app PARAISSAIT morte/ne pas se connecter pendant tout le
+     *    bootstrap, et un échec n'était visible qu'après le gel ;
+     *  - **retry automatique 1×** : au premier échec (tor orphelin, pic
+     *    réseau…), arrêt propre + kill des tor.exe orphelins + nouvelle
+     *    tentative AVANT de déclarer FAILED (miroir TorManager.retry Android) ;
+     *  - [retryBackend] (bouton « Réessayer » de la bannière) relance à tout
+     *    moment après un échec.
      */
     fun startBackend(onBootstrapReady: () -> Unit = {}) {
         val me = identity.onionAddress ?: error("identité absente — démarrage refusé")
+        if (!starting.compareAndSet(false, true)) {
+            DesktopLog.w("nyx-tor", "startBackend appelé pendant un démarrage en cours — ignoré")
+            return
+        }
         _torState.value = TorState(TorPhase.STARTING)
 
+        scope.launch {
+            try {
+                attemptBackendStart(me)
+                _torState.value = TorState(TorPhase.READY, 100, me)
+                DesktopLog.i("nyx-tor", "backend PRÊT (Tor bootstrappé + onion publié)")
+                onBootstrapReady()
+                startLoops()
+
+                // Annonce de NOTRE réplica aux contacts (l'adresse publiée = onion:80).
+                runCatching { repository.announceReplica("$me:80") }
+            } catch (first: Exception) {
+                DesktopLog.w("nyx-tor", "1ʳᵉ tentative de démarrage en échec : ${first.message}")
+                _torState.value = TorState(
+                    TorPhase.STARTING,
+                    message = "échec — nouvelle tentative en cours…"
+                )
+                runCatching { shutdownBackend() }
+                try {
+                    DesktopLog.i("nyx-tor", "2ᵉ tentative (après kill des tor orphelins)")
+                    attemptBackendStart(me)
+                    _torState.value = TorState(TorPhase.READY, 100, me)
+                    DesktopLog.i("nyx-tor", "backend PRÊT à la 2ᵉ tentative")
+                    onBootstrapReady()
+                    startLoops()
+                    runCatching { repository.announceReplica("$me:80") }
+                } catch (second: Exception) {
+                    DesktopLog.w(
+                        "nyx-tor",
+                        "2ᵉ tentative en échec — backend FAILED : ${second.message}"
+                    )
+                    _torState.value = TorState(
+                        TorPhase.FAILED,
+                        message = second.message ?: "échec inconnu"
+                    )
+                }
+            } finally {
+                starting.set(false)
+            }
+        }
+    }
+
+    /** Une tentative complète (réplique embarquée + Tor + publication). Bloquant — IO seulement. */
+    private fun attemptBackendStart(me: String) {
         // La réplique embarquée doit être PRÊTE avant la publication (port 80 servi).
         EmbeddedReplica.verify = { author, canonical, sig ->
             val pub = runCatching { net.nyx.messenger.crypto.OnionCodec.onionToPubKey(author) }.getOrNull()
@@ -135,22 +205,20 @@ object ServiceLocator {
         EmbeddedReplica.start(me, VERSION)
 
         val priv = identity.secretKey()
-        try {
-            tor.onBootstrap = { pct -> _torState.value = _torState.value.copy(percent = pct) }
-            tor.startAndWait(priv, EmbeddedReplica.localPort)
-            _torState.value = TorState(TorPhase.READY, 100, me)
-            onBootstrapReady()
-        } catch (e: Exception) {
-            _torState.value = TorState(TorPhase.FAILED, message = e.message)
-            throw e
-        }
+        tor.onBootstrap = { pct -> _torState.value = _torState.value.copy(percent = pct) }
+        tor.startAndWait(priv, EmbeddedReplica.localPort)
+    }
 
-        // Annonce de NOTRE réplica aux contacts (l'adresse publiée = onion:80).
-        scope.launch { runCatching { repository.announceReplica("$me:80") } }
-        startLoops()
+    /** v0.3.3 — relance manuelle depuis la bannière (état FAILED). */
+    fun retryBackend() {
+        if (_torState.value.phase == TorPhase.READY || starting.get()) return
+        DesktopLog.i("nyx-tor", "retryBackend demandé depuis l'UI")
+        runCatching { shutdownBackend() }
+        startBackend()
     }
 
     private fun startLoops() {
+        if (!loopsRunning.compareAndSet(false, true)) return
         scope.launch {
             while (isActive) {
                 delay(30_000L)
@@ -183,10 +251,11 @@ object ServiceLocator {
         }
     }
 
-    /** Arrêt PROPRE : DEL_ONION + démon tor + réplique (dialogue Quitter). */
+    /** Arrêt PROPRE : DEL_ONION + démon tor + réplique (dialogue Quitter / retry). */
     fun shutdownBackend() {
         EmbeddedReplica.stop()
         tor.shutdownNow()
+        loopsRunning.set(false)
         _torState.value = TorState()
     }
 

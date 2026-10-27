@@ -89,3 +89,12 @@ desktop/app/src/main/java/net/nyx/messenger/repo/DesktopRepository.kt:portage-mi
 # Palette « Nuit de Nyx » — thème porté à l'identique (mêmes couleurs verrouillées
 # par NyxContrastTest Android + Theme.kt desktop ; divergence = défaut visuel).
 android/app/src/main/java/net/nyx/messenger/ui/theme/NyxPalette.kt:portage-miroir
+
+# v0.3.3 (session 73) — portage miroir du BOUTON D'ENVOI DE LOGS : DriveUploader
+# est une copie quasi 1:1 de l'Android (même flow OAuth refresh-token + upload
+# multipart Drive API v3, mêmes helpers purs jsonEsc/extractField/truncate —
+# divergence documentée : lecture de config par RESSOURCE jar + override terrain
+# au lieu de BuildConfig, le desktop n'ayant pas de BuildConfig). La duplication
+# est la garantie du même comportement de débogage téléphone↔PC.
+android/app/src/main/java/net/nyx/messenger/diag/DriveUploader.kt:portage-miroir
+desktop/app/src/main/java/net/nyx/messenger/diag/DriveUploader.kt:portage-miroir

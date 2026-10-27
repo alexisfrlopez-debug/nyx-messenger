@@ -98,6 +98,10 @@ fun App() {
     }
 
     // Démarrage du backend (Tor + réplique embarquée + boucle 30 s) une seule fois.
+    // v0.3.3 — startBackend est NON BLOQUANT (travail sur Dispatchers.IO) :
+    // AVANT, l'appel bloquait le thread UI AWT jusqu'à 4 minutes (cookie 60 s +
+    // bootstrap 180 s) — fenêtre « Ne répond pas », progression jamais peinte
+    // (cause racine du ressenti terrain « l'appli ne se connecte pas à tor »).
     LaunchedEffect(Unit) {
         if (!backendStarted) {
             backendStarted = true
