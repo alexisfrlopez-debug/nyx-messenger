@@ -28,10 +28,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import net.nyx.messenger.crypto.PasswordCrypto
 import net.nyx.messenger.desktop.DesktopLog
 import net.nyx.messenger.desktop.DesktopSettings
 import net.nyx.messenger.desktop.ServiceLocator
 import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * Réglages desktop — miroir de SettingsScreen Android (sous-ensemble v1) :
@@ -47,6 +50,8 @@ fun SettingsPanel() {
     var bio by remember { mutableStateOf(profile.bio) }
     var customReplica by remember { mutableStateOf(s.customReplica) }
     var message by remember { mutableStateOf<String?>(null) }
+    var backupPwd by remember { mutableStateOf("") }
+    var backupPwd2 by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxWidth().padding(24.dp)) {
         Text("Réglages", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
@@ -113,6 +118,60 @@ fun SettingsPanel() {
                 ServiceLocator.setCustomReplica(customReplica)
                 message = "liste des réplicas mise à jour"
             }) { Text("Appliquer") }
+        }
+
+        SettingCard("Sauvegarde de compte") {
+            Text(
+                "Export CHIFFRÉ de tout le compte — clé de récupération, alias, profil, " +
+                    "contacts et position de lecture : importable sur un autre PC ou sur " +
+                    "l'application téléphone (qui demandera ce mot de passe à l'import). " +
+                    "Sans export, la clé de l'écran « Mon adresse » restaure l'identité seule.",
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.outline
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = backupPwd, onValueChange = { backupPwd = it },
+                label = { Text("Mot de passe de chiffrement (≥ 4)") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = backupPwd2, onValueChange = { backupPwd2 = it },
+                label = { Text("Confirmer le mot de passe") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                isError = backupPwd2.isNotBlank() && backupPwd2 != backupPwd)
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = {
+                when {
+                    backupPwd.length < 4 -> message = "mot de passe trop court (≥ 4)"
+                    backupPwd != backupPwd2 -> message = "les deux mots de passe diffèrent"
+                    else -> {
+                        val fc = javax.swing.JFileChooser()
+                        fc.dialogTitle = "Exporter la sauvegarde de compte Nyx"
+                        val stamp = LocalDateTime.now()
+                            .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmm"))
+                        fc.selectedFile = File("nyx-sauvegarde-$stamp.txt")
+                        if (fc.showSaveDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                            runCatching {
+                                // UN SEUL point de génération du JSON (RED-DUP) +
+                                // enveloppe chiffrée — miroir writeBackupToUri Android.
+                                val envelope = PasswordCrypto.encrypt(
+                                    ServiceLocator.exportBackupJson().toByteArray(Charsets.UTF_8),
+                                    backupPwd.toCharArray()
+                                )
+                                fc.selectedFile.writeText(envelope)
+                            }.fold(
+                                onSuccess = {
+                                    message = "sauvegarde chiffrée exportée : ${fc.selectedFile.absolutePath}"
+                                    DesktopLog.i("nyx-backup", "sauvegarde exportée : ${fc.selectedFile.name}")
+                                },
+                                onFailure = { message = "échec d'export : ${it.message}" }
+                            )
+                        }
+                    }
+                }
+            }, enabled = backupPwd.length >= 4 && backupPwd == backupPwd2) {
+                Text("Exporter la sauvegarde…")
+            }
         }
 
         SettingCard("Diagnostic") {

@@ -44,6 +44,27 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 72 — REÇUES 2026-10-27 (retour terrain
+> v0.3.1 opérateur Alek), ENREGISTRÉES AVANT TRAVAIL (règle §9.9). Toute
+> session qui reprend ce fichier DOIT les traiter :**
+>
+> 1. **RACCOURCI BUREAU ABSENT APRÈS INSTALLATION** — verbatim opérateur :
+>    « Après l'installation de la version Windows de la messagerie, je ne
+>    trouve pas le raccourcis sur le bureau » → diagnostiquer pourquoi
+>    l'installateur v0.3.1 (qui CRÉE pourtant le .lnk) aboutit à un raccourci
+>    invisible, corriger, et livrer la mise à jour en place (données
+>    préservées).
+> 2. **RESTAURATION DE SAUVEGARDE DE COMPTE IMPOSSIBLE** — verbatim
+>    opérateur : « je n'arrive pas à restaurer un fichier de sauvegarde de
+>    compte que j'ai généré avec l'appli téléphone » → le fichier téléphone
+>    est une enveloppe CHIFFRÉE nyx-enc-v1 (Android ≥ v0.2.26) : rendre le
+>    bureau capable de l'importer (sélecteur de fichier + mot de passe +
+>    restauration ÉLARGIE miroir Android : alias/profil/contacts/curseurs).
+>    **ÉTAT : TRAITÉ (session 72 — CLIENT DESKTOP WINDOWS v0.3.2 : raccourcis
+>    résolus par l'API shell GetFolderPath + icône nyx.ico + import complet
+>    des sauvegardes téléphone avec vecteur d'interopérabilité indépendant ;
+>    release GitHub v0.3.2-desktop + Drive + fiche 16ᵉ édition).**
+
 > 🔴 **INSTRUCTIONS SESSION 70 — REÇUES 2026-10-27, ENREGISTRÉES AVANT
 > TRAVAIL (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
 >
@@ -363,6 +384,48 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 > (plus JAMAIS « csd 0 o ») ; (3) pendant une sonnerie sortante sans
 > réponse, Raccrocher referme l'écran < 1 s ; (4) si tor meurt → « RELANCE
 > AUTOMATIQUE n/3 » puis onion re-publié.**
+
+> **Pointeur rapide (session 72 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS
+> v0.3.2** (correctifs retour terrain v0.3.1 — tag v0.3.2-desktop, release
+> GitHub + zip portable + installateur.exe dans Drive dernieres-livrables,
+> v0.3.1 archivée ; serveur 0.2.38, console v0.8.12 et APK v0.2.53
+> INCHANGÉS) — deux retours terrain traités : **(1) RACCOURCI BUREAU
+> INVISIBLE** (« je ne trouve pas le raccourci sur le bureau ») : le .lnk
+> était écrit à la RACINE %OneDrive% (redirection Known Folder Move → le
+> bureau réel est %OneDrive%\Desktop) ou dans %USERPROFILE%\Desktop qui
+> N'EXISTE PAS sur Windows français (« Bureau ») → résolution désormais
+> PAR L'API SHELL DANS PowerShell ([Environment]::GetFolderPath('Desktop'
+> /'Programs') → SHGetKnownFolderPath : OneDrive + localisation +
+> déplacements couverts d'un coup, plus AUCUNE variable d'environnement),
+> icône nyx.ico (lune/constellation miroir Android, 6 tailles) livrée dans
+> le payload + IconLocation réelle, existence du .lnk VÉRIFIÉE après
+> Save() (codes 2/3 + avertissement jamais silencieux), lanceur javaw
+> sans argument (plus de console résiduelle) ; **(2) RESTAURATION DE
+> SAUVEGARDE TÉLÉPHONE IMPOSSIBLE** (« je n'arrive pas à restaurer un
+> fichier de sauvegarde de compte généré avec l'appli téléphone ») :
+> portage miroir crypto/PasswordCrypto.kt (enveloppe nyx-enc-v1,
+> PBKDF2 150k + AES-256-GCM — MÊMES paramètres que le téléphone) +
+> crypto/IdentityBackup.kt (JSON v1/v2 + clé nue) + desktop/BackupRestore.kt
+> (export v2 + application : identité re-dérivée, alias, profil propre,
+> contacts re-fusionnés SANS JAMAIS régresser, curseurs insertion seule) ;
+> onboarding avec « Importer un fichier de sauvegarde… » (JFileChooser +
+> mot de passe auto-détecté pour les enveloppes) ; Réglages → carte
+> « Sauvegarde de compte » (export chiffré bidirectionnel PC↔téléphone).
+> QUALITÉ : **142 tests JVM verts** (121 + 21 nouveaux dont
+> PasswordCryptoInteropTest — vecteur scellé par une implémentation TIERCE
+> Python cryptography, garantit l'ouverture des enveloppes téléphone) ;
+> selftest --selftest étape « sauvegarde » (5/5) ; audit strict PASSED
+> 0/0/1 MIN préexistant ; livrables nyx-messenger-windows-v0.3.2.zip
+> (ce91f108…) + installateur.exe (bfd99991…). Sources bundle VERSIONNÉES
+> dans desktop/installer/bundle/ (bat + LISEZMOI + ico — le dépôt est la
+> source de vérité). **VALIDATION TERRAIN : (1) relancer l'installateur
+> v0.3.2 PAR-DESSUS v0.3.1 (données préservées) → raccourci « Nyx
+> Messagerie » avec l'icône lune SUR LE BUREAU (même avec OneDrive) et
+> dans le menu Démarrer ; (2) premier écran → « J'ai déjà une identité »
+> → « Importer un fichier de sauvegarde… » → fichier du téléphone →
+> mot de passe du compte téléphone → MÊME adresse onion + alias + profil
+> + contacts + position de lecture ; (3) lancer → plus de fenêtre console ;
+> (4) --selftest → 5 marqueurs OK, sortie 0.**
 
 > **Pointeur rapide (session 71 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS
 > v0.3.1** (correctif démarrage — tag v0.3.1-desktop, release GitHub + zip
@@ -1404,7 +1467,7 @@ nyx/
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config,transportxmpp,turn})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
-├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.1 — Gradle propre, noyau pur partagé 1:1, app/ + installer/ + scripts/{build-desktop-release,release-desktop}.sh, natifs libsodium autonomes + --selftest)
+├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.2 — Gradle propre, noyau pur partagé 1:1, app/ + installer/ {+ bundle/ : bat, LISEZMOI, nyx.ico VERSIONNÉS} + scripts/{build-desktop-release,release-desktop}.sh, natifs libsodium autonomes + --selftest + sauvegarde de compte interop téléphone)
 ├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh, publish-drive.sh
 ```
@@ -1515,6 +1578,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 
 | Date | Session | Résumé |
 |---|---|---|
+| 2026-10-27 | 72 | **CORRECTIFS RETOUR TERRAIN v0.3.2 — RACCOURCI BUREAU + RESTAURATION DE SAUVEGARDE TÉLÉPHONE** : (1) raccourci invisible car %OneDrive% désigne la RACINE synchronisée (pas le Bureau) et %USERPROFILE%\Desktop n'existe pas sur Windows localisé (« Bureau ») → dossier résolu PAR L'API SHELL dans PowerShell ([Environment]::GetFolderPath → SHGetKnownFolderPath ; codes de sortie dédiés 2/3, existence du .lnk vérifiée, chemin résolu imprimé) + nyx.ico (lune/constellation miroir Android, 6 tailles, générée PIL) + IconLocation réelle + lanceur javaw sans argument (console résiduelle supprimée) ; (2) import impossible des fichiers téléphone (enveloppe chiffrée nyx-enc-v1) → PORTAGES MIROIR crypto/PasswordCrypto.kt + crypto/IdentityBackup.kt + desktop/BackupRestore.kt (export v2 clé+alias+profil+contacts+curseurs ; application : identité re-dérivée, alias normalisé, profil propre, contacts SANS régresser — incoming→accepted réparé, archivé intact —, curseurs insertion seule) + OnboardingScreen « Importer un fichier de sauvegarde… » (JFileChooser, mot de passe auto-détecté enveloppe, erreurs explicites) + Réglages carte « Sauvegarde de compte » (export chiffré bidirectionnel PC↔téléphone) + selftest étape « sauvegarde » (5/5). 142 tests JVM verts (21 nouveaux DONT PasswordCryptoInteropTest : vecteur scellé par implémentation TIERCE Python cryptography → garantie d'ouverture des enveloppes téléphone) ; audit strict PASSED 0/0/1 (code mort restoreIdentity supprimé sur blocage MAJOR) ; sources bundle versionnées desktop/installer/bundle/. Livré : v0.3.2-desktop (zip 121 Mo ce91f108… + exe bfd99991… + SHA256SUMS + audit) — release GitHub + Drive, v0.3.1 archivée, fiche 16ᵉ édition (§9.10). |
 | 2026-10-27 | 71 | **CORRECTIF DÉMARRAGE WINDOWS v0.3.1 (retour terrain v0.3.0)** : UnsatisfiedLinkError « Unable to load library 'sodium' » au premier lancement — CAUSE RACINE : dll libsodium lazysodium-java = build MinGW dépendant de libgcc_s_seh-1.dll + libwinpthread-1.dll (absentes d'un Windows vierge ; le chargeur groupé l'extrait seule en temp → résolution de dépendances impossible → repli système silencieux → crash) + skiko Windows absent (currentOs = plateforme de BUILD) + bac à sable Linux aveuglé par libsodium.so.23 système. Natives.kt (extraction autonome avant JNA + compagnes MinGW + jna.library.path), compagnes aussi dans runtime\bin via l'installateur (essentielles vérifiées), miroir conventions JNA dans le fat jar, skiko-awt-runtime-windows-x64:0.8.4, slf4j-nop, --selftest headless (libsodium, onion v3, identité scellée, sealed box + NYX1, sortie 0/3), scripts/build-desktop-release.sh (pipeline persisté : tests + vérifications de contenu + selftest + payload + zip + installateur GOOS=windows + smoke -silent + SHA256SUMS + audit). 122 tests JVM verts ; NativesTest verrouille la régression ; audit PASSED 0/0/1. Livré : v0.3.1-desktop (zip 126 Mo 04ba43a6… + exe 130 Mo 973caab6… + SHA256SUMS + audit) — release GitHub + Drive, v0.3.0 archivée. CLÔTURE : publish-drive.sh corrigé (BASH_REMATCH[2] non lié sous set -u ; zip portable sans suffixe jamais archivé — le v0.3.0.zip resté en place a été rattrapé), session_closeout.py étendu à la famille desktop (tag v0.3.1-desktop, release + assets, Drive, fiche), fiche 15ᵉ édition (§9.10) — couverture + Tableaux 1/2/5/6 + ligne Windows, RESTART.md + tar.gz synchronisés Drive. |
 | 2026-10-27 | 70 | **VERSION WINDOWS DU MESSAGER (ADR-019)** : instructions enregistrées + Drive OK (§9.9). Module `desktop/` (Compose Desktop, Kotlin 2.0.20) : noyau pur Android copié 1:1 (OnionCodec, AliasValidator, RecoveryKey, BootstrapReplicas, Loopback, SeqResync, RepoRouting, ChunkCodec, ReceiptCodec, DeleteCodec, ReplicaCodec, LinkFallback, ReplicaValidate, ReplicaHttp, RendezvousList, TorControlClient) + MessageCipher sur LazySodium JAVA + Wire/RelayClient + ReplicaRegistry fichier + EmbeddedReplica desktop (journal jsonl, mêmes quotas) + DesktopRepository (postSigned/SeqResync, DepositRouting, receipts, invitations/acks, annonces réplica, alias, profils) + DesktopStore JSON atomique + DesktopTor (tor.exe, torrc miroir NyxTorConfig, ADD_ONION Detach) + UI Compose Desktop thème Nuit de Nyx (onboarding/conversations/chat/contacts/connexions/mon adresse/réglages) ; `installer/` Go cross-compilé Windows (payload zip go:embed, SHA ldflags, Zip-Slip, raccourcis, désinstalleur). 119 tests JVM verts ; audit strict PASSED (audit.py + allowlist étendus portage-miroir) ; smoke tests installateur + jar réels. Livré : v0.3.0-desktop (zip 114 Mo 0c2d2c18… + exe 117 Mo 95ee7340… + SHA256SUMS + audit) — release GitHub + Drive dernieres-livrables (publish-drive.sh --kind desktop). android/ INTACT. |
 | 2026-10-12 | 1 | Clarification + validation des choix (réplication gossip, Signal+libsodium, identité onion, Kotlin, Go, MVP chat 1:1). Scaffold complet : docs (6 ADR), specs filaires, nœud Go compilé+testé (journal signé, onion v3, gossip NaCl, API), squelette Android Compose, scripts. **Dépôt GitHub `nyx-messenger` créé + push initial. Sauvegarde Drive complète (RESTART.md + README.md + archive tar.gz).** |

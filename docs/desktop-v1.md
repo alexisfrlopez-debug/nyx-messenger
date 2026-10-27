@@ -10,6 +10,7 @@ scellement identité, packaging, exclusions v1).
 | Fonction | v1 desktop | Source du portage |
 |---|---|---|
 | Identité onion v3 (création, restauration par graine) | OUI | IdentityManager/IdentityBackup |
+| Sauvegarde de compte chiffrée (import téléphone → PC, export PC → téléphone) | OUI (v0.3.2) | PasswordCrypto + IdentityBackup + BackupRestore |
 | Alias (claim + résolution) | OUI | AliasValidator + events `alias` |
 | Contacts (ajout par onion/alias, annonces `contact`) | OUI | NyxRepository |
 | Conversations + messages texte E2E (sealed box) | OUI | MessageCipher + WireEvent |
@@ -68,8 +69,31 @@ d'hygiène §9.5 : pas de stockage externe).
   aléatoire local (l'identité reste locale au profil utilisateur — menace =
   accès au fichier ; cohérent avec le modèle Android Keystore non-hardware).
 - Avec mot de passe : Argon2id (libsodium) → clé 32 o → secretbox.
-- Restauration par graine : format IdentityBackup existant (bip39-like 24
-  mots du portage RecoveryKey) — import/export dans les Réglages.
+- Restauration par graine : format IdentityBackup existant (clé nyx1.… du
+  portage RecoveryKey) — import/export dans les Réglages.
+
+### 3.1 Sauvegarde de compte (v0.3.2 — miroir Android v0.2.21/v0.2.26)
+
+L'onboarding accepte TOUTES les formes de sauvegarde du téléphone :
+
+1. **enveloppe chiffrée** `nyx-enc-v1.<sel>.<iv>.<ct>` (Android ≥ v0.2.26) :
+   PBKDF2-HMAC-SHA256 150 000 it. → AES-256-GCM (tag 128) — mot de passe
+   du compte téléphone exigé à l'import ;
+2. **JSON v1/v2 en clair** (v0.2.3-v0.2.25) ;
+3. **clé nue** `nyx1.…` (identité seule).
+
+La restauration v2 applique la MÊME sémantique que l'Android : identité
+re-dérivée (même onion, checksum clé), alias normalisé, profil propre
+(champs publics+privés), contacts re-fusionnés SANS JAMAIS régresser
+l'état local (absent → insertion ; incoming local + accepted sauvegardé →
+mise à niveau ; archivé local → intact), curseurs inbox en insertion
+seule. L'export (Réglages → Sauvegarde de compte) scelle le même JSON v2
+dans une enveloppe `nyx-enc-v1` avec un mot de passe choisi — importable
+par le téléphone (miroir writeBackupToUri).
+
+Vecteur d'interopérabilité : `interop-vector-android-backup.json`
+(implémentation tierce Python) consommé par PasswordCryptoInteropTest —
+garantit le déchiffrement bureau des enveloppes générées hors JVM.
 
 ## 4. Processus Tor (desktop)
 
@@ -109,6 +133,16 @@ d'hygiène §9.5 : pas de stockage externe).
   zip, SHA-256 vérifié (ldflags), raccourcis, `-silent`/`-dir`,
   `desinstaller.bat` (données `%USERPROFILE%\.nyx-messenger` préservées) —
   miroir de l'installateur nyx-admin.
+- **Raccourcis (v0.3.2)** : le dossier cible est résolu par l'API shell
+  (`[Environment]::GetFolderPath('Desktop'/'Programs')` →
+  SHGetKnownFolderPath) — PAS par les variables d'environnement (%OneDrive%
+  désigne la racine synchronisée, pas le Bureau ; %USERPROFILE%\Desktop
+  n'existe pas sur Windows localisé « Bureau »). Icône `nyx.ico` livrée à
+  côté du jar ; existence du .lnk vérifiée après création (échec → code de
+  sortie dédié + avertissement, jamais silencieux).
+- **Lanceur (v0.3.2)** : sans argument → `javaw.exe` (GUI subsystem, aucune
+  console résiduelle) ; avec argument (`--selftest`) → `java.exe` console
+  (sortie diagnostique visible, code de retour).
 - Contrôles d'autonomie (équivalent §9.2 adapté desktop) : tor.exe présent
   dans le zip ; jar exécutable par `runtime\bin\java.exe` seul ; zéro
   dépendance réseau au premier lancement (hors Tor lui-même) ; taille et
@@ -124,3 +158,7 @@ généré (ports/chemins/ConfluxEnabled), scellement identité (aller-retour
 avec/sans mot de passe), stores atomiques (crash simulé tmp), réplique
 desktop (dépôt→inbox→curseur, quotas, TTL), intégration loopback (dépôt
 client A → réplica embarqué → lecture inbox signée).
+Nouveaux v0.3.2 : PasswordCryptoTest (format/aller-retour/refus),
+IdentityBackupTest (miroir Android v2/v1/clé nue), PasswordCryptoInteropTest
+(vecteur tierce), BackupRestoreTest (chaîne export→enveloppe→import,
+sémantiques de fusion), étape « sauvegarde » du selftest headless.

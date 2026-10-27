@@ -27,7 +27,7 @@ import java.util.Base64
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.1"
+    const val VERSION = "0.3.2"
 
     lateinit var identity: DesktopIdentity
         private set
@@ -196,8 +196,37 @@ object ServiceLocator {
         return onion
     }
 
-    fun restoreIdentity(key: String, password: CharArray?): String =
-        identity.restoreFromSeed(key, password)
+    /**
+     * v0.3.2 — Restauration d'un FICHIER DE SAUVEGARDE DE COMPTE (retour
+     * terrain : « je n'arrive pas à restaurer un fichier de sauvegarde que
+     * j'ai généré avec l'appli téléphone »). Accepte, comme l'Android :
+     *   - l'enveloppe chiffrée nyx-enc-v1.… (Android ≥ v0.2.26) — mot de
+     *     passe du compte téléphone requis ;
+     *   - le JSON v1/v2 en clair (Android v0.2.3-v0.2.25) ;
+     *   - la clé nue « nyx1.… » collée.
+     * [identityPassword] = mot de passe de SCELLEMENT LOCAL optionnel (ne
+     * quitte pas cette machine — distinct du mot de passe de sauvegarde).
+     */
+    fun restoreFromBackup(
+        text: String,
+        backupPassword: CharArray? = null,
+        identityPassword: CharArray? = null,
+    ): String {
+        val t = text.trim()
+        if (t.isEmpty()) error("sauvegarde vide")
+        val plain: String = if (net.nyx.messenger.crypto.PasswordCrypto.isEncrypted(t)) {
+            val pwd = backupPassword ?: error("mot de passe de sauvegarde requis (fichier chiffré)")
+            val bytes = net.nyx.messenger.crypto.PasswordCrypto.decrypt(t, pwd)
+                ?: error("mot de passe de sauvegarde incorrect, ou fichier altéré/tronqué")
+            bytes.toString(Charsets.UTF_8)
+        } else t
+        val found = net.nyx.messenger.crypto.IdentityBackup.extract(plain)
+            ?: error("contenu de sauvegarde méconnaissable — ni JSON Nyx, ni clé nyx1.… (fichier tronqué ?)")
+        return BackupRestore.applyRestore(identity, store, found, identityPassword)
+    }
+
+    /** v0.3.2 — JSON v2 de sauvegarde (onboarding/Paramètres — RED-DUP). */
+    fun exportBackupJson(): String = BackupRestore.exportBackupJson(identity, store)
 
     fun recoveryKey(): String? {
         if (!identity.exists) return null

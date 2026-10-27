@@ -1,0 +1,6 @@
+{
+  "envelope": "nyx-enc-v1.AAECAwQFBgcICQoLDA0ODw==.AAECAwQFBgcICQoL.MLVTxF4/EZqnI6CMcgUhaHpjSFBtnQu1PRZpd3AYIqyT8o3IdL2EdkVTFFUtW83SQawvgQeUoyUBrE800rzmdDG1DSNM/0hGLwkrOMIV3K7dyT8LzGiADIms0m7pDrnfiitH3OdFraXHJWe2lksVjHQfGuP12vw/PYiIpxbDpva4rbtoCTGllEdRDt9XOzPh1bwfwg3j/eV/jPvtPpX4dXaFHIxes+NcR8CYmsxnxAwJIhaDtwsukSo+XoJROGqw+LESS/ZH4KtNMbNaoBFwLHnKMLetH1BWQsPJ3NY410rRikiOuf+f+Xr0tToBgmN+NLc2QJhiez0Z18z0EshZZbYLGLM=",
+  "password": "mot-de-passe-telephone",
+  "plain_sha256": "2557788047e848cb115bed2a97ed17119823dae4d9eafe17e9fe3d1461ddc91b",
+  "plain_utf8": "{\"format\": \"nyx-identity-backup\", \"version\": 2, \"onion\": \"nyx123456789012345678901234567890123456789012345678901234.onion\", \"recovery_key\": \"nyx1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.0123abcd\", \"alias\": \"alek\", \"created_at\": 1760000000}"
+}

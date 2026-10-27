@@ -1,0 +1,65 @@
+Nyx — Messagerie anonyme, chiffree de bout en bout, entierement sur Tor
+========================================================================
+Version desktop Windows v0.3.2 (correctifs retour terrain v0.3.1 — portage
+ADR-019 du client Android v0.2.53)
+
+CORRECTIFS v0.3.2
+----------------
+  1. RACCOURCI BUREAU : v0.3.1 le posait dans un dossier qui n'est pas le
+     bureau reel des Windows modernes (racine OneDrive quand la
+     synchronisation est activee, ou %USERPROFILE%\Desktop qui n'existe pas
+     sur un Windows francais — le dossier s'appelle « Bureau »). Le chemin
+     est desormais resolu par l'API Windows elle-meme : le raccourci
+     apparait sur votre bureau ET dans le menu Demarrer, avec l'icone Nyx
+     (lune etoilee). Relancez simplement l'installateur v0.3.2 par-dessus
+     v0.3.1 : les raccourcis sont recrees au bon endroit, les donnees sont
+     preservees.
+  2. RESTAURATION DE SAUVEGARDE : les fichiers de sauvegarde de compte
+     generes par l'application TELEPHONE (chiffres par mot de passe depuis
+     la v0.2.26 Android) sont desormais importables sur le bureau :
+     bouton « Restaurer une sauvegarde » > « Importer un fichier… » >
+     choisissez le fichier, saisissez le mot de passe du compte telephone.
+     La restauration recree la meme adresse onion ET l'alias, le profil,
+     les contacts et la position de lecture (identique a la restauration
+     entre deux telephones). Les anciens formats restent acceptes :
+     JSON en clair (v0.2.21-v0.2.25) et cle nue « nyx1.… » collee.
+  3. La fenetre console qui restait ouverte derriere l'application au
+     lancement par le raccourci est supprimee (javaw).
+  + Reglages > « Sauvegarde de compte » : export d'un fichier de sauvegarde
+    CHIFFRE (mot de passe de votre choix), importable sur un autre PC ou
+    sur l'application telephone.
+
+CONTENU
+-------
+  nyx-messenger.bat .... lanceur (double-clic) — accepte --selftest
+  nyx-messenger.jar .... application (100 % autonome, crypto embarquee)
+  nyx.ico .............. icone (raccourcis bureau / menu demarrer)
+  runtime\ ............. Java 21 (Temurin, Windows x64) — aucun prerequis
+  tor\ ................. Tor 15.0.26 (expert bundle officiel) — embarque
+
+DEMARRAGE
+---------
+  1. Double-cliquez sur le raccourci « Nyx Messagerie » du bureau
+     (ou nyx-messenger.bat)
+  2. Premier lancement : creez votre identite (pseudonyme optionnel,
+     mot de passe optionnel) — votre identite EST votre adresse onion.
+     OU restaurez votre sauvegarde de compte telephone.
+  3. Tor demarre (30 s a 3 min la premiere fois), votre service onion
+     est publie, la replique embarquee sert sur le port 80 de votre onion.
+
+VOS DONNEES
+-----------
+  %USERPROFILE%\.nyx-messenger\
+     identity.json   identite scellee (cle privee chiffree)
+     store\          conversations, contacts, fichiers recus
+     tor\            donnees Tor (caches) + journal tor.log
+  La cle de recuperation (ecran « Mon adresse ») restaure votre compte sur
+  toute machine ; la sauvegarde de compte (Reglages) embarque en plus
+  l'alias, le profil, les contacts et la position de lecture.
+
+INTEROPERABILITE
+----------------
+  Messagerie complete avec l'application Android Nyx (meme protocole) :
+  messages, fichiers (chiffres 64 Mo par blocs), profils, alias.
+  Sauvegardes de compte interchangeables TELEPHONE <-> PC dans les deux
+  sens. Appels audio/visio : phase 2 (ADR-019 §6).

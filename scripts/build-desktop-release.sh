@@ -88,9 +88,15 @@ echo "── assemblage payload…"
 cp "$FAT" "$BUNDLE/nyx-messenger.jar"
 cp desktop/app/src/main/resources/nyx-native/libgcc_s_seh-1.dll "$BUNDLE/runtime/bin/"
 cp desktop/app/src/main/resources/nyx-native/libwinpthread-1.dll "$BUNDLE/runtime/bin/"
-[ -f "$BUNDLE/nyx-messenger.bat" ] && [ -f "$BUNDLE/LISEZMOI.txt" ] \
-  || { echo "${RED}✗ bat/LISEZMOI absents du bundle${NC}"; exit 1; }
-echo "${GRN}  ✓ bundle à jour (jar + compagnes MinGW dans runtime/bin)${NC}"
+# v0.3.2 — sources du bundle VERSIONNÉES dans le dépôt (lanceur javaw,
+# LISEZMOI correctifs, icône raccourcis) : le dépôt est la source de
+# vérité, payload/bundle n'est plus qu'une zone d'assemblage.
+cp desktop/installer/bundle/nyx-messenger.bat "$BUNDLE/nyx-messenger.bat"
+cp desktop/installer/bundle/LISEZMOI.txt "$BUNDLE/LISEZMOI.txt"
+cp desktop/installer/bundle/nyx.ico "$BUNDLE/nyx.ico"
+[ -f "$BUNDLE/nyx-messenger.bat" ] && [ -f "$BUNDLE/LISEZMOI.txt" ] && [ -f "$BUNDLE/nyx.ico" ] \
+  || { echo "${RED}✗ bat/LISEZMOI/ico absents du bundle${NC}"; exit 1; }
+echo "${GRN}  ✓ bundle à jour (jar + compagnes MinGW + lanceur + LISEZMOI + icône)${NC}"
 
 # ---------- 5. Zip portable ----------
 echo "── zip portable…"
@@ -118,6 +124,11 @@ grep -q "SHA-256 vérifié" "$SMOKE/install.log" \
   || { cat "$SMOKE/install.log"; echo "${RED}✗ SHA du payload non vérifié${NC}"; exit 1; }
 grep -q "fichiers essentiels vérifiés" "$SMOKE/install.log" \
   || { cat "$SMOKE/install.log"; echo "${RED}✗ fichiers essentiels non vérifiés${NC}"; exit 1; }
+[ -f "$DEST/nyx-messenger/nyx.ico" ] \
+  || { echo "${RED}✗ icône nyx.ico absente du payload installé${NC}"; exit 1; }
+grep -q "raccourci desktop" "$SMOKE/install.log" \
+  && echo "${YLW}  (info) raccourcis tentés sous Linux — chemin résolu par l'API shell Windows au vrai install${NC}" \
+  || true
 N=$(cd "$DEST/nyx-messenger" && echo $(ls -R | wc -l))
 set +e
 OUT2=$(cd "$DEST/nyx-messenger" && java -Djava.io.tmpdir="$SMOKE/tmp" -jar nyx-messenger.jar --selftest 2>&1); RC2=$?

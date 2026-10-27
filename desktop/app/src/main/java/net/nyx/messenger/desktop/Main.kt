@@ -86,8 +86,11 @@ fun App() {
                 ServiceLocator.createIdentity(alias, password)
                 hasIdentity.value = true
             },
-            onRestore = { key, password ->
-                ServiceLocator.restoreIdentity(key, password)
+            // v0.3.2 — restauration par FICHIER DE SAUVEGARDE (enveloppe
+            // chiffrée téléphone, JSON v1/v2 ou clé nue) : miroir de la
+            // restauration Android (alias + profil + contacts + curseurs).
+            onRestore = { backupText, backupPassword, identityPassword ->
+                ServiceLocator.restoreFromBackup(backupText, backupPassword, identityPassword)
                 hasIdentity.value = true
             }
         )

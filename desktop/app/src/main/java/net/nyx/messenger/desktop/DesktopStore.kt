@@ -304,6 +304,11 @@ class DesktopStore {
         JsonStore.write(fCursors, MapSerializer(String.serializer(), Long.serializer()), cursors)
     }
 
+    /** Instantané complet (v0.3.2 — export de sauvegarde, miroir pollStateDao.all()). */
+    fun cursors(): Map<String, Long> = synchronized(lock) {
+        ensureLoadedLocked(); cursors.toMap()
+    }
+
     // ---------- fichiers média ----------
 
     fun deleteAttachmentFile(fid: String) {

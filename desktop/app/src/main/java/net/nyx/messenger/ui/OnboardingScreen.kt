@@ -20,6 +20,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,24 +34,41 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.nyx.messenger.crypto.AliasValidator
+import net.nyx.messenger.crypto.PasswordCrypto
+import java.io.File
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 /**
  * Onboarding desktop — miroir de OnboardingScreen Android : création
  * d'identité (ed25519 → onion), alias optionnel, mot de passe de verrou
- * optionnel ; OU restauration par clé de récupération (nyx1.…).
+ * optionnel ; OU restauration d'une sauvegarde.
+ *
+ * v0.3.2 — RESTAURATION RÉELLE DES FICHIERS DE SAUVEGARDE (retour terrain :
+ * « je n'arrive pas à restaurer un fichier de sauvegarde de compte que
+ * j'ai généré avec l'appli téléphone ») : l'import accepte désormais TOUT
+ * ce que le téléphone exporte — l'enveloppe chiffrée nyx-enc-v1.… (mot de
+ * passe du compte demandé), le JSON v1/v2 en clair des versions anciennes,
+ * et la clé nue « nyx1.… » collée — par SÉLECTEUR DE FICHIER (miroir du
+ * « Choisir un fichier de sauvegarde… » Android) ou par collage.
  */
 @Composable
 fun OnboardingScreen(
     onCreate: (alias: String?, password: CharArray?) -> Unit,
-    onRestore: (key: String, password: CharArray?) -> Unit,
+    onRestore: (backupText: String, backupPassword: CharArray?, identityPassword: CharArray?) -> Unit,
 ) {
     var mode by remember { mutableStateOf("create") }
     var alias by remember { mutableStateOf("") }
     var usePassword by remember { mutableStateOf(false) }
     var password by remember { mutableStateOf("") }
-    var recoveryKey by remember { mutableStateOf("") }
+    var restoreInput by remember { mutableStateOf("") }
+    var backupPwd by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var fileName by remember { mutableStateOf<String?>(null) }
+
+    // Enveloppe chiffrée détectée dans le contenu courant → champ mot de passe.
+    val encrypted = PasswordCrypto.isEncrypted(restoreInput)
 
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
@@ -124,32 +142,83 @@ fun OnboardingScreen(
                     "J'ai déjà une identité",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { mode = "restore" }
+                    modifier = Modifier.clickable { mode = "restore"; error = null }
                 )
             } else {
                 Text(
-                    "Collez votre clé de récupération (nyx1.…) pour retrouver exactement " +
-                        "la même adresse onion et le même compte.",
+                    "Importez le fichier de sauvegarde généré par votre téléphone (ou un autre PC) : " +
+                        "même adresse onion, avec l'alias, le profil, les contacts et la position de lecture. " +
+                        "Vous pouvez aussi coller directement la clé de récupération (nyx1.…) — " +
+                        "elle restaure l'identité seule.",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.outline
                 )
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(
-                    value = recoveryKey,
-                    onValueChange = { recoveryKey = it.trim() },
-                    label = { Text("Clé de récupération (nyx1.…)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    value = restoreInput,
+                    onValueChange = { restoreInput = it; error = null },
+                    label = { Text("Clé de récupération (nyx1.…) ou contenu de la sauvegarde") },
+                    modifier = Modifier.fillMaxWidth().height(96.dp),
+                    singleLine = false
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        val fc = JFileChooser()
+                        fc.dialogTitle = "Importer une sauvegarde de compte Nyx"
+                        fc.isMultiSelectionEnabled = false
+                        fc.fileFilter = FileNameExtensionFilter(
+                            "Sauvegarde Nyx (txt, json, nyx) ou tout fichier", "txt", "json", "nyx"
+                        )
+                        fc.setAcceptAllFileFilterUsed(true)
+                        if (fc.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                            val f: File = fc.selectedFile
+                            runCatching {
+                                require(f.length() in 1..(2L * 1024 * 1024)) {
+                                    "fichier trop volumineux ou vide (${f.length()} octets)"
+                                }
+                                f.readText(Charsets.UTF_8)
+                            }.fold(
+                                onSuccess = {
+                                    restoreInput = it.trim()
+                                    fileName = f.name
+                                    error = null
+                                },
+                                onFailure = { e ->
+                                    fileName = null
+                                    error = "lecture impossible : ${e.message}"
+                                }
+                            )
+                        }
+                    }) { Text("Importer un fichier de sauvegarde…") }
+                    fileName?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp))
+                    }
+                }
+                if (encrypted) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = backupPwd,
+                        onValueChange = { backupPwd = it; error = null },
+                        label = { Text("Mot de passe de la sauvegarde (celui du compte téléphone)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        supportingText = { Text("Fichier chiffré détecté (nyx-enc-v1) — mot de passe requis") }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = usePassword, onCheckedChange = { usePassword = it })
-                    Text("Protéger par un mot de passe", fontSize = 12.sp)
+                    Text("Protéger l'identité locale par un mot de passe", fontSize = 12.sp)
                 }
                 if (usePassword) {
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Mot de passe") },
+                        label = { Text("Mot de passe local (optionnel, ne quitte pas ce PC)") },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -160,21 +229,23 @@ fun OnboardingScreen(
                     onClick = {
                         error = null; busy = true
                         try {
-                            onRestore(recoveryKey, if (usePassword) password.toCharArray() else null)
+                            val backupPassword = if (encrypted) backupPwd.toCharArray() else null
+                            val identityPassword = if (usePassword) password.toCharArray() else null
+                            onRestore(restoreInput, backupPassword, identityPassword)
                         } catch (e: Exception) {
                             busy = false
-                            error = e.message ?: "clé invalide"
+                            error = e.message ?: "sauvegarde invalide"
                         }
                     },
-                    enabled = !busy && recoveryKey.startsWith("nyx1."),
+                    enabled = !busy && restoreInput.isNotBlank() && (!encrypted || backupPwd.isNotEmpty()),
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Restaurer mon identité") }
+                ) { Text("Restaurer mon compte") }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Créer une nouvelle identité",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { mode = "create" }
+                    modifier = Modifier.clickable { mode = "create"; error = null }
                 )
             }
 
@@ -185,5 +256,3 @@ fun OnboardingScreen(
         }
     }
 }
-
-/** clickable importé (fondation) — utilisé pour les liens textuels. */
