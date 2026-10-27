@@ -184,7 +184,10 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    reproduction JVM) + appels audio bureau↔téléphone par codec ADPCM négocié
 >    (portage complet ADR-015 audio) ; releases GitHub + Drive + fiche 20ᵉ édition).**
 
-> **Pointeur rapide (session 76 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS v0.3.6 + ANDROID v0.2.54 — ACCUSÉS DE RÉCEPTION réparés à la racine + APPELS AUDIO bureau↔téléphone (ADR-015 porté, codec ADPCM négocié).** Retour
+> **Pointeur rapide (session 76 — 2026-10-27)** : messagerie **v0.2.54**
+> (VC58, 2 APK dans Drive dernieres-livrables + release GitHub id 426070452,
+> v0.2.53 archivée ; console v0.8.12 et serveur 0.2.38 INCHANGÉS) +
+> **CLIENT DESKTOP WINDOWS v0.3.6 — ACCUSÉS DE RÉCEPTION réparés à la racine + APPELS AUDIO bureau↔téléphone (ADR-015 porté, codec ADPCM négocié).** Retour
 > terrain verbatim : « lors d'échanges entre l'app tel et l'app windows, les
 > accusés de réceptions ne fonctionnent pas / les appels ne fonctionnent pas
 > sur l'app windows » (3ᵉ export du bouton d'envoi de logs,
