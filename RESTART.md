@@ -44,6 +44,46 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 74 — REÇUES 2026-10-27 (retours terrain v0.3.3
+> opérateur Alek, export logs reçu via le bouton d'envoi), ENREGISTRÉES
+> (règle §9.9). Toute session qui reprend ce fichier DOIT les traiter :**
+>
+> 1. **CONNEXION TOUJOURS EN ÉCHEC + BARRE DE PROGRESSION AU DÉMARRAGE** —
+>    verbatim opérateur : « logs envoyés / app windows : tor ne se connecte
+>    pas, ni les replicas. Je voudrais au lancement, comme pour la version
+>    Android, une barre de progression qui indique les états de connexion à
+>    Tor et aux replicas » → (a) ANALYSER LES JOURNAUX TERRAIN reçus
+>    (nyx-logs-desktop-v0.3.3-20261027-152927.txt : Tor LUI-MÊME démarrait
+>    parfaitement — tor.log complet, circuits construits, garde 25/25 — mais
+>    le client Java échouait « control port : écriture impossible
+>    (ConnectException) » 16 à 62 ms APRÈS le lancement du démon, AVANT
+>    l'ouverture du listener : COURSE DU PORT DE CONTRÔLE. Le cookie
+>    `control.authcookie` PERSISTE d'une session précédente (tor ne l'efface
+>    jamais) donc « cookie.isFile » passait instantanément) et corriger à la
+>    racine ; (b) livrer l'écran de connexion au démarrage avec barre de
+>    progression des états Tor + réplicas, miroir de ConnexionsScreen Android.
+> 2. **PARITÉ COMPLÈTE AVEC L'ANDROID** — verbatim opérateur : « je veux
+>    exactement les mêmes fonctionnalités/interfaces et boutons sur la version
+>    windows que sur la version android » → auditer systématiquement les
+>    écrans/boutons/fonctionnalités Android ↔ Windows et combler TOUTES les
+>    lacunes (vocaux, médias, vue limitée, suppressions pour moi/pour tous,
+>    mots de passe normal/panique/destruction, session leurre, plateau
+>    système, notifications, éphémères, exports, plan de tests…). Les appels
+>    audio/visio P2P restent la seule exception assumée (codec AAC MediaCodec
+>    Android — interop bureau exigée ; documentée phase 2, bouton 📞 explicite).
+>    **ÉTAT : TRAITÉ (session 74 — CLIENT DESKTOP WINDOWS v0.3.4 VERSION TEST :
+>    course du port de contrôle corrigée par PREUVE des logs terrain (purge du
+>    cookie périmé + attente d'un connect TCP RÉELLEMENT accepté, poll
+>    250 ms ≤ 60 s) + écran de connexion au démarrage miroir Android + vague
+>    de parité complète (vocaux 🎤, pièces jointes + visionneuse, vue
+>    unique/double, suppression pour moi/pour tous, mots de passe 3 rôles +
+>    session leurre + destruction, plateau système + notifications, thèmes
+>    réactifs, éphémères PAR conversation, export/import des conversations,
+>    compte/déconnexion, onglets Conversations/Contacts/Blocages, fiche
+>    contact, plan de tests miroir Android) ; release GitHub v0.3.4-desktop +
+>    Drive + fiche 18ᵉ édition). Reste pour session ultérieure dédiée :
+>    appels audio/visio P2P bureau (interop AAC).**
+
 > 🔴 **INSTRUCTIONS SESSION 73 — REÇUES 2026-10-27 (retour terrain v0.3.2
 > opérateur Alek), ENREGISTRÉES AVANT TRAVAIL (règle §9.9). Toute session qui
 > reprend ce fichier DOIT les traiter :**
@@ -89,6 +129,58 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    résolus par l'API shell GetFolderPath + icône nyx.ico + import complet
 >    des sauvegardes téléphone avec vecteur d'interopérabilité indépendant ;
 >    release GitHub v0.3.2-desktop + Drive + fiche 16ᵉ édition).**
+
+> **Pointeur rapide (session 74 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS v0.3.4 VERSION TEST** — connexion Tor
+> CORRIGÉE PAR PREUVE (premier export du bouton d'envoi de logs) + barre de
+> progression au démarrage + PARITÉ COMPLÈTE des interfaces Android.** Retours
+> terrain verbatim : « logs envoyés / app windows : tor ne se connecte pas, ni
+> les replicas. Je voudrais au lancement, comme pour la version Android, une
+> barre de progression qui indique les états de connexion à Tor et aux
+> replicas » puis « je veux exactement les mêmes fonctionnalités/interfaces et
+> boutons sur la version windows que sur la version android ». (1) **CAUSE
+> RACINE PROUVÉE PAR LES LOGS** (nyx-logs-desktop-v0.3.3-20261027-152927.txt) :
+> Tor LUI-MÊME démarrait parfaitement (tor.log complet : consensus, circuits,
+> garde primaire succès 25/25) mais le client Java échouait « control port :
+> écriture impossible (ConnectException) » 16-62 ms APRÈS le lancement du
+> démon, AVANT l'ouverture du listener — COURSE DU PORT DE CONTRÔLE : le
+> cookie `control.authcookie` PERSISTE d'une session précédente (tor ne
+> l'efface jamais) donc « cookie.isFile » passait INSTANTANÉMENT puis le
+> connect TCP ratrait le listener pas encore ouvert ; le retry tuait ensuite
+> CE démon sain via killLeftoverTor → **corrigé : purgeStaleCookie() AVANT
+> chaque lancement + attente d'un connect TCP RÉELLEMENT ACCEPTÉ
+> (isPortOpen, poll 250 ms ≤ 60 s) + marqueur journal « control port
+> ouvert »** ; (2) **ÉCRAN DE CONNEXION AU DÉMARRAGE** (ui/
+> StartupConnectionScreen.kt, miroir ConnexionsScreen Android) : barre
+> globale (Tor = moitié gauche, réplicas = moitié droite, formule testée
+> startupProgress) + étape 1 Tor (pourcentage vivant, durée, indice blocage
+> 0 % > 60 s, « Réessayer ») + étape 2 réplicas (sonde /health 8 s, «
+> Réessayer ») + auto-avance 900 ms + « Continuer sans attendre » + carte
+> ENVOI DE LOGS en bas ; (3) **PARITÉ COMPLÈTE** (audit écran par écran) :
+> écran principal 3 onglets (Conversations/Contacts/Blocages + invitations
+> Accepter/Refuser + clic droit Fiche/Bloquer/Supprimer + archivées),
+> conversation (vocaux 🎤 WAV + lecteur, pièces jointes + visionneuse +
+> Enregistrer sous, progression envoi/réception, onglet Fichiers & médias,
+> éphémères PAR conversation, suppression pour moi/pour tous, médias à
+> affichage limité vue unique/double, 📞 phase 2 explicite), fiche contact
+> (profil public + Bloquer/Débloquer), mon profil (avatar + visibilité PAR
+> CHAMP privé/public), réglages 13 cartes miroir Android (thème réactif,
+> fermeture, notifications, mise à jour + canal test, réplique embarquée
+> stats+Purger, statut réplicas, mots de passe 3 rôles, réplicas
+> personnalisés LISTE + migration v0.3.3→v0.3.4 de l'ancien champ unique,
+> sauvegarde de compte, export/import conversations chiffré, zone dangereuse,
+> compte/déconnexion, à propos), sécurité (PasswordGate + écran verrou +
+> session LEURRE panic + DESTRUCTION wipe), plateau système (réduction
+> icône lune, dialogue Réduire/Quitter, notifications message/invitation/
+> refus/suppression/mise à jour prête), build test (carte PLAN DE TESTS
+> v0.3.4 portage miroir diag/TestPlan.kt Android v0.2.20 : items cochables +
+> nyx-test PASS journalisé → export de logs ; PasswordField.kt partagé
+> miroir components/PasswordField.kt Android) ; **SEULE EXCEPTION ASSUMÉE :
+> appels audio/visio P2P** (AAC MediaCodec Android — interop bureau =
+> engineering dédié, prochaine session candidate). 172 tests JVM verts (+
+> 15 : course port de contrôle, boîtes contacts, progression 4 cas,
+> rendezvous, plan de tests 4) ; audit strict PASSED 0/0/1 (allowlist +
+> ChatFormat portage-miroir) ; selftest 5/5 rc=0 ; android/ INTACT. Livré :
+> v0.3.4-desktop — release GitHub + Drive + fiche 18ᵉ édition (§9.10).**
 
 > **Pointeur rapide (session 73 — 2026-10-27)** : **CLIENT DESKTOP WINDOWS v0.3.3 VERSION TEST** — connexion
 > Tor/réplicas + bouton d'envoi de logs.** Retour terrain verbatim : « l'appli
@@ -1536,7 +1628,7 @@ nyx/
 ├── protocol/specs/         ← wire-format.md, api.md  (TOUTE évolution commence ici)
 ├── server/                 ← nœud Go (cmd/{nyx-server,nyx-devtool}, internal/{tor,journal,gossip,api,identity,config,transportxmpp,turn})
 ├── android/                ← app Kotlin/Compose (voir android/README.md)
-├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.3 VERSION TEST — Gradle propre, noyau pur partagé 1:1, app/ + installer/ {+ bundle/ : bat, LISEZMOI, nyx.ico VERSIONNÉS} + scripts/{build-desktop-release,release-desktop}.sh, natifs libsodium autonomes + --selftest + sauvegarde de compte interop téléphone + diag/{DriveUploader,LogCollector} BOUTON D'ENVOI DE LOGS + journal persistant + killLeftoverTor/retry)
+├── desktop/                ← client WINDOWS Compose Desktop (ADR-019, v0.3.4 VERSION TEST — Gradle propre, noyau pur partagé 1:1, app/ + installer/ {+ bundle/ : bat, LISEZMOI, nyx.ico VERSIONNÉS} + scripts/{build-desktop-release,release-desktop}.sh, natifs libsodium autonomes + --selftest + sauvegarde de compte interop téléphone + diag/{DriveUploader,LogCollector} BOUTON D'ENVOI DE LOGS + journal persistant + killLeftoverTor/retry + StartupConnectionScreen barre de progression + PARITÉ ANDROID : {media/ vocaux+lecteur, notify/ plateau, security/ coffre 3 rôles+leurre, update/ mise à jour, ui/ MainScreen 3 onglets + ContactProfileScreen + ProfileEditScreen + LockScreens + TestPlanCard + PasswordField} + course port de contrôle CORRIGÉE)
 ├── admin/                  ← N'EXISTE PAS ICI : console nyx-admin = dépôt PRIVÉ dédié (ADR-008 rév. session 11)
 └── scripts/                ← bootstrap.sh, dev-server.sh, torrc-dev, build-apk.sh, audit.sh, sync.sh, release.sh, publish-drive.sh
 ```
@@ -1647,6 +1739,7 @@ oauth_token_relais). Si expiré → demander à l'utilisateur une nouvelle autor
 
 | Date | Session | Résumé |
 |---|---|---|
+| 2026-10-27 | 74 | **v0.3.4 VERSION TEST — CONNEXION TOR CORRIGÉE PAR PREUVE + BARRE DE PROGRESSION AU DÉMARRAGE + PARITÉ COMPLÈTE ANDROID (retours terrain verbatim : « logs envoyés / app windows : tor ne se connecte pas, ni les replicas. Je voudrais au lancement, comme pour la version Android, une barre de progression qui indique les états de connexion à Tor et aux replicas » puis « je veux exactement les mêmes fonctionnalités/interfaces et boutons sur la version windows que sur la version android »)** : instructions enregistrées §3 (§9.9). (1) **PREUVE PAR LES LOGS TERRAIN** (premier export du bouton v0.3.3, nyx-logs-desktop-v0.3.3-20261027-152927.txt) : Tor démarrait PARFAITEMENT (tor.log : consensus, circuits, garde 25/25) mais le client échouait « control port : écriture impossible (ConnectException) » +16/+62 ms après le lancement, AVANT l'ouverture du listener (t+96 ms) — COURSE DU PORT DE CONTRÔLE : le cookie control.authcookie PERSISTE (tor ne l'efface jamais) donc « cookie.isFile » passait instantanément, le connect TCP ratrait le listener pas ouvert, le retry tuait le démon sain → **correctif : purgeStaleCookie() avant chaque lancement + attente connect TCP RÉELLEMENT accepté (isPortOpen 500 ms, poll 250 ms ≤ 60 s) + marqueur journal** ; conséquence réplicas : sonde /health impossible derrière backend FAILED — corrigée par la même racine. (2) **ÉCRAN DE CONNEXION** ui/StartupConnectionScreen.kt miroir ConnexionsScreen : barre globale Tor/2 + sonde/2 (formule startupProgress testée 4 cas), étape 1 Tor vivante (%, durée, indice 0 % > 60 s, Réessayer), étape 2 réplicas (sonde 8 s miroir ReplicaProbeEffect, Réessayer), auto-avance 900 ms, « Continuer sans attendre », carte ENVOI DE LOGS en bas. (3) **PARITÉ COMPLÈTE** (audit écran par écran bouton par bouton — reprise et complétion du travail interrompu de la session) : MainScreen 3 onglets + invitations + clic droit + archivées ; ChatPanel vocaux 🎤 WAV (VoiceRecorder + DesktopAudioPlayer javax.sound, repli lecteur système m4a) + pièces jointes/visionneuse/Enregistrer sous + progression + onglet Fichiers & médias + éphémères PAR conversation + suppression pour moi/pour tous + vue unique/double + 📞 phase 2 ; ContactProfileScreen/ProfileEditScreen (visibilité PAR champ) ; SettingsPanel 13 cartes miroir ; LockScreens (PasswordGate + verrou + PANIC leurre + DESTRUCTION wipe, DesktopVault PBKDF2) ; DesktopNotifier plateau + icône + notifications ; DesktopUpdater (canal test) ; session PANIC répertoire séparé ; export/import conversations chiffré ; TestPlanCard + TestPlan portage miroir Android v0.2.20 (nyx-test PASS → export logs) + PasswordField.kt partagé ; migration réplica personnalisé unique v0.3.3 → LISTE v0.3.4 (un terrain qui l'avait renseigné ne le perd pas — audit DEAD-KT a révélé le setter mort et le champ jamais lu). **EXCEPTION ASSUMÉE : appels audio/visio P2P** (AAC MediaCodec — interop = engineering dédié, prochaine session candidate, bouton 📞 explicite). 172 tests JVM verts (157 + 15 : isPortOpen/purge cookie, boîtes contacts 3 formats + garbage, progression 4, rendezvous rejet actuel, TestPlan 4) ; audit strict PASSED 0/0/1 (DEAD-KT ×4 traités : playable/unreadCount supprimés, updateReady CÂBLÉ au Ready de DesktopUpdater miroir Android, setCustomReplica supprimé + migration ; RED-DUP ×3 traités par PasswordField/ErrorLine partagés ; allowlist + ChatFormat portage-miroir) ; selftest 5/5 rc=0 ; android/ INTACT. Livré : v0.3.4-desktop — release GitHub + Drive (v0.3.3 archivée) + fiche 18ᵉ édition (§9.10). |
 | 2026-10-27 | 73 | **v0.3.3 VERSION TEST — CONNEXION TOR/RÉPLIQUES + BOUTON D'ENVOI DE LOGS (demande opérateur verbatim : « l'appli windows ne se connecte pas à tor ni aux replicas + je veux une version test avec le bouton d'envoi de logs comme pour la version android »)** : instructions enregistrées + Drive OK (§9.9). ANALYSE CODE (le journal terrain confirmera via le bouton) : startBackend BLOQUAIT le thread UI AWT jusqu'à 4 min (cookie 60 s + bootstrap 180 s via LaunchedEffect — fenêtre « Ne répond pas », progression jamais peinte) ; stdout du démon tor avalé (mort immédiate dll/antivirus/verrou INDIQUABLE) ; aucun retry ni killLeftoverTor (portage ADR-007 v0.2.9 manquant — tor.exe orphelin = verrou DataDirectory = « Tor is already running » jusqu'au reboot) ; journaux mémoire seule. CORRECTIFS : startBackend NON BLOQUANT (Dispatchers.IO) + retry auto 1× + bouton « Réessayer » bannière + killLeftoverTor (ciblage STRICT par chemin d'exécutable, PowerShell Win32_Process borné 8 s / pgrep sandbox — jamais le tor du Tor Browser) + erreurs enrichies (queue console démon + fin tor.log dans l'exception → bannière + journal) + journal persistant logs/nyx-desktop.log (borné 512 Ko, UTF-8 explicite — writeBytes mangle les accents) + progression bootstrap journalisée + geoip expert bundle (torrc best-effort + essentiels installateur) + message antivirus. BOUTON D'ENVOI DE LOGS miroir Android : diag/DriveUploader.kt (OAuth refresh + multipart Drive v3 stdlib ; credentials dans le FAT JAR depuis desktop/test-upload.properties git-ignoré + override terrain <dataDir>/drive-upload.properties sans rebuild ; injection fatJar SEULEMENT — sourceSets = fuite classpath de test, faux-positif constaté et corrigé) + diag/LogCollector.kt (en-tête version/OS/Java/Tor/onion/binaire/réplicas actifs-découverts-rendezvous + tor.log + console + journal persistant — aucune donnée de conversation) + ui/TestLogExportCard.kt (carte repliable rouge tête des conversations, leçons v0.2.38/v0.2.42 : gros bouton ENVOYER LES LOGS → Drive logs-terrain MÊME dossier qu'Android + « Enregistrer dans un fichier… » = ACTION_SEND desktop). PIPELINE VÉRIFIÉ EN CONDITIONS RÉELLES : OAuth refresh + upload + delete test (scripts/verify_drive_upload.py). GUIDANCE réplicas (rendezvous = 1 vieux réplica v0.2.23, sauvegarde de compte sans réplicas découverts) : Réglages → Réplique personnalisé (onion vivant console) → découverte par annonces — consigné LISEZMOI. 157 tests JVM verts (15 nouveaux : journal persistant append/queue/rotation, torrc geoip, queues tor, killLeftoverTor bénin, helpers DriveUploader + override, LogCollector dégradé) ; selftest 5/5 rc=0 ; audit PASSED 0/0/1 (allowlist portage-miroir DriveUploader) ; android/ INTACT. Livré : v0.3.3-desktop (zip 126 Mo 4f3a5f44… + exe 8722002a… + SHA256SUMS + audit) — release GitHub id 425548717 (4 assets) + Drive (v0.3.2 archivée) + fiche 17ᵉ édition (§9.10). |
 | 2026-10-27 | 72 | **CORRECTIFS RETOUR TERRAIN v0.3.2 — RACCOURCI BUREAU + RESTAURATION DE SAUVEGARDE TÉLÉPHONE** : (1) raccourci invisible car %OneDrive% désigne la RACINE synchronisée (pas le Bureau) et %USERPROFILE%\Desktop n'existe pas sur Windows localisé (« Bureau ») → dossier résolu PAR L'API SHELL dans PowerShell ([Environment]::GetFolderPath → SHGetKnownFolderPath ; codes de sortie dédiés 2/3, existence du .lnk vérifiée, chemin résolu imprimé) + nyx.ico (lune/constellation miroir Android, 6 tailles, générée PIL) + IconLocation réelle + lanceur javaw sans argument (console résiduelle supprimée) ; (2) import impossible des fichiers téléphone (enveloppe chiffrée nyx-enc-v1) → PORTAGES MIROIR crypto/PasswordCrypto.kt + crypto/IdentityBackup.kt + desktop/BackupRestore.kt (export v2 clé+alias+profil+contacts+curseurs ; application : identité re-dérivée, alias normalisé, profil propre, contacts SANS régresser — incoming→accepted réparé, archivé intact —, curseurs insertion seule) + OnboardingScreen « Importer un fichier de sauvegarde… » (JFileChooser, mot de passe auto-détecté enveloppe, erreurs explicites) + Réglages carte « Sauvegarde de compte » (export chiffré bidirectionnel PC↔téléphone) + selftest étape « sauvegarde » (5/5). 142 tests JVM verts (21 nouveaux DONT PasswordCryptoInteropTest : vecteur scellé par implémentation TIERCE Python cryptography → garantie d'ouverture des enveloppes téléphone) ; audit strict PASSED 0/0/1 (code mort restoreIdentity supprimé sur blocage MAJOR) ; sources bundle versionnées desktop/installer/bundle/. Livré : v0.3.2-desktop (zip 121 Mo ce91f108… + exe bfd99991… + SHA256SUMS + audit) — release GitHub + Drive, v0.3.1 archivée, fiche 16ᵉ édition (§9.10). |
 | 2026-10-27 | 71 | **CORRECTIF DÉMARRAGE WINDOWS v0.3.1 (retour terrain v0.3.0)** : UnsatisfiedLinkError « Unable to load library 'sodium' » au premier lancement — CAUSE RACINE : dll libsodium lazysodium-java = build MinGW dépendant de libgcc_s_seh-1.dll + libwinpthread-1.dll (absentes d'un Windows vierge ; le chargeur groupé l'extrait seule en temp → résolution de dépendances impossible → repli système silencieux → crash) + skiko Windows absent (currentOs = plateforme de BUILD) + bac à sable Linux aveuglé par libsodium.so.23 système. Natives.kt (extraction autonome avant JNA + compagnes MinGW + jna.library.path), compagnes aussi dans runtime\bin via l'installateur (essentielles vérifiées), miroir conventions JNA dans le fat jar, skiko-awt-runtime-windows-x64:0.8.4, slf4j-nop, --selftest headless (libsodium, onion v3, identité scellée, sealed box + NYX1, sortie 0/3), scripts/build-desktop-release.sh (pipeline persisté : tests + vérifications de contenu + selftest + payload + zip + installateur GOOS=windows + smoke -silent + SHA256SUMS + audit). 122 tests JVM verts ; NativesTest verrouille la régression ; audit PASSED 0/0/1. Livré : v0.3.1-desktop (zip 126 Mo 04ba43a6… + exe 130 Mo 973caab6… + SHA256SUMS + audit) — release GitHub + Drive, v0.3.0 archivée. CLÔTURE : publish-drive.sh corrigé (BASH_REMATCH[2] non lié sous set -u ; zip portable sans suffixe jamais archivé — le v0.3.0.zip resté en place a été rattrapé), session_closeout.py étendu à la famille desktop (tag v0.3.1-desktop, release + assets, Drive, fiche), fiche 15ᵉ édition (§9.10) — couverture + Tableaux 1/2/5/6 + ligne Windows, RESTART.md + tar.gz synchronisés Drive. |

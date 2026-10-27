@@ -66,11 +66,24 @@ object LogCollector {
             sb.append("réplicas découverts: ")
                 .append(if (discovered.isEmpty()) "(aucun)" else discovered.joinToString(", "))
                 .append("\n")
-            val custom = ServiceLocator.settings.get().customReplica.trim()
-            sb.append("réplica personnalisé: ").append(custom.ifBlank { "(aucun)" }).append("\n")
+            val customs = ServiceLocator.settings.get().customReplicas
+            sb.append("réplicas pers.     : ")
+                .append(if (customs.isEmpty()) "(aucun)" else customs.joinToString(", "))
+                .append("\n")
             sb.append("rendezvous signé   : ")
                 .append(rendezvousCount())
-                .append(" entrée(s) embarquée(s)\n")
+                .append(" entrée(s) embarquée(s)")
+                .append(rendezvousRejected())
+                .append("\n")
+            // v0.3.4 — boîtes des contacts (amorce sans flotte — cf. ServiceLocator).
+            runCatching {
+                val boxes = ServiceLocator.store.contacts()
+                    .filter { it.status == net.nyx.messenger.desktop.DesktopStore.ContactStatus.ACCEPTED }
+                    .mapNotNull { c -> ServiceLocator.contactBox(c.onion) }
+                sb.append("boîtes de contacts : ")
+                    .append(if (boxes.isEmpty()) "(aucun contact accepté)" else boxes.joinToString(", "))
+                    .append("\n")
+            }
         }.onFailure { sb.append("réplicas : (état indisponible)\n") }
 
         sb.append("réplique embarquée : ")
@@ -109,4 +122,21 @@ object LogCollector {
         net.nyx.messenger.net.RendezvousList.load(raw, sig, ServiceLocator.RENDEZVOUS_PUBKEY)
             ?.entries?.size ?: 0
     }.getOrDefault(0)
+
+    /**
+     * v0.3.4 — POURQUOI 0 entrée ? Le silence a coûté une session de
+     * diagnostic (session 74 : la signature embarquée v0.2.23 ne vérifie
+     * PAS contre la pubkey de release compilée — les deux côtés Android ET
+     * desktop ont TOUJOURS rejeté la liste ; l'Android masquait cela par son
+     * fallback legacy). L'export doit désormais le DIRE.
+     */
+    private fun rendezvousRejected(): String = runCatching {
+        val raw = LogCollector::class.java.getResourceAsStream("/rendezvous.json")?.readBytes()
+            ?: return " (fichier absent)"
+        val sig = LogCollector::class.java.getResourceAsStream("/rendezvous.json.sig")?.readBytes()
+            ?: return " (signature absente)"
+        val verified = net.nyx.messenger.net.RendezvousList.load(raw, sig, ServiceLocator.RENDEZVOUS_PUBKEY)
+        if (verified == null) " — REJETÉE (signature ne vérifiant pas contre la clé de release : fallback boîtes des contacts + réplique personnalisée)"
+        else ""
+    }.getOrDefault("")
 }

@@ -1,52 +1,95 @@
 Nyx — Messagerie anonyme, chiffree de bout en bout, entierement sur Tor
 ========================================================================
-Version desktop Windows v0.3.3 VERSION TEST (correctifs retour terrain
-v0.3.2 — portage ADR-019 du client Android v0.2.53)
+Version desktop Windows v0.3.4 VERSION TEST (connexion Tor corrigee par
+preuve des logs terrain + barre de progression au demarrage + parite
+complete des interfaces Android — portage ADR-019 du client Android v0.2.53)
 
-NOUVEAUTE v0.3.3 — BOUTON D'ENVOI DE LOGS (version test)
---------------------------------------------------------
-  Carte rouge « ENVOI DE LOGS (test) » en tete de la liste Conversations
-  (depliable) — le meme bouton que la version test de l'application
-  telephone : un clic depose les journaux de diagnostic (etat Tor, tor.log,
-  progression du bootstrap, sondes de repliques, version, aucune donnee de
-  conversation) directement dans le dossier Drive de debogage de
-  l'operateur. En cas d'echec d'envoi (credentials expires…), le bouton
-  « Enregistrer dans un fichier… » produit le meme fichier localement.
+NOUVEAUTE v0.3.4 — CONNEXION TOR : CAUSE REELLE TROUVEE ET CORRIGEE
+--------------------------------------------------------------------
+  Les journaux envoyes par le bouton d'envoi de logs ont PROUVE la cause :
+  Tor demarrait parfaitement (circuits construits, reseau joignable) mais
+  l'application le declarait en echec 16 a 62 millisecondes apres l'avoir
+  lance — avant que Tor n'ouvre son port de controle. Le temoin d'attente
+  (fichier cookie) PERSISTAIT d'une session precedente, faussant le
+  demarrage : la connexion etait tentee trop tot, echouait, et l'echec
+  restait affiche alors que Tor vivait tres bien tout seul.
+  CORRECTIF : le temoin perime est purge avant chaque lancement ET
+  l'application attend desormais une connexion TCP REELLEMENT acceptee par
+  le port de controle (verifie toutes les 250 ms, jusqu'a 60 s) — plus de
+  course. Tor doit se connecter AU PREMIER lancement.
 
-CORRECTIFS v0.3.3 — CONNEXION TOR / REPLIQUES
----------------------------------------------
-  1. FENETRE QUI GELAIT AU DEMARRAGE : le demarrage de Tor bloquait la
-     fenetre jusqu'a 4 minutes (« Ne repond pas », progression jamais
-     affichee). Il s'execute desormais en arriere-plan : la banniere Tor
-     montre le pourcentage de bootstrap en direct.
-  2. REESSAYER : apres un echec de connexion, un bouton « Reessayer »
-     apparait dans la banniere Tor (l'echec n'est plus une impasse jusqu'au
-     redemarrage complet). En cas d'echec, une 2e tentative automatique est
-     deja lancee (avec nettoyage des processus Tor orphelins d'une session
-     precedente — un tor.exe orphelin verrouillait le dossier de donnees
-     Tor et empechait TOUTE connexion jusqu'au redemarrage de Windows).
-  3. ERREURS EXPLICITES : la cause reelle d'un Tor qui ne se connecte pas
-     (sortie du demon tor, fin du tor.log) est desormais affichee dans la
-     banniere ET dans les journaux envoyes par le bouton rouge.
-  4. ANTIVIRUS : les antivirus suppriment souvent tor.exe (faux positif
-     connu). Si la banniere indique « binaire tor introuvable », ajoutez le
-     dossier d'installation de Nyx aux exclusions de votre antivirus puis
-     reinstallez Nyx.
-  5. GEOIP : les fichiers geoip de Tor sont desormais embarques (selection
-     de relais plus propre).
-  + Si les repliques restent « injoignables » alors que Tor est pret :
-    Reglages > « Replique personnalise » > collez l'adresse onion d'un
-    replique vivant de votre flotte (console d'admin > repliques) — la
-    liste signee embarquee ne contient qu'un tres vieux replique
-    d'amorcage.
+NOUVEAUTE v0.3.4 — BARRE DE PROGRESSION AU DEMARRAGE (comme le telephone)
+--------------------------------------------------------------------------
+  Au lancement, un ecran « Connexion » (miroir de l'application Android)
+  affiche une barre de progression globale + deux etapes :
+    Etape 1 « Tor embarque » : pourcentage vivant, duree, indice si le
+      reseau semble filtre, bouton « Reessayer » en cas d'echec ;
+    Etape 2 « Replicas » : verification de la connexion aux replicas via
+      Tor (repetee toutes les 8 s), bouton « Reessayer ».
+  L'application s'ouvre SEULE quand tout est vert ; « Continuer sans
+  attendre » reste possible (l'etat de Tor reste visible dans la banniere).
+  La carte d'ENVOI DE LOGS est accessible DIRECTEMENT sur cet ecran — c'est
+  le meilleur moment pour l'utiliser en cas de blocage.
+
+NOUVEAUTE v0.3.4 — MEMES FONCTIONNALITES ET BOUTONS QUE LE TELEPHONE
+---------------------------------------------------------------------
+  Audit systematique ecran par ecran, bouton par bouton ; desormais a parite
+  (seule exception documentee : les appels audio/visio, phase 2) :
+   - messages VOCAUX (bouton micro : enregistrement + lecture, les deux sens
+     avec le telephone) ;
+   - PIECES JOINTES : image / video / fichier, visionneuse plein ecran,
+     « Enregistrer sous », progression d'envoi et de reception ;
+   - medias a AFFICHAGE LIMITE (vue unique ou double, detruits apres
+     consultation — miroir du telephone) ;
+   - suppression d'un message « POUR MOI / POUR TOUS » ;
+   - MESSAGES EPHEMERES par conversation (minuteur) ;
+   - onglets Messages / Fichiers & medias dans la conversation ;
+   - ecran principal en 3 onglets : Conversations / Contacts / Blocages
+     (bloquer/debloquer un contact), invitations Accepter/Refuser,
+     « Anciennes conversations », clic droit sur une carte (Fiche / Bloquer /
+     Supprimer) ;
+   - FICHE DU CONTACT (profil public du pair) et MON PROFIL (photo, nom,
+     bio, site, localisation — chaque champ PRIVE ou PUBLIC) ;
+   - MOTS DE PASSE (trois roles, comme le telephone) : normal (ouvre
+     l'application), PANIQUE (ouvre une session LEURRE vide — la vraie
+     session reste intacte), DESTRUCTION (effacement immediat) — creation
+     forcee au premier lancement, ecran de verrouillage a la reouverture ;
+   - PLATEAU SYSTEME : « Reduire » garde Tor actif + notifications (icone
+     lune ; un clic remonte la fenetre), dialogue Fermer : Reduire/Quitter ;
+   - NOTIFICATIONS : messages, invitations, refus, suppressions ;
+   - THEME reactif (nuit / aube / suit le systeme) sans redemarrer ;
+   - EXPORT/IMPORT des CONVERSATIONS chiffre par mot de passe (fichier
+     relisible sur telephone ou PC) ;
+   - REG LAGES complets : replique embarquee (adresse, statistiques, Purger),
+     liste des replicas personnalises, sauvegarde de compte, mise a jour
+     (canal test en option), deconnexion du compte ;
+   - build test : carte PLAN DE TESTS v0.3.4 (cases a cocher, resultats
+     journalises et envoyes avec les logs) a cote de la carte d'envoi de
+     logs.
+
+CORRECTIFS v0.3.3 (rappel)
+--------------------------
+  BOUTON D'ENVOI DE LOGS (carte rouge) ; demarrage non bloquant + bouton
+  « Reessayer » ; nettoyage des processus Tor orphelins ; erreurs explicites
+  (console du demon + fin du tor.log dans la banniere ET les logs) ; geoip
+  embarque. ANTIVIRUS : si « binaire tor introuvable », ajoutez le dossier
+  Nyx aux exclusions puis reinstallez.
 
 CORRECTIFS v0.3.2 (rappel)
 --------------------------
   RACCOURCI BUREAU resolu par l'API Windows (OneDrive + Windows francais),
   icone Nyx ; RESTAURATION des sauvegardes de compte TELEPHONE (fichier
   chiffre + mot de passe du compte) — meme adresse onion, alias, profil,
-  contacts et position de lecture ; plus de fenetre console residuelle ;
-  Reglages > « Sauvegarde de compte » : export chiffre PC -> telephone.
+  contacts et position de lecture ; Reglages > « Sauvegarde de compte » :
+  export chiffre PC -> telephone.
+
+REPLIQUES — SI L'ETAPE 2 RESTE ROUGE
+-------------------------------------
+  Tor pret mais replicas injoignables : Reglages > « Repliques
+  personnalises » > collez l'adresse onion d'un replique vivant de votre
+  flotte (console d'admin > repliques) — la liste signee embarquee ne
+  contient qu'un tres vieux replique d'amorcage. Les boites de vos contacts
+  acceptes servent aussi d'amorcage automatique.
 
 CONTENU
 -------
@@ -60,11 +103,11 @@ DEMARRAGE
 ---------
   1. Double-cliquez sur le raccourci « Nyx Messagerie » du bureau
      (ou nyx-messenger.bat)
-  2. Premier lancement : creez votre identite (pseudonyme optionnel,
-     mot de passe optionnel) — votre identite EST votre adresse onion.
-     OU restaurez votre sauvegarde de compte telephone.
-  3. Tor demarre (30 s a 3 min la premiere fois), votre service onion
-     est publie, la replique embarquee sert sur le port 80 de votre onion.
+  2. Premier lancement : creez votre identite OU restaurez votre sauvegarde
+     de compte telephone ; les mots de passe (normal/panique/destruction,
+     optionnels) sont proposes juste apres.
+  3. L'ecran « Connexion » suit le demarrage de Tor puis la verification
+     des replicas — l'application s'ouvre seule une fois connecte.
 
 VOS DONNEES
 -----------
@@ -72,7 +115,7 @@ VOS DONNEES
      identity.json   identite scellee (cle privee chiffree)
      store\          conversations, contacts, fichiers recus
      tor\            donnees Tor (caches) + journal tor.log
-     logs\           journal applicatif persistant (v0.3.3 — survit aux
+     logs\           journal applicatif persistant (survit aux
                      redemarrages ; inclus dans l'envoi de logs)
   La cle de recuperation (ecran « Mon adresse ») restaure votre compte sur
   toute machine ; la sauvegarde de compte (Reglages) embarque en plus
@@ -81,6 +124,7 @@ VOS DONNEES
 INTEROPERABILITE
 ----------------
   Messagerie complete avec l'application Android Nyx (meme protocole) :
-  messages, fichiers (chiffres 64 Mo par blocs), profils, alias.
-  Sauvegardes de compte interchangeables TELEPHONE <-> PC dans les deux
-  sens. Appels audio/visio : phase 2 (ADR-019 §6).
+  messages, messages vocaux, fichiers (chiffres 64 Mo par blocs), profils,
+  alias, media a affichage limite, suppressions « pour tous ». Sauvegardes
+  de compte ET de conversations interchangeables TELEPHONE <-> PC dans les
+  deux sens. Appels audio/visio : phase 2 (ADR-019 §6).

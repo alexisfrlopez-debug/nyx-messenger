@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import net.nyx.messenger.crypto.AliasValidator
 import net.nyx.messenger.crypto.MessageCipher
@@ -17,6 +18,8 @@ import net.nyx.messenger.desktop.DesktopStore.ContactStatus.DECLINED
 import net.nyx.messenger.desktop.DesktopStore.ContactStatus.INCOMING
 import net.nyx.messenger.desktop.DesktopStore.ContactStatus.PENDING
 import net.nyx.messenger.desktop.DesktopStore.ContactStatus.REMOVED
+import net.nyx.messenger.desktop.DesktopStore.ContactStatus.REMOVED_BY_ME
+import net.nyx.messenger.media.MediaIngest
 import net.nyx.messenger.net.BootstrapReplicas
 import net.nyx.messenger.net.RelayClient
 import net.nyx.messenger.net.WireEvent
@@ -38,6 +41,14 @@ import java.util.Base64
  *  - messages réservés aux contacts MUTUELS (verrou d'échange) ;
  *  - accusés ✓✓ par le canal « contact » chiffré ;
  *  - fichiers par fragments d'événements « msg » (ChunkCodec).
+ *
+ * v0.3.4 « parité Android » : politique de vue (once/twice) au envoi ET à la
+ * consommation, suppression « pour tous » différée (del_pending + flush 30 s),
+ * suppression locale / de conversation, profils complets (cartes
+ * {value,public} + champ auto replica + limites fermées — ADR-010), TTL
+ * éphémère exposé, export/import des conversations (format nyx-conversations
+ * v1 — interopérable avec l'Android), compression d'images ≤ 1600 px,
+ * rafraîchissement des fiches pair (TTL 1 h).
  */
 class DesktopRepository(
     private val identity: DesktopIdentity,
@@ -53,6 +64,12 @@ class DesktopRepository(
 
     private val seqMutex = Mutex()
     private val pollMutex = Mutex()
+
+    /** v0.3.4 — événements sortants pour les notifications plateau (miroir
+     * MessageNotifier/ContactNotifier Android). Jamais d'exception attendue. */
+    var onIncomingMessage: ((peer: String, text: String) -> Unit)? = null
+    var onIncomingInvite: ((peer: String, alias: String) -> Unit)? = null
+    var onContactAck: ((peer: String, ack: String, alias: String) -> Unit)? = null
 
     // ---------------- envoi ----------------
 
@@ -113,8 +130,16 @@ class DesktopRepository(
     /**
      * v0.2.17 (portage) — envoi de FICHIER : fragments d'événements « msg »
      * chiffrés E2E (≤ 96 Ko binaires par fragment), bulle locale immédiate.
+     * v0.3.4 : [view] = politique d'affichage chez le destinataire
+     * ("forever"/"once"/"twice" — miroir v0.2.28) + compression d'image
+     * ≤ 1600 px JPEG q82 (miroir MediaIngest) + progression répercutée dans
+     * AttachmentMeta.bytesReceived (barre de transfert côté UI).
      */
-    suspend fun sendFile(peerOnion: String, file: File): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendFile(
+        peerOnion: String,
+        file: File,
+        view: String = "forever",
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val peer = peerOnion.trim().lowercase()
             val link = store.contact(peer)
@@ -122,7 +147,21 @@ class DesktopRepository(
             if (link.status != ACCEPTED) error("échange possible uniquement entre contacts acceptés")
             if (link.blockedAt > 0) error("contact bloqué")
 
-            val bytes = file.readBytes()
+            // Compression d'image (miroir Android MediaIngest : ≤ 1600 px,
+            // JPEG q82, sauf GIF) — best-effort : échec = octets d'origine.
+            var safeName = ChunkCodec.sanitizeName(file.name)
+            var mime = guessMime(safeName)
+            var bytes = file.readBytes()
+            if (mime.startsWith("image/") && mime != "image/gif") {
+                val compressed = MediaIngest.compressImage(bytes)
+                if (compressed != null && compressed.size < bytes.size) {
+                    bytes = compressed
+                    mime = "image/jpeg"
+                    if (!safeName.endsWith(".jpg", true) && !safeName.endsWith(".jpeg", true)) {
+                        safeName = safeName.substringBeforeLast('.') + ".jpg"
+                    }
+                }
+            }
             if (bytes.size > ChunkCodec.MAX_FILE_SIZE) {
                 error("fichier trop volumineux (${bytes.size / (1024 * 1024)} Mo — max 64 Mo)")
             }
@@ -130,19 +169,18 @@ class DesktopRepository(
                 .joinToString("") { "%02x".format(it) }
             val fid = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
                 .joinToString("") { "%02x".format(it) }
-            val safeName = ChunkCodec.sanitizeName(file.name)
-            val mime = guessMime(safeName)
             val ts = System.currentTimeMillis() / 1000
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
             val peerPub = OnionCodec.onionToPubKey(peer)
 
-            // Bulle locale immédiate (miroir Android mediaPlaceholder).
+            // Bulle locale immédiate (miroir Android mediaPlaceholder — v0.3.4 :
+            // préfixe emoji par type, miroir "🖼/🎬/🎤/📄").
             val firstCanonical = "local:$fid"
             store.insertMessage(
                 DesktopStore.Msg(
                     id = firstCanonical, peer = peer, outgoing = true,
-                    text = "[$safeName]", ts = ts, state = DesktopStore.STATE_PENDING,
+                    text = placeholderFor(mime, safeName), ts = ts, state = DesktopStore.STATE_PENDING,
                     kind = DesktopStore.KIND_FILE, fid = fid
                 )
             )
@@ -150,7 +188,8 @@ class DesktopRepository(
                 DesktopStore.AttachmentMeta(
                     fid = fid, name = safeName, mime = mime,
                     size = bytes.size.toLong(), sha256 = sha256,
-                    state = DesktopStore.AT_READY, localPath = file.absolutePath
+                    state = DesktopStore.AT_READY, localPath = file.absolutePath,
+                    viewPolicy = view, viewsLeft = -1
                 )
             )
 
@@ -160,7 +199,7 @@ class DesktopRepository(
             for ((index, chunk) in parts.withIndex()) {
                 val payload = ChunkCodec.encode(
                     fid, safeName, mime, bytes.size.toLong(), sha256,
-                    index, parts.size, Base64.getEncoder().encodeToString(chunk)
+                    index, parts.size, Base64.getEncoder().encodeToString(chunk), view
                 )
                 val body = cipher.encryptFor(peerPub, payload.toByteArray(Charsets.UTF_8))
                 val seq = nextSeqFor(me)
@@ -175,7 +214,11 @@ class DesktopRepository(
                 val depositAddr = depositTargetFor(peer) ?: error("aucun réplica configuré")
                 val relay = relayFor(depositAddr)
                 val r = postSigned(relay, me, signed, canonical, priv)
-                if (r.isSuccess) sent++ else {
+                if (r.isSuccess) {
+                    sent++
+                    // v0.3.4 — barre de progression d'ENVOI (octets déposés).
+                    store.updateAttachment(fid) { it.bytesReceived = (sent * ChunkCodec.CHUNK_PAYLOAD).toLong().coerceAtMost(it.size) }
+                } else {
                     failed = r.exceptionOrNull() ?: error("dépôt de fragment échoué")
                     break
                 }
@@ -187,6 +230,14 @@ class DesktopRepository(
             store.updateMessage(firstCanonical) { it.state = DesktopStore.STATE_SENT }
             DesktopLog.i("nyx-send", "✓ fichier $safeName déposé en ${parts.size} fragment(s)")
         }
+    }
+
+    /** v0.3.4 — intitulé de la bulle locale (miroir Android "🖼/🎬/🎤/📄 <nom>"). */
+    internal fun placeholderFor(mime: String, name: String): String = when {
+        mime.startsWith("image/") -> "🖼 $name"
+        mime.startsWith("video/") -> "🎬 $name"
+        mime.startsWith("audio/") -> "🎤 $name"
+        else -> "📄 $name"
     }
 
     // ---------------- dépôt (auto-réparation seq — miroir v0.2.10/52) ----------------
@@ -229,6 +280,8 @@ class DesktopRepository(
                 inserted += pollOwnReplica(me, priv)
                 inserted += pollFleetReplicas(me, priv)
                 emitPendingReceipts()
+                // v0.3.4 — repartie des suppressions différées à chaque poll (miroir Android).
+                runCatching { ensureDeletionsSent() }
                 inserted
             }
         } finally {
@@ -344,6 +397,7 @@ class DesktopRepository(
             )
         }
         DesktopLog.i("nyx-recv", "   ✓ ${ev.type} de ${author.take(16)}… stocké")
+        if (ev.type == "msg") onIncomingMessage?.invoke(author, plain)
         return Ingest.NEW
     }
 
@@ -431,6 +485,7 @@ class DesktopRepository(
                     )
                 )
                 DesktopLog.i("nyx-recv", "   ✓ ack « $ack » de ${author.take(16)}… ($label)")
+                onContactAck?.invoke(author, ack, label)
                 return Ingest.NEW
             }
             already == null -> {
@@ -448,6 +503,7 @@ class DesktopRepository(
                     )
                 )
                 DesktopLog.i("nyx-recv", "   ✓ demande de contact de ${author.take(16)}… ($label)")
+                onIncomingInvite?.invoke(author, label)
                 return Ingest.NEW
             }
             already.status == PENDING -> {
@@ -474,21 +530,129 @@ class DesktopRepository(
     }
 
     private fun archived(status: ContactStatusAny): Boolean =
-        status == DECLINED || status == REMOVED
+        status == DECLINED || status == REMOVED || status == REMOVED_BY_ME
 
-    /** Réception d'un fragment (miroir handleIncomingChunk). */
+    // ---------------- suppressions (v0.3.4 — miroir v0.2.19 « pour tous »/« pour moi ») ----------------
+
+    /**
+     * « Supprimer pour tous » : la copie LOCALE disparaît immédiatement, la
+     * suppression chez le destinataire part par le canal contact chiffré
+     * (différée si le réplica est injoignable — miroir del_pending Android).
+     * Garde-fous miroir : contact ACCEPTé uniquement, propres messages sortis.
+     */
+    suspend fun deleteForEveryone(peerOnion: String, ids: List<String>): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val peer = peerOnion.trim().lowercase()
+                val link = store.contact(peer)
+                if (link?.status != ACCEPTED) {
+                    error("suppression « pour tous » réservée aux contacts acceptés")
+                }
+                val mine = store.messagesByIds(ids).filter { it.outgoing && it.peer == peer }.map { it.id }
+                if (mine.isEmpty()) {
+                    error("seuls vos propres messages peuvent être supprimés chez le destinataire")
+                }
+                // Copie locale d'abord (+ fichiers joints) — l'utilisateur voit
+                // immédiatement l'effet (miroir Android).
+                deleteLocallyInternal(mine)
+                val pending = store.delPendingList().firstOrNull { it.peer == peer }?.ids.orEmpty()
+                store.addDelPending(peer, (pending + mine).distinct())
+                ensureDeletionsSent()
+            }
+        }
+
+    /** « Supprimer pour moi » : copie LOCALE de CET appareil uniquement. */
+    suspend fun deleteLocally(ids: List<String>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching { deleteLocallyInternal(ids) }
+    }
+
+    private fun deleteLocallyInternal(ids: List<String>) {
+        val rows = store.messagesByIds(ids)
+        store.deleteMessages(ids)
+        for (m in rows) if (m.kind == DesktopStore.KIND_FILE && m.fid.isNotBlank()) {
+            store.deleteAttachmentFile(m.fid)
+        }
+    }
+
+    /** Suppression LOCALE de toute la conversation (miroir Android : le contact reste). */
+    suspend fun deleteConversationLocal(peerOnion: String): Int = withContext(Dispatchers.IO) {
+        store.deleteConversation(peerOnion.trim().lowercase())
+    }
+
+    /** Suppression d'un média (onglet Fichiers & médias — miroir Android). */
+    suspend fun deleteAttachment(peerOnion: String, fid: String, forEveryone: Boolean): Result<Unit> {
+        val peer = peerOnion.trim().lowercase()
+        val carrier = store.messagesWith(peer).firstOrNull { it.kind == DesktopStore.KIND_FILE && it.fid == fid }
+            ?: return Result.failure(IllegalStateException("média introuvable"))
+        return if (forEveryone && carrier.outgoing) {
+            deleteForEveryone(peer, listOf(carrier.id))
+        } else {
+            deleteLocally(listOf(carrier.id))
+        }
+    }
+
+    /** Repartie des suppressions différées (miroir ensureDeletionsSent — boucle 30 s + post-suppression). */
+    suspend fun ensureDeletionsSent() {
+        if (replicas.isEmpty()) return
+        val me = identity.onionAddress ?: return
+        val priv = runCatching { identity.secretKey() }.getOrNull() ?: return
+        for (p in store.delPendingList()) {
+            if (p.ids.isEmpty()) { store.removeDelPending(p.peer); continue }
+            val link = store.contact(p.peer)
+            // Lien plus accepté → abandon (miroir Android : suppression muette).
+            if (link?.status != ACCEPTED) { store.removeDelPending(p.peer); continue }
+            runCatching {
+                val peerPub = OnionCodec.onionToPubKey(p.peer)
+                val bodyJson = DeleteCodec.encode(identity.alias ?: "", p.ids)
+                val body = cipher.encryptFor(peerPub, bodyJson.toByteArray(Charsets.UTF_8))
+                val seq = nextSeqFor(me)
+                val ev = WireEvent(
+                    type = "contact", author = me, seq = seq,
+                    ts = System.currentTimeMillis() / 1000, to = p.peer, body = body, sig = ""
+                )
+                val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                val depositAddr = depositTargetFor(p.peer) ?: error("aucun réplica configuré")
+                postSigned(relayFor(depositAddr), me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                store.removeDelPending(p.peer)
+                DesktopLog.i("nyx-send", "✓ suppression « pour tous » déposée (${p.ids.size} msg → ${p.peer.take(16)}…)")
+            }
+        }
+    }
+
+    /**
+     * v0.3.4 — consommation d'une vue sur un média à affichage limité (miroir
+     * consumeMediaView v0.2.28) : décrémente, DÉTRUIT le fichier local quand
+     * il ne reste plus de vue. Retourne les vues restantes.
+     */
+    fun consumeMediaView(fid: String): Int {
+        val left = store.consumeView(fid)
+        if (left <= 0) {
+            store.updateAttachment(fid) { it.localPath = "" }
+            store.deleteAttachmentFile(fid)
+            DesktopLog.i("nyx-media", "média à vue limitée détruit ($fid)")
+        }
+        return left
+    }
+
+    /** Réception d'un fragment (miroir handleIncomingChunk — v0.3.4 : politique de vue). */
     private fun handleIncomingChunk(author: String, canonical: String, ts: Long, chunk: ChunkCodec.FileChunk) {
         var meta = store.attachment(chunk.fid)
         if (meta == null) {
             meta = DesktopStore.AttachmentMeta(
                 fid = chunk.fid, name = chunk.name, mime = chunk.mime,
-                size = chunk.size, sha256 = chunk.sha256, state = DesktopStore.AT_PENDING
+                size = chunk.size, sha256 = chunk.sha256, state = DesktopStore.AT_PENDING,
+                viewPolicy = chunk.view,
+                viewsLeft = when (chunk.view) {
+                    DesktopStore.VIEW_ONCE -> 1
+                    DesktopStore.VIEW_TWICE -> 2
+                    else -> -1
+                }
             )
             store.upsertAttachment(meta)
             store.insertMessage(
                 DesktopStore.Msg(
                     id = eventIdOf(canonical), peer = author, outgoing = false,
-                    text = "[${chunk.name}]", ts = ts, state = DesktopStore.STATE_RECEIVED,
+                    text = placeholderFor(chunk.mime, chunk.name), ts = ts, state = DesktopStore.STATE_RECEIVED,
                     kind = DesktopStore.KIND_FILE, fid = chunk.fid, rcptPending = 1
                 )
             )
@@ -590,13 +754,17 @@ class DesktopRepository(
 
     suspend fun acceptContact(onion: String): Result<Unit> = changeContactStatus(onion, ACCEPTED)
     suspend fun declineContact(onion: String): Result<Unit> = changeContactStatus(onion, DECLINED)
-    suspend fun removeContact(onion: String): Result<Unit> = changeContactStatus(onion, REMOVED)
+
+    /** v0.3.4 — miroir Android deleteContact : NOTRE suppression → REMOVED_BY_ME
+     * (« contact supprimé »), l'ack « removed » reçu le laisse en REMOVED
+     * (« supprimé par ce contact ») — distinction affichée dans les listes. */
+    suspend fun removeContact(onion: String): Result<Unit> = changeContactStatus(onion, REMOVED_BY_ME)
 
     private suspend fun changeContactStatus(onion: String, status: ContactStatusAny): Result<Unit> = runCatching {
         store.updateContact(onion) { it.status = status }
         sendContactAck(onion, when (status) {
             DECLINED -> "declined"
-            REMOVED -> "removed"
+            REMOVED, REMOVED_BY_ME -> "removed"
             else -> "accepted"
         }).getOrThrow()
     }
@@ -716,19 +884,45 @@ class DesktopRepository(
 
     // ---------------- profils ----------------
 
+    /** v0.3.4 — limites fermées miroir ProfileKeys Android (appliquées via .take() à la publication). */
+    private val profileLimits = linkedMapOf(
+        "display_name" to 64, "bio" to 280, "website" to 128,
+        "location" to 64, "avatar" to 65536, "replica" to 128
+    )
+
+    @Serializable
+    internal data class ProfileFieldJson(val value: String, val public: Boolean = true)
+
+    @Serializable
+    internal data class ProfileBodyJson(val fields: Map<String, ProfileFieldJson> = emptyMap())
+
+    /**
+     * Carte DIFFUSÉE = champs PUBLICS seuls (ADR-010 : les champs privés ne
+     * quittent JAMAIS l'appareil) + champ auto « replica » quand la réplique
+     * embarquée sert (miroir ProfileStore.publishPending/publicOnly).
+     * Sérialisation kotlinx (échappement JSON correct — l'ancienne
+     * concaténation naïve cassait les bios contenant des guillemets).
+     */
+    internal fun publishedProfileCard(): ProfileBodyJson {
+        val p = store.myProfile()
+        val fields = LinkedHashMap<String, ProfileFieldJson>()
+        if (p.displayNamePublic && p.displayName.isNotBlank())
+            fields["display_name"] = ProfileFieldJson(p.displayName.take(64))
+        if (p.bioPublic && p.bio.isNotBlank()) fields["bio"] = ProfileFieldJson(p.bio.take(280))
+        if (p.websitePublic && p.website.isNotBlank()) fields["website"] = ProfileFieldJson(p.website.take(128))
+        if (p.locationPublic && p.location.isNotBlank()) fields["location"] = ProfileFieldJson(p.location.take(64))
+        if (p.avatarPublic && p.avatarB64.isNotBlank()) fields["avatar"] = ProfileFieldJson(p.avatarB64.take(65536))
+        if (EmbeddedReplica.serving) {
+            identity.onionAddress?.let { fields["replica"] = ProfileFieldJson("$it:80") }
+        }
+        return ProfileBodyJson(fields)
+    }
+
     suspend fun publishProfile(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val me = identity.onionAddress ?: error("identité absente")
             val priv = identity.secretKey()
-            val p = store.myProfile()
-            val fields = LinkedHashMap<String, String>()
-            if (p.displayName.isNotBlank()) fields["display_name"] = p.displayName
-            if (p.bio.isNotBlank()) fields["bio"] = p.bio
-            if (p.website.isNotBlank()) fields["website"] = p.website
-            if (p.location.isNotBlank()) fields["location"] = p.location
-            if (p.avatarB64.isNotBlank()) fields["avatar"] = p.avatarB64
-            val fieldsJson = fields.entries.joinToString(",", "{", "}") { "\"${it.key}\":\"${it.value}\"" }
-            val bodyPlain = "{\"fields\":$fieldsJson}"
+            val bodyPlain = json.encodeToString(ProfileBodyJson.serializer(), publishedProfileCard())
             val body = Base64.getEncoder().encodeToString(bodyPlain.toByteArray(Charsets.UTF_8))
             val seq = nextSeqFor(me)
             val ev = WireEvent(
@@ -742,17 +936,129 @@ class DesktopRepository(
     }
 
     suspend fun fetchProfile(peer: String) {
-        val relay = relayFor(activeOrFirstReplica() ?: return) ?: return
+        val relay = runCatching { relayFor(activeOrFirstReplica() ?: return) }.getOrNull() ?: return
         relay.profile(peer).getOrNull()?.let { resp ->
             val existing = store.peerProfile(peer)
             store.upsertPeerProfile(
                 (existing ?: DesktopStore.PeerProfile(onion = peer)).apply {
-                    resp.fields["display_name"]?.let { displayName = it.value }
-                    resp.fields["bio"]?.let { bio = it.value }
+                    resp.fields["display_name"]?.let { displayName = it.value.take(64) }
+                    resp.fields["bio"]?.let { bio = it.value.take(280) }
+                    resp.fields["website"]?.let { website = it.value.take(128) }
+                    resp.fields["location"]?.let { location = it.value.take(64) }
+                    resp.fields["avatar"]?.let { avatarB64 = it.value.take(65536) }
                     fetchedAt = System.currentTimeMillis()
                 }
             )
         }
+    }
+
+    /**
+     * v0.3.4 — rafraîchissement des fiches pair (miroir refreshPeerProfiles
+     * Android : TTL 1 h, échec silencieux — icône générique en attendant).
+     */
+    suspend fun refreshPeerProfiles(ttlMs: Long = 3_600_000L) {
+        val now = System.currentTimeMillis()
+        val targets = store.contacts()
+            .filter { it.status == ACCEPTED && it.blockedAt == 0L }
+            .map { it.onion }
+            .filter { onion ->
+                val p = store.peerProfile(onion)
+                p == null || now - p.fetchedAt > ttlMs
+            }
+        for (onion in targets) runCatching { fetchProfile(onion) }
+    }
+
+    // ---------------- export / import des conversations (v0.3.4 — miroir v0.2.26) ----------------
+
+    /**
+     * Export JSON « nyx-conversations » v1 — MÊME schéma que l'Android (les
+     * fichiers ne partent pas en binaire : libellé + fid seulement).
+     */
+    fun exportConversationsJson(peers: List<String>): String {
+        val root = org.json.JSONObject()
+        root.put("format", "nyx-conversations")
+        root.put("version", 1)
+        root.put("exported_at", System.currentTimeMillis() / 1000)
+        val arr = org.json.JSONArray()
+        for (peerRaw in peers) {
+            val peer = peerRaw.trim().lowercase()
+            val contact = store.contact(peer)
+            val conv = org.json.JSONObject()
+            conv.put("peer", peer)
+            conv.put("alias", contact?.alias?.ifBlank { peer.take(10) + "…" } ?: (peer.take(10) + "…"))
+            conv.put("status", (contact?.status ?: ACCEPTED).name.lowercase())
+            val msgs = org.json.JSONArray()
+            for (m in store.messagesWith(peer)) {
+                val o = org.json.JSONObject()
+                o.put("id", m.id)
+                o.put("out", m.outgoing)
+                o.put("text", m.text)
+                o.put("sent_at", m.ts * 1000)
+                o.put("received_at", m.receivedAt)
+                o.put("state", m.state)
+                o.put("kind", m.kind)
+                o.put("fid", m.fid)
+                o.put("expire_at", m.expireAt)
+                msgs.put(o)
+            }
+            conv.put("messages", msgs)
+            arr.put(conv)
+        }
+        root.put("conversations", arr)
+        return root.toString(2)
+    }
+
+    /**
+     * Import (fusion idempotente — miroir Android : INSERT IGNORE par eventId,
+     * contact créé si absent, statut du fichier sinon accepté). Retourne le
+     * nombre de messages réellement ajoutés.
+     */
+    fun importConversationsJson(text: String): Int {
+        val root = org.json.JSONObject(text)
+        check(root.optString("format") == "nyx-conversations") { "fichier non reconnu" }
+        val convs = root.optJSONArray("conversations") ?: throw IllegalArgumentException("aucune conversation")
+        var added = 0
+        for (i in 0 until convs.length()) {
+            val conv = convs.getJSONObject(i)
+            val peer = conv.optString("peer").trim().lowercase()
+            if (!peer.endsWith(".onion")) continue
+            val existing = store.contact(peer)
+            if (existing == null) {
+                val status = runCatching {
+                    ContactStatusAny.valueOf(conv.optString("status", "accepted").uppercase())
+                }.getOrDefault(ACCEPTED)
+                store.upsertContact(
+                    DesktopStore.Contact(
+                        onion = peer,
+                        alias = conv.optString("alias").ifBlank { peer.take(10) + "…" },
+                        addedAt = System.currentTimeMillis(),
+                        status = status
+                    )
+                )
+            }
+            val msgs = conv.optJSONArray("messages") ?: continue
+            for (j in 0 until msgs.length()) {
+                val o = msgs.getJSONObject(j)
+                val id = o.optString("id")
+                if (id.isBlank() || store.message(id) != null) continue
+                store.insertMessage(
+                    DesktopStore.Msg(
+                        id = id,
+                        peer = peer,
+                        outgoing = o.optBoolean("out", false),
+                        text = o.optString("text"),
+                        ts = o.optLong("sent_at", System.currentTimeMillis()) / 1000,
+                        state = o.optInt("state", DesktopStore.STATE_RECEIVED),
+                        readLocal = 1,
+                        kind = o.optInt("kind", DesktopStore.KIND_TEXT),
+                        fid = o.optString("fid", ""),
+                        expireAt = o.optLong("expire_at", 0L)
+                    )
+                )
+                added++
+            }
+        }
+        return added
     }
 
     // ---------------- routage ----------------
@@ -790,9 +1096,17 @@ class DesktopRepository(
         name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) -> "image/jpeg"
         name.endsWith(".gif", true) -> "image/gif"
         name.endsWith(".webp", true) -> "image/webp"
+        name.endsWith(".bmp", true) -> "image/bmp"
         name.endsWith(".pdf", true) -> "application/pdf"
         name.endsWith(".txt", true) -> "text/plain"
         name.endsWith(".zip", true) -> "application/zip"
+        name.endsWith(".wav", true) -> "audio/wav"
+        name.endsWith(".mp3", true) -> "audio/mpeg"
+        name.endsWith(".m4a", true) -> "audio/mp4"
+        name.endsWith(".ogg", true) -> "audio/ogg"
+        name.endsWith(".mp4", true) || name.endsWith(".m4v", true) -> "video/mp4"
+        name.endsWith(".webm", true) -> "video/webm"
+        name.endsWith(".mkv", true) -> "video/x-matroska"
         else -> "application/octet-stream"
     }
 }

@@ -39,6 +39,22 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  3. **progression du bootstrap journalisée** (nyx-tor) — un Tor bloqué à
  *     15 % pendant 3 min est maintenant lisible dans l'export (avant : seule
  *     la bannière UI voyait le pourcentage, jamais le journal).
+ *
+ * v0.3.4 (session 74 — PREUVE PAR LES LOGS TERRAIN du 27/10 15:28, export
+ * via le bouton d'envoi de logs) : COURSE DU PORT DE CONTRÔLE — la cause
+ * racine RÉELLE de « tor ne se connecte pas » :
+ *  - l'attente du cookie `control.authcookie` passait INSTANTANÉMENT car le
+ *    fichier PERSISTE d'une session précédente (tor ne le supprime jamais) ;
+ *  - le connect TCP suivant frappait 127.0.0.1:9051 alors que tor.exe —
+ *    lancé 16 à 62 ms plus tôt — n'avait pas encore ouvert son listener :
+ *    « control port : écriture impossible (ConnectException) » → backend
+ *    FAILED, ALORS QUE le démon finissait son bootstrap ~14 s plus tard
+ *    (tor.log du terrain : circuits construits, garde primaire en succès
+ *    25/25) — un Tor parfaitement vivant, orphelin de son contrôleur ;
+ *  - le retry tuait ensuite CE démon sain via killLeftoverTor.
+ * Correctif : le cookie PÉRIMÉ est supprimé avant le lancement (seul un
+ * cookie RÉGÉNÉRÉ par CE démon fait foi) ET l'attente porte sur un connect
+ * TCP RÉELLEMENT ACCEPTÉ par le port de contrôle (poll 250 ms, ≤ 60 s).
  */
 class DesktopTor(private val bin: File?) {
 
@@ -147,6 +163,13 @@ class DesktopTor(private val bin: File?) {
         ports = p
 
         // 2. torrc + démon
+        // v0.3.4 — le COOKIE DE LA SESSION PRÉCÉDENTE est supprimé AVANT le
+        // lancement : tor ne l'efface jamais lui-même, et « cookie.isFile »
+        // passait donc INSTANTANÉMENT (course du port de contrôle, cf. doc
+        // classe — logs terrain 27/10 15:28 : ConnectException à +62 ms alors
+        // que le listener n'ouvrait que 500 ms à 2 s plus tard). Seul un
+        // cookie RÉGÉNÉRÉ par CE démon fait désormais foi.
+        purgeStaleCookie()
         val torrc = writeTorrc(ProcessHandle.current().pid())
         DesktopLog.i(
             "nyx-tor",
@@ -166,24 +189,33 @@ class DesktopTor(private val bin: File?) {
             } catch (_: Exception) { }
         }, "nyx-tor-drain").apply { isDaemon = true }.start()
 
-        // 3. Attente du cookie du control port (≤ 60 s).
+        // 3. Attente du control port (≤ 60 s) — v0.3.4 : le cookie SEUL ne
+        // suffit plus ; on exige en PLUS un connect TCP ACCEPTÉ sur le port
+        // de contrôle. C'est la correction de la course qui marquait le
+        // backend FAILED pendant que Tor vivait son bootstrap tout seul.
         val cookie = File(DesktopPaths.torDir, "data/control.authcookie")
         val deadline = System.currentTimeMillis() + 60_000
-        while (!cookie.isFile && System.currentTimeMillis() < deadline) {
+        while (System.currentTimeMillis() < deadline) {
             if (!process!!.isAlive) {
                 throw IllegalStateException(
                     "le démon tor est mort au démarrage.\nSortie du démon :\n${stdoutTail(15)}"
                 )
             }
-            Thread.sleep(200)
+            if (cookie.isFile && isPortOpen(p.control)) break
+            Thread.sleep(250)
         }
-        if (!cookie.isFile) {
+        if (!(cookie.isFile && isPortOpen(p.control))) {
             process?.destroy()
             throw IllegalStateException(
-                "control port tor indisponible (cookie absent après 60 s).\n" +
+                "control port tor indisponible (cookie ${if (cookie.isFile) "présent" else "absent"}, " +
+                    "port ${p.control} fermé après 60 s).\n" +
                     "Sortie du démon :\n${stdoutTail(15)}\n${torLogTailSection()}"
             )
         }
+        DesktopLog.i(
+            "nyx-tor",
+            "control port ouvert (cookie régénéré + connect TCP accepté sur ${p.control})"
+        )
 
         // 4. Bootstrap → publication.
         try {
@@ -238,6 +270,17 @@ class DesktopTor(private val bin: File?) {
     private fun torLogTailSection(): String {
         val t = torLogTail(2_000).trim()
         return if (t.isEmpty()) "(tor.log absent)" else "Fin de tor.log :\n$t"
+    }
+
+    /**
+     * v0.3.4 — supprime le cookie d'authentification d'une session
+     * PRÉCÉDENTE (tor ne l'efface jamais en quittant). Sans cette purge,
+     * « cookie.isFile » passait INSTANTANÉMENT au démarrage suivant et le
+     * connect TCP ratrait le listener pas encore ouvert — LA course du port
+     * de contrôle (preuve : logs terrain 27/10 15:28, échecs à +62/+17 ms).
+     */
+    internal fun purgeStaleCookie() {
+        runCatching { File(DesktopPaths.torDir, "data/control.authcookie").delete() }
     }
 
     /** Arrêt propre : DEL_ONION puis fin du démon (bloquant ≤ 5 s). */
@@ -329,6 +372,21 @@ class DesktopTor(private val bin: File?) {
     }
 
     companion object {
+        /**
+         * v0.3.4 — connect TCP éphémère vers 127.0.0.1:[port] : true si un
+         * listener l'ACCEPTE. Timeout court (localhost) : un port fermé refuse
+         * immédiatement (WSECONNREFUSED) — c'est exactement le signal qui
+         * manquait à l'ancienne attente sur le seul fichier cookie.
+         */
+        internal fun isPortOpen(port: Int): Boolean = try {
+            java.net.Socket().use { s ->
+                s.connect(java.net.InetSocketAddress("127.0.0.1", port), 500)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+
         private fun freePort(preferred: Int): Int {
             for (p in preferred until preferred + 40) {
                 if (isFree(p)) return p

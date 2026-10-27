@@ -74,6 +74,21 @@ object EmbeddedReplica {
     // TOUTES les mutations de `rows` passent par synchronized(rows) — un seul
     // verrou applicatif (le journal disque est écrit sous ce même verrou).
 
+    /** v0.3.4 — statistiques du journal (miroir EmbeddedReplicaCard Android : count + taille disque). */
+    fun stats(): Pair<Int, Long> = synchronized(rows) {
+        val n = rows.size
+        val bytes = journalFile?.length() ?: 0L
+        n to bytes
+    }
+
+    /** v0.3.4 — purge MANUELLE du journal (bouton « Purger » — miroir Android). */
+    fun purgeNow(): Int {
+        val before = synchronized(rows) { rows.size }
+        purge()
+        val after = synchronized(rows) { rows.size }
+        return before - after
+    }
+
     fun alive(): Boolean {
         val p = localPort
         if (p <= 0 || !started) return false

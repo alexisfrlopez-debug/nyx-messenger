@@ -16,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,22 +34,26 @@ import net.nyx.messenger.net.RelayClient
 
 /**
  * Écran Connexions desktop — miroir de ConnexionsScreen Android : état de la
- * liste fusionnée des réplicas (découverts + rendezvous + personnalisé) avec
- * sondes /health vivantes.
+ * liste fusionnée des réplicas (découverts + rendezvous + personnalisé +
+ * BOÎTES DES CONTACTS v0.3.4) avec sondes /health vivantes.
+ *
+ * v0.3.4 : la sonde d'ensemble vit dans ServiceLocator.replicaProbe (boucle
+ * 8 s miroir ReplicaProbeEffect, démarrée quand Tor est prêt) — le panneau
+ * l'affiche ET conserve ses sondes DÉTAILLÉES par réplica (« Sonder la
+ * flotte »). Les boîtes des contacts (leur onion:80) sont présentées comme
+ * telles : joignables = l'appareil du contact est en ligne.
  */
 @Composable
 fun ConnexionsPanel(tick: Long) {
     val scope = rememberCoroutineScope()
-    // Liste fusionnée courante (vue repository).
-    val replicas = remember(tick) {
-        buildList {
-            val custom = ServiceLocator.settings.get().customReplica.trim().lowercase()
-            if (custom.isNotBlank()) add(custom)
-            addAll(net.nyx.messenger.net.ReplicaRegistry.list())
-            // rendezvous embarqués
-            addAll(ServiceLocator.repository.replicas)
-        }.distinct()
+    // Liste fusionnée courante (vue repository — v0.3.4 : boîtes des contacts incluses).
+    val replicas = remember(tick) { ServiceLocator.repository.replicas.toList() }
+    val contactBoxes = remember(tick) {
+        ServiceLocator.store.contacts()
+            .filter { it.status == net.nyx.messenger.desktop.DesktopStore.ContactStatus.ACCEPTED }
+            .mapNotNull { c -> ServiceLocator.contactBox(c.onion) }.toSet()
     }
+    val probe by ServiceLocator.replicaProbe.collectAsState()
     val probes = remember(tick) { mutableStateOf<Map<String, RelayClient.HealthReport>>(emptyMap()) }
 
     Column(Modifier.fillMaxWidth().padding(24.dp)) {
@@ -75,10 +80,23 @@ fun ConnexionsPanel(tick: Long) {
             color = if (net.nyx.messenger.replica.EmbeddedReplica.alive()) MaterialTheme.colorScheme.tertiary
             else MaterialTheme.colorScheme.outline
         )
+        // Sonde d'ensemble (v0.3.4 — miroir lastProbe Android).
+        Spacer(Modifier.height(4.dp))
+        Text(
+            when {
+                !ServiceLocator.tor.bootstrapped -> "Sondage des réplicas dès que Tor est prêt…"
+                probe.ok == true -> "Réplicas joignables : ${probe.okCount}/${probe.total} (dernière sonde OK)"
+                probe.total > 0 -> "Réplicas joignables : ${probe.okCount}/${probe.total} — nouvelle sonde automatique dans ≤ 8 s"
+                else -> "Aucun réplica à sonder pour l'instant."
+            },
+            fontSize = 12.sp,
+            color = if (probe.ok == true) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline
+        )
         Spacer(Modifier.height(12.dp))
 
         replicas.forEach { addr ->
             val p = probes.value[addr]
+            val isBox = addr in contactBoxes
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
@@ -97,7 +115,8 @@ fun ConnexionsPanel(tick: Long) {
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        addr.take(24) + "…" + addr.substringAfterLast(".onion", ""),
+                        (if (isBox) "boîte du contact — " else "") +
+                            addr.take(24) + "…" + addr.substringAfterLast(".onion", ""),
                         fontSize = 12.sp,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -114,8 +133,8 @@ fun ConnexionsPanel(tick: Long) {
         }
         if (replicas.isEmpty()) {
             Text(
-                "Aucun réplica connu — renseignez-en un dans Réglages (le réseau grandit par " +
-                    "les annonces de vos contacts).",
+                "Aucun réplica connu — vos contacts acceptés servent de relais dès qu'ils sont en ligne, " +
+                    "ou renseignez un réplica dans Réglages.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.outline
             )
         }

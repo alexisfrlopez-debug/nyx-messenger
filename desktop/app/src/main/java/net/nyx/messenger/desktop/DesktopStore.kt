@@ -20,7 +20,9 @@ class DesktopStore {
 
     // ---------- entités (miroir des entités Room Android) ----------
 
-    enum class ContactStatus { PENDING, INCOMING, ACCEPTED, DECLINED, REMOVED }
+    // Miroir Android ContactStatus : REMOVED = « supprimé par ce contact »,
+    // REMOVED_BY_ME = « contact supprimé » (v0.3.4 — distinction miroir v0.2.19).
+    enum class ContactStatus { PENDING, INCOMING, ACCEPTED, DECLINED, REMOVED, REMOVED_BY_ME }
 
     @Serializable
     data class Contact(
@@ -45,6 +47,15 @@ class DesktopStore {
         const val AT_PENDING = 0
         const val AT_READY = 1
         const val AT_FAILED = 2
+
+        /** v0.3.4 — statut ARCHIVÉ (miroir ContactStatus.archived Android : décliné/supprimé/les deux). */
+        fun archivedStatus(s: ContactStatus): Boolean =
+            s == ContactStatus.DECLINED || s == ContactStatus.REMOVED || s == ContactStatus.REMOVED_BY_ME
+
+        // v0.3.4 — politiques d'affichage des médias (miroir AttachmentEntity Android v0.2.28).
+        const val VIEW_FOREVER = "forever"
+        const val VIEW_ONCE = "once"
+        const val VIEW_TWICE = "twice"
     }
 
     @Serializable
@@ -75,6 +86,18 @@ class DesktopStore {
         var state: Int = AT_PENDING,
         var localPath: String = "",
         var bytesReceived: Long = 0,
+        // v0.3.4 — vue limitée (miroir Android : once→1, twice→2, forever→-1 ;
+        // l'expéditeur relit toujours : -1).
+        var viewPolicy: String = VIEW_FOREVER,
+        var viewsLeft: Int = -1,
+    )
+
+    /** v0.3.4 — suppression « pour tous » différée (miroir table del_pending Android v0.2.19). */
+    @Serializable
+    data class DelPending(
+        val peer: String,
+        val ids: List<String>,
+        val createdAt: Long,
     )
 
     @Serializable
@@ -83,6 +106,9 @@ class DesktopStore {
         var displayName: String = "",
         var bio: String = "",
         var avatarB64: String = "",
+        // v0.3.4 — champs complets de la fiche (miroir ProfileKeys Android).
+        var website: String = "",
+        var location: String = "",
         var fetchedAt: Long = 0,
     )
 
@@ -93,6 +119,14 @@ class DesktopStore {
         var website: String = "",
         var location: String = "",
         var avatarB64: String = "",
+        // v0.3.4 — visibilité PAR CHAMP (miroir ProfileField(public) Android —
+        // ADR-010 : RIEN n'est public par défaut, les champs privés ne
+        // quittent JAMAIS l'appareil).
+        var displayNamePublic: Boolean = false,
+        var bioPublic: Boolean = false,
+        var websitePublic: Boolean = false,
+        var locationPublic: Boolean = false,
+        var avatarPublic: Boolean = false,
     )
 
     // ---------- fichiers ----------
@@ -105,6 +139,7 @@ class DesktopStore {
     private val fProfiles = File(storeDir, "profiles.json")
     private val fMyProfile = File(storeDir, "my_profile.json")
     private val fCursors = File(storeDir, "poll_cursors.json")
+    private val fDelPending = File(storeDir, "del_pending.json")
 
     // ---------- état mémoire (verrou unique) ----------
 
@@ -117,6 +152,7 @@ class DesktopStore {
     private var myProfile = MyProfile()
     private var cursors = HashMap<String, Long>()     // réplica → curseur inbox
     private val chunks = HashMap<String, HashMap<Int, ByteArray>>() // fid → (index → data)
+    private var delPending = ArrayList<DelPending>()
     private var loaded = false
 
     fun ensureLoaded() {
@@ -129,6 +165,7 @@ class DesktopStore {
             profiles = HashMap(JsonStore.read(fProfiles, MapSerializer(String.serializer(), PeerProfile.serializer())) ?: emptyMap())
             myProfile = JsonStore.read(fMyProfile, MyProfile.serializer()) ?: MyProfile()
             cursors = HashMap(JsonStore.read(fCursors, MapSerializer(String.serializer(), Long.serializer())) ?: emptyMap())
+            delPending = JsonStore.read(fDelPending, ListSerializer(DelPending.serializer()))?.toCollection(ArrayList()) ?: ArrayList()
             loaded = true
         }
     }
@@ -198,9 +235,51 @@ class DesktopStore {
         removed
     }
 
-    fun unreadCount(peer: String): Int = synchronized(lock) {
+    /** v0.3.4 — suppression LOCALE d'une conversation (miroir deleteConversation Android :
+     * messages + fichiers joints, le contact est conservé). */
+    fun deleteConversation(peer: String): Int = synchronized(lock) {
         ensureLoadedLocked()
-        messages.count { it.peer == peer && !it.outgoing && it.readLocal == 0 && it.state == STATE_RECEIVED }
+        val removed = messages.filter { it.peer == peer }
+        messages.removeAll { it.peer == peer }
+        removed.filter { it.kind == KIND_FILE && it.fid.isNotBlank() }.forEach {
+            attachments.remove(it.fid)
+            deleteAttachmentFile(it.fid)
+        }
+        persistMessagesLocked()
+        persistAttachmentsLocked()
+        removed.size
+    }
+
+    // ---------- suppressions différées « pour tous » (v0.3.4 — miroir del_pending) ----------
+
+    fun addDelPending(peer: String, ids: List<String>) = synchronized(lock) {
+        ensureLoadedLocked()
+        delPending.removeAll { it.peer == peer }
+        if (ids.isNotEmpty()) delPending.add(DelPending(peer, ids, System.currentTimeMillis()))
+        persistDelPendingLocked()
+    }
+
+    fun delPendingList(): List<DelPending> = synchronized(lock) {
+        ensureLoadedLocked(); delPending.toList()
+    }
+
+    fun removeDelPending(peer: String) = synchronized(lock) {
+        ensureLoadedLocked()
+        delPending.removeAll { it.peer == peer }
+        persistDelPendingLocked()
+    }
+
+    /** v0.3.4 — cartes par conversation (miroir unreadByPeer() Android) : non lus par pair. */
+    fun unreadByPeer(): Map<String, Int> = synchronized(lock) {
+        ensureLoadedLocked()
+        messages.filter { !it.outgoing && it.readLocal == 0 && it.state == STATE_RECEIVED }
+            .groupingBy { it.peer }.eachCount()
+    }
+
+    /** v0.3.4 — dernier message d'un pair (tri chrono des cartes, miroir Android). */
+    fun lastMessageOf(peer: String): Msg? = synchronized(lock) {
+        ensureLoadedLocked()
+        messages.filter { it.peer == peer }.maxByOrNull { it.ts }
     }
 
     fun markConversationRead(peer: String) = synchronized(lock) {
@@ -234,6 +313,26 @@ class DesktopStore {
         ensureLoadedLocked()
         attachments[meta.fid] = meta
         persistAttachmentsLocked()
+    }
+
+    /** v0.3.4 — mutation d'une pièce jointe existante (progression, vues…). */
+    fun updateAttachment(fid: String, mutate: (AttachmentMeta) -> Unit) = synchronized(lock) {
+        ensureLoadedLocked()
+        val a = attachments[fid] ?: return
+        mutate(a)
+        persistAttachmentsLocked()
+    }
+
+    /** v0.3.4 — consommation d'une vue (miroir decrementViews + garde « jamais < 0 » Android) :
+     * retourne le nombre de vues restantes APRÈS décrément (l'appelant détruit le
+     * fichier local quand ça tombe à 0). */
+    fun consumeView(fid: String): Int = synchronized(lock) {
+        ensureLoadedLocked()
+        val a = attachments[fid] ?: return -1
+        if (a.viewPolicy == VIEW_FOREVER || a.viewsLeft <= 0) return a.viewsLeft
+        a.viewsLeft -= 1
+        persistAttachmentsLocked()
+        a.viewsLeft
     }
 
     fun putChunk(fid: String, index: Int, data: ByteArray) = synchronized(lock) {
@@ -325,13 +424,22 @@ class DesktopStore {
         expired.size
     }
 
+    /** v0.3.4 — toutes les pièces jointes d'un pair (« Fichiers & médias », miroir MediaTab) :
+     * jointure messages(fid) × attachments. */
+    fun attachmentsOf(peer: String): List<Pair<Msg, AttachmentMeta>> = synchronized(lock) {
+        ensureLoadedLocked()
+        messages.filter { it.peer == peer && it.kind == KIND_FILE && it.fid.isNotBlank() }
+            .sortedByDescending { it.ts }
+            .mapNotNull { m -> attachments[m.fid]?.let { m to it } }
+    }
+
     /** Wipe : tout effacer (moteur de retour à l'onboarding). */
     fun wipe() = synchronized(lock) {
         contacts.clear(); messages.clear(); seqState.clear()
         attachments.clear(); profiles.clear(); chunks.clear(); cursors.clear()
-        myProfile = MyProfile()
+        delPending.clear(); myProfile = MyProfile()
         persistContactsLocked(); persistMessagesLocked(); persistSeqLocked()
-        persistAttachmentsLocked(); persistProfilesLocked()
+        persistAttachmentsLocked(); persistProfilesLocked(); persistDelPendingLocked()
         JsonStore.write(fMyProfile, MyProfile.serializer(), myProfile)
         JsonStore.write(fCursors, MapSerializer(String.serializer(), Long.serializer()), cursors)
         runCatching { mediaDir.listFiles()?.forEach { it.delete() } }
@@ -351,4 +459,6 @@ class DesktopStore {
         JsonStore.write(fAttachments, MapSerializer(String.serializer(), AttachmentMeta.serializer()), attachments)
     private fun persistProfilesLocked() =
         JsonStore.write(fProfiles, MapSerializer(String.serializer(), PeerProfile.serializer()), profiles)
+    private fun persistDelPendingLocked() =
+        JsonStore.write(fDelPending, ListSerializer(DelPending.serializer()), delPending)
 }
