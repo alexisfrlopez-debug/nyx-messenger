@@ -354,8 +354,8 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.54 et client Windows v0.3.6, au "
-         "27 octobre 2026), la compare honnêtement aux "
+         "(messagerie Android v0.2.55 et client Windows v0.3.7, au "
+         "28 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
          "dans le cadre du cahier des charges initial : anonymat intégral, "
@@ -378,9 +378,9 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.54 · Client Windows v0.3.6 · "
+              ["Versions livrées", "Messagerie Android v0.2.55 · Client Windows v0.3.7 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
-                                   "(27 octobre 2026)"],
+                                   "(28 octobre 2026)"],
           ],
           [0.28, 0.72],
           caption="Tableau 1 — Fiche d'identité du projet Nyx au 27 octobre 2026.")
@@ -641,21 +641,26 @@ def build_story():
                  "visionneuse, médias à affichage limité, suppression pour "
                  "moi/pour tous, mots de passe normal/panique/destruction, "
                  "session leurre, plateau système + notifications, éphémères, "
-                 "export/import des conversations, plan de tests) ; v0.3.6 "
-                 "(VERSION TEST) : VALIDATION TERRAIN v0.3.4 confirmée par "
-                 "les journaux (Tor prêt en 8 s, message E2E déposé + accusé "
-                 "« delivered » du téléphone — messagerie Windows ↔ Android "
-                 "opérée dans les deux sens) + RENDEZVOUS SIGNÉ ENFIN VÉRIFIÉ "
-                 "(cause racine : la signature était valide depuis v0.2.23 "
-                 "mais le fichier .sig, du TEXTE base64, était passé octets "
-                 "bruts au vérificateur — corrigé, vérification une seule "
-                 "fois par session, réplique d'amorçage prouvé vivant par "
-                 "sonde Tor : une installation à froid connaît enfin le "
-                 "réseau sans contact ni sauvegarde) + échauffement du "
+                 "export/import des conversations, plan de tests) ; v0.3.7 "
+                 "(VERSION TEST) : VISIO PC↔téléphone enfin interopérable "
+                 "(codec vidéo logiciel commun MJPEG négocié par HELLO/ACCEPT "
+                 "« vc » — le PC partage son ÉCRAN et affiche la caméra du "
+                 "téléphone, ~5 trames/s ; téléphone↔téléphone reste H.264 "
+                 "matériel octet pour octet) + ACCUSÉS durcis (verrou "
+                 "anti-double-émission + re-alignement d'identifiant au "
+                 "resynchronisation de séquence — les ✓✓ arrivent sur les "
+                 "messages « 400→200 ») ; v0.3.6 : appels AUDIO "
+                 "téléphone↔PC (codec ADPCM miroir) + accusés réparés à la "
+                 "racine (read-qui-ne-partait-jamais + repartie + migration "
+                 "du backlog — validation terrain par les journaux) ; v0.3.5 : "
+                 "rendezvous signé ENFIN vérifié (cause racine : le .sig, du "
+                 "TEXTE base64, était passé octets bruts au vérificateur — "
+                 "corrigé, vérification une seule fois par session, réplique "
+                 "d'amorçage prouvé vivant par sonde Tor) + échauffement du "
                  "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
                  "au premier lancement, plus d'exception brute en rouge) ; "
-                 "appels audio/visio = phase 2 documentée",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6"],
+                 "appels audio/visio = phase 2 documentée (visio LIVRÉE v0.3.7)",
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -686,7 +691,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.54 / v0.8.12 · client Windows v0.3.6).",
+                  "(version v0.2.55 / v0.8.12 · client Windows v0.3.7).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -826,11 +831,12 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.6, ADR-019, parité Android complète + appels audio interop, VALIDÉ TERRAIN — "
+               "(v0.3.7, ADR-019, parité Android complète + appels audio ET "
+               "VISIO interop — MJPEG, VALIDÉ TERRAIN — "
                "messagerie confirmée opérationnelle dans les deux sens par les "
-               "journaux v0.3.4) ; restent un client iOS et des builds "
-               "officielles macOS/Linux (le jar livré est déjà multiplateforme) ; "
-               "les appels audio/visio du bureau attendent la phase 2."],
+               "journaux v0.3.4) ; appels AUDIO et VISIO livrés avec le "
+               "téléphone (v0.3.7 : MJPEG) ; restent un client iOS et des builds "
+               "officielles macOS/Linux (le jar livré est déjà multiplateforme)."],
               ["Un seul appareil par identité", "Pas de synchronisation multi-appareils ; "
                "le transfert passe par la sauvegarde chiffrée et la clé nyx1."],
               ["Appels en revalidation terrain", "La cause racine historique des appels "
@@ -859,10 +865,13 @@ def build_story():
                "raccroché libère l'écran immédiatement même tor mort (fin "
                "immédiate, BYE en tâche de fond, démon tor relancé "
                "automatiquement) ; la v0.2.53 termine le cycle visio sur "
-               "le terrain du 25/10 ; et depuis la v0.2.54 + le client "
+               "le terrain du 25/10 ; depuis la v0.2.54 + le client "
                "Windows v0.3.6, les appels AUDIO téléphONENT AU PC "
                "(codec logiciel ADPCM négocié, miroir octet à octet des "
-               "deux côtés — l'audio et l'image fonctionnent, "
+               "deux côtés) ; et la v0.2.55 + le bureau v0.3.7 livrent la "
+               "VISIO PC↔téléphone (codec MJPEG : le PC partage son écran, "
+               "affiche la caméra du téléphone — téléphone↔téléphone reste "
+               "H.264) "
                "mais les autorisations n'étaient jamais demandées au "
                "démarrage (une visio ENTRANTE tombait en audio-only faute "
                "de permission caméra — elles sont désormais demandées au "
@@ -902,7 +911,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "27 octobre 2026 (messagerie v0.2.54 · client Windows v0.3.6). "
+                 "27 octobre 2026 (messagerie v0.2.55 · client Windows v0.3.7). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -925,17 +934,18 @@ def build_story():
                "TERRAIN 25/10) et du lot v0.2.53 (permissions au premier "
                "démarrage, orientation vidéo suivie) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.54 puis phase 2",
+               "v0.2.44-v0.2.55 puis phase 2",
                "Audio et visio confirmés terrain ; v0.2.54/v0.3.6 : appels audio "
-               "téléphone↔PC par codec ADPCM négocié"],
-              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.6, ADR-019 : "
+               "téléphone↔PC par codec ADPCM négocié ; v0.2.55/v0.3.7 : VISIO "
+               "PC↔téléphone par codec MJPEG"],
+              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.7, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
                "portable, validé terrain v0.3.4 puis rendezvous signé corrigé "
                "en v0.3.5, accusés de réception réparés à la racine et appels "
-               "audio interop téléphone en v0.3.6) ; restent les builds "
-               "macOS/Linux puis un client iOS",
-               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.6)"],
+               "audio interop téléphone en v0.3.6, VISIO MJPEG en v0.3.7) ; "
+               "restent les builds macOS/Linux puis un client iOS",
+               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.7)"],
               ["Un seul appareil", "Synchronisation multi-appareils sécurisée par "
                "dérivation de clés", "Phase 2 (à l'étude)", "Pré-étude"],
               ["Perte de clé = perte de compte", "Garde partagée (Shamir 2-sur-3) "
@@ -1076,6 +1086,23 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["21ᵉ édition", "28 octobre 2026", "Messagerie Android v0.2.55 · "
+              "Client Windows v0.3.7 (VERSION TEST) · Console v0.8.12 · "
+              "Serveur v0.2.38",
+              "Visio et accusés : le 4ᵉ export bureau + le 1ᵉʳ export "
+              "téléphone PROUVENT que le téléphone tournait ENCORE en v0.2.53 "
+              "(v0.2.54 publiée mais jamais installée — le bureau refuse "
+              "l'AAC-only : « raccroche au décrochage » et refus en sens "
+              "inverse, cause racine n°1 des appels impossibles) ; v0.3.7 + "
+              "v0.2.55 livrent la VISIO PC↔téléphone par codec vidéo "
+              "logiciel commun MJPEG (négociation HELLO/ACCEPT « vc » — le PC "
+              "partage son ÉCRAN et affiche la caméra du téléphone, ~5 "
+              "trames/s ; téléphone↔téléphone reste H.264 octet pour octet) et "
+              "durcissent les accusés PROUVÉS fonctionnels (verrou "
+              "anti-double-émission — le même accusé partait DEUX FOIS à 1 ms ; "
+              "re-alignement d'identifiant au resync de séquence — l'accusé du "
+              "pair pointait un id introuvable, ✓✓ fantôme). 216 tests "
+              "desktop + 323×2 Android."],
               ["20ᵉ édition", "27 octobre 2026", "Messagerie Android v0.2.54 · "
               "Client Windows v0.3.6 (VERSION TEST) · Console v0.8.12 · "
               "Serveur v0.2.38",
@@ -1406,7 +1433,7 @@ html, body {
     Tor — messages, appels et visio compris — et les serveurs, eux-mêmes
     anonymes, se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · v0.2.53 / Windows v0.3.5 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · v0.2.55 / Windows v0.3.7 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
