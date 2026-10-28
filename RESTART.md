@@ -245,7 +245,7 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    écran du PC → téléphone).**
 
 > **Pointeur rapide (session 77 — 2026-10-28)** : **CLIENT DESKTOP
-> WINDOWS v0.3.7 VERSION TEST + MESSAGERIE **v0.2.55** — VISIO
+> WINDOWS v0.3.7 VERSION TEST + messagerie **v0.2.55** — VISIO
 > PC↔téléphone (codec MJPEG) + accusés durcis (double émission + dérive
 > d'id au resync).** Retour terrain verbatim : « logs envoyés / les appels du
 > pc vers un telephone racrochent au decrochage, et ne marchent pas dans
