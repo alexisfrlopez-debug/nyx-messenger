@@ -58,6 +58,16 @@ fun main(args: Array<String>) {
     application {
         ServiceLocator.init()
 
+        // v0.3.9 — FENÊTRE DE NOTIFICATION D'APPEL ENTRANTE (demande
+        // opérateur session 79 : « une notification avec une icone pour
+        // décrocher et une pour refuser l'appel »). Rendue À LA RACINE —
+        // au-dessus de TOUT (app verrouillée, fenêtre réduite au plateau,
+        // autres fenêtres) — deux icônes géantes ✓ Décrocher / ✕ Refuser.
+        // Terrain 28/10 10:47 (export v0.3.8) : appel tel→PC sonné 43 s
+        // sans décrochage — l'opérateur n'a pas trouvé l'écran
+        // d'acceptation et a relancé l'appli.
+        net.nyx.messenger.ui.IncomingCallWindow()
+
         Window(
             title = "Nyx — messagerie de la nuit",
             state = rememberWindowState(width = 1220.dp, height = 840.dp),
@@ -149,7 +159,9 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
     // lui-même ne peut pas afficher d'UI d'app tierce (restriction OS) — la
     // SONNERIE est le signal pendant le verrouillage système, la fenêtre
     // d'appel est là dès le déverrouillage ; le verrou de L'APP est couvert
-    // par l'overlay ci-dessous.
+    // par l'overlay ci-dessous. v0.3.9 : la CARTE DÉDIÉE
+    // [IncomingCallWindow] (racine application{}) montre les icônes
+    // Décrocher/Refuser pendant la sonnerie.
     val callUi by net.nyx.messenger.p2p.DesktopCallManager.ui.collectAsState()
     LaunchedEffect(callUi.phase) {
         val f = window as? Frame ?: return@LaunchedEffect

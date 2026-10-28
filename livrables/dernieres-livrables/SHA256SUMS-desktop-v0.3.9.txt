@@ -1,0 +1,2 @@
+6d6ca66d81b663bb17c4e9dcb6b28f8ba6fdbcf69b1c3b3786915f3937218594  nyx-messenger-windows-v0.3.9.zip
+3678719411774a7de47a13f17fcb410ddb98d63447c554bc0c582a5925ed388e  nyx-messenger-windows-v0.3.9-installer.exe

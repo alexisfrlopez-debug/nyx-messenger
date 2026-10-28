@@ -62,6 +62,16 @@ import android.view.Surface
  * d'un bureau) ou APRÈS l'ACCEPT ([switchSendingToMjpeg] — le bureau appelé
  * répond vc="mjpeg" : l'encodeur H.264 n'a encore rien émis, la caméra est
  * ré-utilisée). Téléphone↔téléphone : H.264 OCTET POUR OCTET inchangé.
+ *
+ * v0.2.57 — CAMÉA PERDUE = VISIO PERDUE, PAS APPEL PERDU : terrain 28/10
+ * 11:49:59 (export v0.2.56) — visio MJPEG décrochée DEPUIS LA NOTIFICATION,
+ * téléphone verrouillé, appli en arrière-plan : le système ferme la caméra
+ * PENDANT la configuration de session → « CameraDevice was already closed »
+ * jeté par onConfigured → setRepeatingRequest, NON ATTRAPÉ sur le thread
+ * « nyx-cam » → FATAL EXCEPTION, process tué 0,6 s après le début de la
+ * visio. Correction miroir du micro HS (v0.2.48/v0.2.56) : toute erreur de
+ * caméra/encodeur DÉGRADE l'appel en audio-only via [onVideoLost] — AUCUNE
+ * exception ne s'échappe plus des callbacks caméra, JAMAIS onFatal.
  */
 class CallVideo(
     private val context: Context,
@@ -72,6 +82,9 @@ class CallVideo(
     /** v0.2.55 — mode MJPEG dès le départ (appelant = bureau : il ne fait QUE
      *  le MJPEG — pas d'encodeur H.264 à démarrer). */
     private val useMjpeg: Boolean = false,
+    /** v0.2.57 — visio perdue en cours d'appel (caméra fermée/erreur) :
+     *  L'APPEL CONTINUE EN AUDIO. Miroir du micro HS. */
+    private val onVideoLost: (String) -> Unit = {},
 ) {
 
     /** v0.2.53 — résultat de [startSending] : csd + présentation locale. */
@@ -539,7 +552,8 @@ class CallVideo(
                     }
                 }
             } catch (e: Exception) {
-                if (!stopped) onFatal("vidéo (émission) : ${e.message}")
+                // v0.2.57 — émission perdue ≠ appel perdu (miroir micro HS).
+                if (!stopped) onVideoLost("encodeur : ${e.message ?: e::class.simpleName}")
             }
         }, "nyx-video-enc")
         t.isDaemon = true
@@ -598,31 +612,69 @@ class CallVideo(
                     preview?.let { targets.add(it) }
                     device.createCaptureSession(targets, object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(s: CameraCaptureSession) {
-                            if (stopped) { runCatching { s.close() }; return }
-                            session = s
-                            val req = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                                addTarget(encoderSurface)
-                                preview?.let { addTarget(it) }
-                                set(android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE,
-                                    android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                            // v0.2.57 — TOUT le corps est protégé : terrain
+                            // 28/10 11:49:59, la caméra était fermée par le
+                            // système (appli en arrière-plan) PENDANT la
+                            // configuration → IllegalStateException NON
+                            // ATTRAPÉE sur « nyx-cam » → FATAL EXCEPTION,
+                            // process tué. Désormais : session refermée
+                            // proprement, visio dégradée, l'appel vit.
+                            try {
+                                if (stopped) { runCatching { s.close() }; return }
+                                session = s
+                                val req = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                                    addTarget(encoderSurface)
+                                    preview?.let { addTarget(it) }
+                                    set(android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE,
+                                        android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                                }
+                                s.setRepeatingRequest(req.build(), null, handler)
+                                cameraOn = true
+                                net.nyx.messenger.diag.DiagLog.i(
+                                    "nyx-video", "caméra active (visio en émission)"
+                                )
+                            } catch (e: Exception) {
+                                cameraOn = false
+                                runCatching { s.close() }
+                                if (!stopped) onVideoLost(
+                                    "caméra fermée pendant la configuration : " +
+                                        "${e.message ?: e::class.simpleName}"
+                                )
                             }
-                            s.setRepeatingRequest(req.build(), null, handler)
-                            cameraOn = true
-                            android.util.Log.i("nyx-video", "caméra active (visio en émission)")
                         }
 
                         override fun onConfigureFailed(s: CameraCaptureSession) {
-                            onFatal("vidéo : session caméra refusée")
+                            // v0.2.57 — session refusée : visio coupée, appel maintenu.
+                            cameraOn = false
+                            runCatching { s.close() }
+                            if (!stopped) onVideoLost("session caméra refusée")
                         }
                     }, handler)
                 } catch (e: Exception) {
-                    if (!stopped) onFatal("vidéo : ${e.message}")
+                    // v0.2.57 — ouverture de session impossible : visio coupée,
+                    // appel maintenu (miroir du micro HS v0.2.48).
+                    cameraOn = false
+                    runCatching { device.close() }
+                    camera = null
+                    if (!stopped) onVideoLost("${e.message ?: e::class.simpleName}")
                 }
             }
 
-            override fun onDisconnected(device: CameraDevice) { runCatching { device.close() } }
+            override fun onDisconnected(device: CameraDevice) {
+                // v0.2.57 — le système ferme la caméra (appli en arrière-plan,
+                // autre appli caméra) : visio coupée, appel maintenu.
+                runCatching { device.close() }
+                camera = null
+                cameraOn = false
+                if (!stopped) onVideoLost("caméra déconnectée par le système")
+            }
+
             override fun onError(device: CameraDevice, error: Int) {
-                if (!stopped) onFatal("vidéo : caméra en erreur ($error)")
+                // v0.2.57 — caméra en erreur : visio coupée, appel maintenu.
+                runCatching { device.close() }
+                camera = null
+                cameraOn = false
+                if (!stopped) onVideoLost("caméra en erreur ($error)")
             }
         }, handler)
     }

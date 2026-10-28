@@ -77,6 +77,24 @@ class CallLockActivity : ComponentActivity() {
             )
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // v0.2.57 — DÉCROCHÉ DEPUIS LE BOUTON VISIO DE LA NOTIFICATION : cette
+        // activité EST le geste de décrochage (EXTRA_ANSWER_NOW). Elle s'ouvre
+        // au-dessus du keyguard SANS RIEN déverrouiller — c'est ce qui donne à
+        // la caméra ses droits « while-in-use » : Android ferme la caméra d'une
+        // appli en arrière-plan (terrain 28/10 11:49:59 : FATAL « CameraDevice
+        // was already closed » 0,6 s après un décroché visio silencieux,
+        // process tué). L'activité reste affichée en cours d'appel : la visio
+        // tient verrouillée. [acceptIncoming] est idempotent (garde de phase).
+        if (intent.getBooleanExtra(
+                net.nyx.messenger.notify.ContactNotifier.EXTRA_ANSWER_NOW, false)
+        ) {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-call",
+                "décroché DEPUIS LA NOTIFICATION (visio — activité verrouillée au " +
+                    "premier plan, caméra autorisée — session 79)"
+            )
+            CallManager.acceptIncoming()
+        }
         setContent { CallLockScreen() }
     }
 }
@@ -190,6 +208,16 @@ private fun CallLockScreen() {
                             containerColor = Color(0xFFD94343), contentColor = Color.White
                         )
                     ) { Text(stringRes(R.string.call_hangup), fontSize = 16.sp) }
+                    // v0.2.57 — sortie explicite vers l'app (l'activité ne
+                    // bloque PAS le déverrouillage : elle se termine, le
+                    // verrou de l'app + l'overlay d'appel prennent le relais
+                    // — la visio s'y voit, surfaces caméra incluses).
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { (ctx as? Activity)?.finish() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9AA3AE))
+                    ) { Text(stringRes(R.string.call_open_app), fontSize = 14.sp) }
                 }
                 else -> {
                     // ENDED : contre-vue brève (fin auto par LaunchedEffect).

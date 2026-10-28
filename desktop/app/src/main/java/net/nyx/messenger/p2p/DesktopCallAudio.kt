@@ -97,7 +97,22 @@ class DesktopCallAudio(
                     write(P2pProtocol.F_AUDIO, Adpcm.encodeBlock(pcm))
                 }
             } catch (e: Exception) {
-                if (!stopped) onFatal("micro : ${e.message}")
+                // v0.3.9 — MICRO HS ≠ APPEL MORT (miroir Android v0.2.48/0.2.56).
+                // Terrain 28/10 11:46:57 (export v0.3.8) : « micro : Une
+                // connexion établie a été abandonnée par un logiciel de votre
+                // ordinateur hôte » TUAIT un appel sain après 11 s. Désormais
+                // l'ÉMISSION est coupée proprement, la RÉCEPTION continue —
+                // l'appel vit jusqu'au raccroché.
+                if (!stopped) {
+                    DesktopLog.w(
+                        "nyx-call",
+                        "micro perdu en cours d'appel : ${e.message?.take(140)} — " +
+                            "émission coupée, réception maintenue (miroir micro HS Android)"
+                    )
+                    runCatching { micLine.stop() }
+                    runCatching { micLine.close() }
+                    mic = null
+                }
             }
         }, "nyx-call-enc")
         t.isDaemon = true
@@ -114,7 +129,9 @@ class DesktopCallAudio(
      */
     fun startReceiving(peerAc: String) {
         val format = AudioFormat(SAMPLE_RATE.toFloat(), 16, 1, true, false)
-        val speakerLine = try {
+        // v0.3.9 — var locale : haut-parleurs perdus en cours d'appel →
+        // ligne fermée + référence annulée (écrits suivants = no-op).
+        var speakerLine = try {
             val info = DataLine.Info(SourceDataLine::class.java, format)
             val line = AudioSystem.getLine(info) as SourceDataLine
             // v0.3.8 — LATENCE (session 78 : « les appels audio tel-pc ont un
@@ -162,7 +179,26 @@ class DesktopCallAudio(
                                     continue
                                 }
                                 val pcm = Adpcm.decodeBlock(frame.payload)
-                                speakerLine?.write(pcm, 0, pcm.size)
+                                // v0.3.9 — haut-parleurs perdus ≠ appel mort
+                                // (miroir micro HS) : l'écriture peut échouer
+                                // (périphérique débranché, autre appli audio)
+                                // — réception muette, appel maintenu.
+                                try {
+                                    speakerLine?.write(pcm, 0, pcm.size)
+                                } catch (sp: Exception) {
+                                    val dead = speakerLine
+                                    if (dead != null) {
+                                        DesktopLog.w(
+                                            "nyx-call",
+                                            "haut-parleurs perdus : ${sp.message?.take(100)} — " +
+                                                "réception muette, appel maintenu"
+                                        )
+                                        runCatching { dead.stop() }
+                                        runCatching { dead.close() }
+                                        speakerLine = null
+                                        speaker = null
+                                    }
+                                }
                                 bytesWritten += pcm.size
                             } else {
                                 DesktopLog.w(

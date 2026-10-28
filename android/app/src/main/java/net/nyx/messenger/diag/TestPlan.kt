@@ -535,6 +535,13 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_57 = listOf(
+        Item("visio-verrouille-tient", "LA VISIO TIENT QUAND ON DÉCROCHE VERROUILLÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.57, preuve 3ᵉ export téléphone 28/10 11:49:59 : décroché visio DEPUIS LA NOTIFICATION, téléphone verrouillé → « CameraDevice was already closed » jeté par onConfigured sur le thread nyx-cam → FATAL EXCEPTION, process tué 0,6 s après le début de la visio) : appel visio ENTRANT → décrocher DEPUIS LA NOTIFICATION écran verrouillé → l'activité d'appel s'ouvre SUR le verrou (alias + durée) et l'appel RESTE ACTIF (audio + visio), AUCUN « FATAL EXCEPTION » dans l'export ; si la caméra est fermée par le système l'appel CONTINUE EN AUDIO (journal « visio coupée — l'appel CONTINUE en audio : … »), JAMAIS de crash"),
+        Item("visio-decroche-notification", "LE BOUTON VISIO DE LA NOTIFICATION OUVRE L'ACTIVITÉ VERROUILLÉE (NOUVEAU v0.2.57, cause racine : le receiver silencieux décrochait SANS premier plan — Android ferme la caméra d'une appli en arrière-plan) : appel visio entrant, téléphone verrouillé → bouton Décrocher de la notification → l'ACTIVITÉ d'appel s'affiche immédiatement sur le verrou (journal « décroché DEPUIS LA NOTIFICATION (visio — activité verrouillée au premier plan, caméra autorisée) ») ; le bouton « Continuer dans l'application » y ramène après déverrouillage ; les appels AUDIO gardent le décroché SANS OUVRIR l'app (session 78 inchangée)"),
+        Item("visio-tient-decroche", "LA VISIO PC↔TÉLÉPHONE TIENT APRÈS LE DÉCROCHÉ (v0.2.56, continue — preuve 28/10 : « visio MJPEG ACTIVE » des DEUX côtés à 11:49:58 puis FATAL 0,6 s après : cause racine caméra, pas de négociation) : appel visio depuis OU vers le PC → au décroché l'appel RESTE ACTIF des deux côtés, la caméra et l'écran partagé coulent PLUS D'UNE MINUTE sans crash"),
+        Item("build-propre-v57", "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.57 vérifié : caméra PERDUE = visio perdue PAS appel perdu » (chaîne complète du marqueur — cf. notes de release)"),
+    )
+
     val ITEMS_V0_2_56 = listOf(
         Item("decroche-verrouille", "DÉCROCHER/REFUSER ÉCRAN VERROUILLÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.56, demande opérateur 28/10 session 78 : « pouvoir décrocher ou rejeter un appel quand le téléphone est verrouillé sans devoir tout déverrouiller (tel/ordi, application ...) ») : téléphone ÉCRIN VERROUILLÉ + app verrouillée → appel entrant → l'écran S'ALLUME sur l'écran d'appel Nyx (alias + Décrocher/Refuser — intent plein écran) ; les boutons de la NOTIFICATION fonctionnent AUSSI sans déverrouiller ; décrocher → l'appel s'établit (audio) sans RIEN déverrouiller ; refuser → l'appel se termine ; l'overlay d'appel est visible AU-DESSUS du verrou de l'app (jamais de contenu de message — alias seul)"),
         Item("visio-tient-decroche", "LA VISIO PC↔TÉLÉPHONE TIENT APRÈS LE DÉCROCHÉ — ITEM DÉCISIF n°2 (NOUVEAU v0.2.56, preuve 5ᵉ export bureau 28/10 07:19 : le téléphone acceptait à 07:19:13 mais l'appel s'effondrait — trame de rotation AVANT le F_CALL_ACCEPT lue comme « pas de réponse » + process tué par l'ANR AudioRecord 4 s plus tard) : appel visio depuis OU vers le PC → au décroché l'appel RESTE ACTIF des deux côtés (« appel actif » chez le bureau, journal « appel actif avec … (côté appelé) »), l'émission ADPCM démarre (« émission ADPCM active (micro démarré, blocs 20 ms) » — plus AUCUN « Error -38 » dans le logcat), la caméra et l'écran partagé coulent"),
@@ -655,7 +662,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

@@ -447,6 +447,7 @@
     <string name="call_decline">Refuser</string>
     <string name="call_incoming_lock">Appel entrant — %1$s</string>
     <string name="call_active_lock">Appel en cours</string>
+    <string name="call_open_app">Continuer dans l\u2019application</string>
     <string name="call_connecting">connexion…</string>
     <string name="call_video_lock_hint">Visio active — déverrouillez l\u2019appareil pour voir l\u2019image</string>
     <!-- NB : Raccrocher/Micro/Haut-parleur réutilisent call_hangup/call_mute/

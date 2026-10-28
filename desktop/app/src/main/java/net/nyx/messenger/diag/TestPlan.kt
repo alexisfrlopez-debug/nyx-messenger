@@ -39,6 +39,26 @@ object TestPlan {
      * (dérive d'id au resync + double émission en course).
      */
     /**
+     * v0.3.9 — items de validation (miroir de docs/releases/v0.3.9-desktop.md) :
+     * CARTE DÉDIÉE Décrocher/Refuser + micro qui ne tue plus l'appel + visio
+     * qui tient (crash caméra corrigé côté téléphone v0.2.57).
+     */
+    val ITEMS_V0_3_9 = listOf(
+        Item(
+            "carte-decrocher-refuser",
+            "CARTE D'APPEL ENTRANTE AVEC ICÔNES DÉCROCHER/REFUSER — ITEM DÉCISIF n°1 (NOUVEAU v0.3.9, demande opérateur session 79 verbatim : « appels tel => pc : je veux une notification avec une icone pour décrocher et une pour refuser l'appel » — terrain 28/10 10:47 : appel tel→PC sonné 43 s sans décrochage, l'opérateur n'a pas trouvé l'écran d'acceptation et a RELANCÉ l'appli) : appel depuis le téléphone (fenêtre Nyx réduite, cachée, derrière d'autres fenêtres OU app verrouillée) → une CARTE DÉDIÉE sans barre de titre s'ouvre SEULE au CENTRE de l'écran, TOUJOURS AU-DESSUS, avec l'alias + DEUX icônes géantes ✓ Décrocher (vert) / ✕ Refuser (rouge) ; ✓ → l'appel s'établit et la fenêtre principale prend le relais ; ✕ (ou Alt+F4) → l'appel est refusé ; la carte se ferme seule dès que la sonnerie s'arrête ; l'info-bulle du plateau annonce « Décrocher (✓) ou Refuser (✕) »"
+        ),
+        Item(
+            "micro-ne-tue-plus",
+            "UN MICRO PERDU NE TUE PLUS L'APPEL (NOUVEAU v0.3.9, preuve export v0.3.8 28/10 11:46 : « micro : Une connexion établie a été abandonnée par un logiciel de votre ordinateur hôte » TERMINAIT un appel sain après 11 s) : pendant un appel, débrancher/changer le périphérique micro → le journal montre « micro perdu en cours d'appel : … — émission coupée, réception maintenue » et L'APPEL CONTINUE (le pair reste audible) jusqu'au raccroché ; idem haut-parleurs (« réception muette, appel maintenu »)"
+        ),
+        Item(
+            "visio-une-minute",
+            "VISIO QUI TIENT (v0.3.8 continue, preuve 28/10 11:49 : « visio MJPEG ACTIVE » des deux côtés PUIS crash téléphone 0,6 s après — corrigé v0.2.57 côté téléphone : caméra protégée + activité verrouillée) : appel visio depuis OU vers un téléphone ≥ v0.2.57 → l'appel RESTE ACTIF plus d'une minute, écran partagé + caméra du téléphone coulent ; si la caméra du téléphone est fermée par le système l'appel Y CROIT en audio (journal honnête), jamais de crash"
+        ),
+    )
+
+    /**
      * v0.3.8 — items de validation (miroir de docs/releases/v0.3.8-desktop.md) :
      * SONNERIE bureau + décrochage verrouillé + visio qui tient au décroché +
      * latence audio réduite.
@@ -186,7 +206,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

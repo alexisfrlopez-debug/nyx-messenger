@@ -87,12 +87,20 @@ object DesktopNotifier {
         balloon("Mise à jour Nyx prête", "La version $version a été téléchargée — installez-la depuis les Réglages.")
     }
 
-    /** v0.3.6 — APPEL ENTRANT : info-bulle persistante (miroir ContactNotifier.incomingCall
-     * Android) — l'acceptation se fait DANS l'overlay d'appel de l'application. */
+    /**
+     * v0.3.6 — APPEL ENTRANT : info-bulle persistante (miroir
+     * ContactNotifier.incomingCall Android). v0.3.9 — la CARTE DÉDIÉE
+     * [net.nyx.messenger.ui.IncomingCallWindow] (toujours-au-dessus, icônes
+     * ✓ Décrocher / ✕ Refuser) s'ouvre AUSSI — l'info-bulle ne fait
+     * qu'annoncer ; terrain 28/10 : l'opérateur n'a pas trouvé l'overlay seul.
+     */
     fun incomingCall(onion: String, alias: String) {
         if (!enabled()) return
         val label = alias.ifBlank { onion.take(10) + "…" }
-        balloon("Appel entrant — $label", "Appuyez sur Accepter dans la fenêtre Nyx (l'appel est anonyme et chiffré).")
+        balloon(
+            "Appel entrant — $label",
+            "Décrocher (✓) ou Refuser (✕) dans la fenêtre d'appel qui vient de s'ouvrir."
+        )
     }
 
     /** v0.3.6 — fin de sonnerie (décroché/refusé/manqué — miroir cancelCall). */

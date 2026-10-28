@@ -55,6 +55,9 @@ object ContactNotifier {
     const val ACTION_CALL_DECLINE = "net.nyx.messenger.notify.CALL_DECLINE"
     const val EXTRA_ONION = "onion"
     const val EXTRA_ALIAS = "alias"
+    /** v0.2.57 — l'activité verrouillée DOIT décrocher dès son ouverture
+     *  (bouton visio de la notification : la caméra exige le premier plan). */
+    const val EXTRA_ANSWER_NOW = "answer_now"
 
     fun init(context: Context) {
         NotifyCore.init(context)
@@ -112,6 +115,28 @@ object ContactNotifier {
             Intent(ctx, CallActionReceiver::class.java).apply {
                 this.action = action
                 putExtra(EXTRA_ONION, onion)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    /**
+     * v0.2.57 — PendingIntent d'ACTIVITÉ « Décrocher » (VISIO entrante) :
+     * le tap sur une action de notification AUTORISE le lancement d'activité
+     * (exemption de lancement en arrière-plan). [CallLockActivity] décroche
+     * dès onCreate (EXTRA_ANSWER_NOW) et reste affichée AU-DESSUS du keyguard
+     * — c'est ce qui donne à la caméra ses droits « while-in-use » (Android
+     * ferme la caméra d'une appli en arrière-plan ; terrain 28/10 11:49:59 :
+     * FATAL « CameraDevice was already closed » 0,6 s après un décroché
+     * visio depuis la notification, process tué).
+     */
+    private fun answerActivityIntent(ctx: Context, onion: String): PendingIntent =
+        PendingIntent.getActivity(
+            ctx,
+            (ACTION_CALL_ANSWER + onion).hashCode(),
+            Intent(ctx, net.nyx.messenger.ui.call.CallLockActivity::class.java).apply {
+                putExtra(EXTRA_ONION, onion)
+                putExtra(EXTRA_ANSWER_NOW, true)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -196,8 +221,14 @@ object ContactNotifier {
      * Décrocher/Refuser DIRECTEMENT sur la notification — les trois gestes
      * fonctionnent sans rien déverrouiller. La notification est ongoing
      * pendant la sonnerie (pas d'effacement accidentel du seul signal).
+     *
+     * v0.2.57 — VISIO ([video] = l'offre annonce vc) : le bouton Décrocher
+     * lance L'ACTIVITÉ VERROUILLÉE (qui décroche aussitôt) au lieu du
+     * receiver silencieux — la caméra exige l'appli AU PREMIER PLAN (terrain
+     * 28/10 : caméra fermée par le système en arrière-plan → crash fatal).
+     * Les appels AUDIO gardent le receiver : décrocher SANS OUVRIR l'app.
      */
-    fun incomingCall(onion: String, alias: String) {
+    fun incomingCall(onion: String, alias: String, video: Boolean = false) {
         val ctx = NotifyCore.appContext ?: return
         if (!canPost()) return
         val n = NotificationCompat.Builder(ctx, CHANNEL_CALLS)
@@ -212,7 +243,8 @@ object ContactNotifier {
             .setAutoCancel(true)
             .addAction(
                 android.R.drawable.ic_menu_call, ctx.getString(R.string.call_answer),
-                callActionIntent(ctx, ACTION_CALL_ANSWER, onion)
+                if (video) answerActivityIntent(ctx, onion)
+                else callActionIntent(ctx, ACTION_CALL_ANSWER, onion)
             )
             .addAction(
                 android.R.drawable.ic_delete, ctx.getString(R.string.call_decline),

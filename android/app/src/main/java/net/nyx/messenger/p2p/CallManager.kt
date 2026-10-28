@@ -306,7 +306,8 @@ object CallManager {
                 // (l'aperçu suit le téléphone), la rotation part dans le HELLO.
                 val engine = CallVideo(ctx,
                     { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } },
-                    { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) })
+                    { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) },
+                    onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } })
                 val vSend = runCatching { engine.startSending() }.getOrNull()
                 if (vSend?.csd != null) {
                     video = engine
@@ -486,7 +487,14 @@ object CallManager {
                 net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel entrant de ${author.take(16)}… (cid ${signal.cid.take(8)}…)")
                 _ui.value = CallUi(Phase.INCOMING, author, label, signal.cid,
                     message = "appel entrant…", phaseChangedAt = nowMs())
-                net.nyx.messenger.notify.ContactNotifier.incomingCall(author, label)
+                net.nyx.messenger.notify.ContactNotifier.incomingCall(author, label,
+                    // v0.2.57 — VISIO ENTRANTE : le bouton Décrocher de la
+                    // notification ouvre l'ACTIVITÉ VERROUILLÉE (la caméra
+                    // exige l'appli au premier plan — Android la ferme en
+                    // arrière-plan ; terrain 28/10 : FATAL « CameraDevice
+                    // was already closed » 0,6 s après le décroché). L'offre
+                    // porte l'intention visio (vc) depuis v0.2.55.
+                    video = signal.vc.isNotEmpty())
                 // v0.2.52 — SONNERIE POSSÉDÉE (boucle MediaPlayer) : terrain
                 // 25/10 « Xiaomi continue de sonner alors que l'appel est
                 // décroché » — le son de CANAL jouait pendant tout l'appel
@@ -800,7 +808,8 @@ object CallManager {
             val vEngine = CallVideo(ctx,
                 { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } },
                 { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) },
-                useMjpeg = chosenMjpeg)
+                useMjpeg = chosenMjpeg,
+                onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } })
             val vSend = runCatching { vEngine.startSending() }.getOrNull()
             if (vSend?.csd != null) {
                 video = vEngine
@@ -950,6 +959,33 @@ object CallManager {
                 r?.sendCallSignal(state.peer, CallSignal(CallSignal.OP_BYE, state.cid, "", nowS()).encode())
             }
         }
+    }
+
+    /**
+     * v0.2.57 — DÉGRADATION HONNÊTE de la visio : la caméra/le flux vidéo est
+     * perdu en COURS d'appel → l'appel CONTINUE EN AUDIO. Miroir exact du
+     * micro HS (v0.2.48/v0.2.56 : « micro HS = émission coupée, l'appel
+     * continue en réception »). Terrain 28/10 11:49:59 (export v0.2.56) :
+     * visio décrochée DEPUIS LA NOTIFICATION, téléphone verrouillé → le
+     * système fermait la caméra PENDANT la configuration de session →
+     * IllegalStateException non attrapée sur « nyx-cam » → FATAL EXCEPTION,
+     * process tué 0,6 s après le début de la visio. La visio ne TUERA plus
+     * JAMAIS un appel sain.
+     */
+    private fun onVideoDegraded(reason: String) {
+        val st = _ui.value
+        if (st.phase != Phase.WAIT && st.phase != Phase.ACTIVE) return
+        net.nyx.messenger.diag.DiagLog.w(
+            "nyx-video",
+            "visio coupée — l'appel CONTINUE en audio : $reason " +
+                "(cid ${st.cid.take(8)}…, pair ${st.peer.take(10)}…)"
+        )
+        runCatching { video?.stop() }
+        video = null
+        // Les trames F_VIDEO encore émises par le pair sont ignorées (sink
+        // détaché) — l'audio n'est PAS touché.
+        runCatching { audio?.let { it.videoSink = null } }
+        _ui.value = _ui.value.copy(videoEnabled = false)
     }
 
     /** Termine et nettoie ; l'écran affiche [reason] 3 s puis revient à IDLE. */
