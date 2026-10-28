@@ -92,6 +92,30 @@ class P2pProtocolDesktopTest {
         assertEquals("nyx-p2p|call|$onion|cid12345", P2pProtocol.helloSignedString("call", onion, "cid12345"))
     }
 
+    /**
+     * v0.3.11 — RÉGRESSION terrain 28/10 17:24:03 (miroir Android v0.2.59) :
+     * le vérificateur recalculait la chaîne « events » avec le CID VIDE au
+     * lieu du COUNT signé par le téléphone → tout dépôt direct P2P refusé
+     * « signature invalide ».
+     */
+    @Test
+    fun `sélecteur du vérificateur - events signe le COUNT (régression 28-10)`() {
+        val emitted = P2pProtocol.helloSignedString("events", onion, "3")
+        val h = P2pProtocol.Hello("events", onion, "alias", "", "", 3, "sig")
+        assertEquals(emitted, P2pProtocol.helloVerifierString(h))
+        val old = P2pProtocol.helloSignedString("events", onion, h.cid)
+        org.junit.Assert.assertNotEquals(emitted, old)
+    }
+
+    /** v0.3.11 — non-régression : « call » → CID, « file » → COUNT. */
+    @Test
+    fun `sélecteur du vérificateur - call signe le CID, file le COUNT`() {
+        val call = P2pProtocol.Hello("call", onion, "a", "cid77", "", 0, "s")
+        assertEquals(P2pProtocol.helloSignedString("call", onion, "cid77"), P2pProtocol.helloVerifierString(call))
+        val file = P2pProtocol.Hello("file", onion, "a", "", "", 5, "s")
+        assertEquals(P2pProtocol.helloSignedString("file", onion, "5"), P2pProtocol.helloVerifierString(file))
+    }
+
     // ---------- ACCEPT ----------
 
     @Test

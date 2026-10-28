@@ -286,6 +286,18 @@ object P2pProtocol {
         "nyx-p2p|$kind|$onion|$selector"
 
     /**
+     * v0.3.11 — SÉLECTEUR du VÉRIFICATEUR (miroir Android v0.2.59, extrait
+     * pour être TESTÉ) : « call » signe le CID, « file » ET « events »
+     * signent le COUNT. Terrain 28/10 17:24:03 : le vérificateur utilisait
+     * le CID (vide) pour « events » → tout dépôt direct P2P du téléphone
+     * était refusé « signature invalide ».
+     */
+    fun helloVerifierString(hello: Hello): String = helloSignedString(
+        hello.kind, hello.onion,
+        if (hello.kind == "call") hello.cid else hello.count.toString()
+    )
+
+    /**
      * v0.3.8 — LECTURE DE LA RÉPONSE D'APPEL (miroir Android v0.2.56).
      *
      * CAUSE RACINE TERRAIN 28/10 (5ᵉ export bureau) : un appelé ≤ v0.2.55

@@ -184,11 +184,15 @@ object P2pServer {
         }
         // Authentification : la signature du HELLO doit provenir de la CLÉ
         // dont dépend l'adresse onion revendiquée.
+        // v0.2.59 — SÉLECTEUR CORRIGÉ pour le kind « events » : l'émetteur
+        // [P2pClient.pushEvents] signe le COUNT (nombre d'événements), mais le
+        // vérificateur utilisait le CID (vide) → « signature invalide » pour
+        // TOUT dépôt direct P2P d'événements (terrain 28/10 17:24:03 :
+        // « HELLO events REFUSÉ de kxcwah… : signature invalide » — le repli
+        // ADR-017 était structurellement mort). cid pour un appel, count
+        // pour file ET events.
         val verifier = P2pVerifier.get
-        val expected = P2pProtocol.helloSignedString(
-            hello.kind, hello.onion,
-            if (hello.kind == "file") hello.count.toString() else hello.cid
-        )
+        val expected = P2pProtocol.helloVerifierString(hello)
         // v0.2.48 — LA CAUSE DU REFUS EST JOURNALISÉE (terrain 24/10 08:49 : « HELLO
         // events REFUSÉ de kxcwah… » sans raison — signature ou contact ? le
         // terrain ne pouvait pas trancher) : deux logs distincts, le prochain

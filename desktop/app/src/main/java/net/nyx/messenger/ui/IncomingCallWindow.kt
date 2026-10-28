@@ -152,8 +152,9 @@ fun IncomingCallWindow() {
     }
 }
 
-/** Icône lune dorée (miroir nyx.ico — zéro ressource embarquée). */
-private fun nyxWindowIcon(): androidx.compose.ui.graphics.painter.Painter {
+/** Icône lune dorée (miroir nyx.ico — zéro ressource embarquée).
+ *  v0.3.11 : internal — partagée avec [CallFloatWindow]. */
+internal fun nyxWindowIcon(): androidx.compose.ui.graphics.painter.Painter {
     val img = net.nyx.messenger.notify.DesktopNotifier.moonIcon(64)
     val out = java.io.ByteArrayOutputStream()
     javax.imageio.ImageIO.write(img, "png", out)

@@ -348,6 +348,14 @@ class DesktopRepository(
                 val priv = identity.secretKey()
                 var inserted = 0
                 inserted += pollOwnReplica(me, priv)
+                // v0.3.11 — ACCUSÉS IMMÉDIATS APRÈS LE POLL PROPRE : le poll
+                // flotte (cibles Tor, jusqu'à des minutes sur un pair lent)
+                // retardait ensureReceiptsSent en FIN de cycle — l'accusé
+                // « delivered » du message fraîchement stocké n'était JAMAIS
+                // émis avant que la conversation ne soit relue (terrain 28/10
+                // 17:26→17:30 : « pas d'accusé de réception/lecture coté tel »
+                // — 4 minutes de retard, le « read » seul finissait par partir).
+                runCatching { ensureReceiptsSent() }
                 inserted += pollFleetReplicas(me, priv)
                 // v0.3.6 — accusés en attente (miroir Android : tentative
                 // immédiate en fin de poll, DIFFÉRÉ au cycle suivant en cas
@@ -737,6 +745,22 @@ class DesktopRepository(
         return left
     }
 
+    /**
+     * v0.3.11 — RÉVÉLATION d'un média à vue limitée (miroir Android v0.2.59) :
+     * lit les octets AVANT la consommation de la vue — le fichier est détruit
+     * à la révélation, l'affichage vit depuis la MÉMOIRE jusqu'à la sortie de
+     * la conversation (terrain 28/10 17:32 : « le média s'affiche et se
+     * referme de suite, il a été détruit sans que je ne puisse le voir. je
+     * veux pouvoir terminer l'affichage moi-même »).
+     */
+    fun revealMediaView(fid: String): ByteArray? {
+        val a = store.attachment(fid)
+        val bytes = a?.localPath?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { java.io.File(it).readBytes() }.getOrNull() }
+        consumeMediaView(fid)
+        return bytes
+    }
+
     /** Réception d'un fragment (miroir handleIncomingChunk — v0.3.4 : politique de vue). */
     private fun handleIncomingChunk(author: String, canonical: String, ts: Long, chunk: ChunkCodec.FileChunk) {
         var meta = store.attachment(chunk.fid)
@@ -811,7 +835,17 @@ class DesktopRepository(
         if (replicas.isEmpty()) return
         val me = identity.onionAddress ?: return
         val priv = runCatching { identity.secretKey() }.getOrNull() ?: return
-        for (peer in store.peersWithPendingReceipts()) {
+        // v0.3.11 — DIAGNOSTIC : les attentes sont JOURNALISÉES (terrain 28/10 :
+        // aucun accusé « delivered » parti sans AUCUNE trace — le prochain
+        // export tranche en une ligne).
+        val peers = store.peersWithPendingReceipts()
+        if (peers.isNotEmpty()) {
+            val detail = peers.joinToString(", ") { p ->
+                "${p.take(10)}… (read=${store.readPendingIds(p).size}, deliv=${store.deliveredPendingIds(p).size})"
+            }
+            DesktopLog.i("nyx-send", "accusés en attente : ${peers.size} pair(s) — $detail")
+        }
+        for (peer in peers) {
             if (store.contact(peer)?.status != ACCEPTED) continue
             // « read » d'abord — il couvre le « delivered » (impliqué côté
             // expéditeur) et libère le plus d'état d'un coup.

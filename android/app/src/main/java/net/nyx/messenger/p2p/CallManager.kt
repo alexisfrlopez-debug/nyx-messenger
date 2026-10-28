@@ -70,6 +70,9 @@ object CallManager {
         val videoPeerRot: Int = 0,    // rotation du pair (HELLO/ACCEPT puis F_VIDEO_ROT)
         val videoPeerW: Int = 0,      // taille d'encodage du pair
         val videoPeerH: Int = 0,
+        // v0.2.59 — ÉMISSION locale coupée (caméra perdue) mais RÉCEPTION
+        // maintenue : l'overlay garde la vue distante et signale l'état.
+        val videoSendLost: Boolean = false,
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
@@ -989,19 +992,27 @@ object CallManager {
         if (st.phase != Phase.WAIT && st.phase != Phase.ACTIVE) return
         net.nyx.messenger.diag.DiagLog.w(
             "nyx-video",
-            "visio coupée — l'appel CONTINUE en audio : $reason " +
+            "émission visio coupée — la RÉCEPTION CONTINUE : $reason " +
                 "(cid ${st.cid.take(8)}…, pair ${st.peer.take(10)}…)"
         )
-        runCatching { video?.stop() }
-        video = null
-        // Les trames F_VIDEO encore émises par le pair sont ignorées (sink
-        // détaché) — l'audio n'est PAS touché.
-        runCatching { audio?.let { it.videoSink = null } }
-        _ui.value = _ui.value.copy(videoEnabled = false)
+        // v0.2.59 — SEULE L'ÉMISSION meurt : la caméra locale est coupée mais
+        // le flux du pair CONTINUE d'être décodé et affiché (terrain 28/10 :
+        // « visio tel => pc : je n'ai pas eu de video, idem dans l'autre
+        // sens » — la caméra perdue tuait AUSSI la vue distante).
+        runCatching { video?.stopSendingOnly() }
+        _ui.value = _ui.value.copy(videoSendLost = true)
     }
 
     /** Termine et nettoie ; l'écran affiche [reason] 3 s puis revient à IDLE. */
     private fun end(reason: String) {
+        // v0.2.59 — la fin d'appel est JOURNALISÉE (miroir bureau « appel
+        // terminé (phase) — motif ») : les exports terrain ne montraient JAMAIS
+        // pourquoi un appel s'arrêtait côté téléphone.
+        net.nyx.messenger.diag.DiagLog.i(
+            "nyx-call",
+            "appel terminé (${_ui.value.phase}) — $reason (cid ${_ui.value.cid.take(8)}…, " +
+                "pair ${_ui.value.peer.take(10)}…)"
+        )
         runCatching { audio?.stop() }
         runCatching { video?.stop() }
         runCatching { conn?.close() }
@@ -1031,7 +1042,9 @@ object CallManager {
             videoEnabled = false,
             // v0.2.53 — la présentation ne survit pas à l'appel.
             videoLocalRot = 0, videoLocalW = 0, videoLocalH = 0, videoLocalFront = true,
-            videoPeerRot = 0, videoPeerW = 0, videoPeerH = 0)
+            videoPeerRot = 0, videoPeerW = 0, videoPeerH = 0,
+            // v0.2.59 — l'état d'émission ne survit pas non plus à l'appel.
+            videoSendLost = false)
         scope.launch {
             delay(if (wasActive) 2500L else 3000L)
             if (_ui.value.phase == Phase.ENDED) _ui.value = CallUi()

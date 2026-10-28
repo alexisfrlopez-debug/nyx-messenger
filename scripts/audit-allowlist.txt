@@ -160,6 +160,19 @@ android/app/src/main/java/net/nyx/messenger/p2p/VideoRot.kt:portage-miroir
 android/app/src/test/java/net/nyx/messenger/p2p/ReadCallAnswerTest.kt:portage-miroir
 desktop/app/src/test/java/net/nyx/messenger/p2p/ReadCallAnswerDesktopTest.kt:portage-miroir
 
+# v0.2.59 / v0.3.11 (session 81) — tests miroirs « sélecteur du vérificateur
+# HELLO » (cause racine terrain 28/10 17:24:03 : le vérificateur recalculait
+# la chaîne « events » avec le CID VIDE au lieu du COUNT signé par le
+# téléphone → tout dépôt direct P2P refusé « signature invalide » — repli
+# ADR-017 structurellement mort, messages tel→PC attendus par le poll) :
+# les vecteurs de RÉGRESSION (events→count, call→cid, file→count) vivent des
+# DEUX côtés — P2pEventsTest (Android) et P2pProtocolDesktopTest (desktop)
+# doivent attraper l'identique le même bug : une divergence du sélecteur
+# d'un seul côté casserait de nouveau soit les dépôts events soit les appels
+# de ce côté-là.
+android/app/src/test/java/net/nyx/messenger/p2p/P2pEventsTest.kt:portage-miroir
+desktop/app/src/test/java/net/nyx/messenger/p2p/P2pProtocolDesktopTest.kt:portage-miroir
+
 # v0.2.58 / v0.3.10 (session 80) — TONALITÉ DE RETOUR D'APPEL chez l'appelant
 # (demande opérateur verbatim : « lors d'une tentative d'appel, je veux une
 # sonnerie côté appelant pour indiquer que le tel ou pc appelle ») :

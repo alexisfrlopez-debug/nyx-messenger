@@ -282,6 +282,24 @@ object P2pProtocol {
         "nyx-p2p|$kind|$onion|$selector"
 
     /**
+     * v0.2.59 — SÉLECTEUR du VÉRIFICATEUR (extrait de P2pServer pour être
+     * TESTÉ) : ce que le RÉCEPTEUR d'un HELLO doit recalculer pour vérifier
+     * la signature. Règle : « call » signe le CID, « file » ET « events »
+     * signent le COUNT — miroir exact des émetteurs ([P2pClient.call] signe
+     * le cid, [P2pClient.pushEvents]/[P2pClient.pushFiles] signent le
+     * nombre d'unités).
+     *
+     * Terrain 28/10 17:24:03 : le vérificateur utilisait le CID (VIDE) pour
+     * le kind « events » → « HELLO events REFUSÉ : signature invalide »
+     * pour TOUT dépôt direct P2P d'événements — le repli ADR-017 était
+     * structurellement mort (messages tel→PC attendus par le poll).
+     */
+    fun helloVerifierString(hello: Hello): String = helloSignedString(
+        hello.kind, hello.onion,
+        if (hello.kind == "call") hello.cid else hello.count.toString()
+    )
+
+    /**
      * v0.2.56 — LECTURE DE LA RÉPONSE D'APPEL (côté appelant, après le HELLO).
      *
      * CAUSE RACINE TERRAIN 28/10 (5ᵉ export bureau) : l'appelé ≤ v0.2.55

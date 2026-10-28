@@ -33,6 +33,14 @@ object DesktopNotifier {
 
     @Volatile private var trayIcon: TrayIcon? = null
     @Volatile private var suppressedPeer: String? = null
+
+    /** v0.3.11 — la fenêtre principale est-elle VISIBLE ET ACTIVE ? La
+     *  suppression « conversation ouverte » ne s'applique QUE dans ce cas
+     *  (terrain 28/10 : « pas de notification coté pc » — la conversation
+     *  avait été ouverte plus tôt, la fenêtre était minimisée/dérrière, la
+     *  bulle ne partait JAMAIS). */
+    @Volatile private var windowActive = false
+
     @Volatile private var bringToFront: (() -> Unit)? = null
 
     /** À appeler une fois au démarrage (après la fenêtre) ; no-op si plateau absent. */
@@ -55,13 +63,21 @@ object DesktopNotifier {
         }
     }
 
-    /** La conversation ouverte ne notifie plus (miroir suppressedPeer). */
+    /** La conversation ouverte ne notifie plus (miroir suppressedPeer) —
+     *  v0.3.11 : UNIQUEMENT si la fenêtre est ACTIVE ([setWindowActive]). */
     fun suppress(peer: String?) {
         suppressedPeer = peer?.trim()?.lowercase()
     }
 
+    /** v0.3.11 — visibilité/focus de la fenêtre principale (Main.kt) :
+     *  conversation ouverte + fenêtre EN ARRIÈRE-PLAN = la bulle PART quand
+     *  même (le message n'est pas sous les yeux de l'opérateur). */
+    fun setWindowActive(active: Boolean) {
+        windowActive = active
+    }
+
     fun messageReceived(onion: String, alias: String, text: String) {
-        if (!enabled() || suppressedPeer == onion.trim().lowercase()) return
+        if (!enabled() || (windowActive && suppressedPeer == onion.trim().lowercase())) return
         val preview = text.replace('\n', ' ').trim().take(140)
         balloon(alias.ifBlank { "Nyx" }, preview.ifBlank { "nouveau message" })
     }

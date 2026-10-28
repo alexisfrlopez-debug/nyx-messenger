@@ -138,10 +138,12 @@ object DesktopP2pServer {
         }
         // Authentification : la signature du HELLO doit provenir de la CLÉ
         // dont dépend l'adresse onion revendiquée.
-        val expected = P2pProtocol.helloSignedString(
-            hello.kind, hello.onion,
-            if (hello.kind == "file") hello.count.toString() else hello.cid
-        )
+        // v0.3.11 — SÉLECTEUR CORRIGÉ pour le kind « events » (miroir Android
+        // v0.2.59) : l'émetteur téléphone [P2pClient.pushEvents] signe le
+        // COUNT ; le vérificateur utilisait le CID (vide) → « signature
+        // invalide » pour tout dépôt direct (terrain 28/10 17:24:03 : « HELLO
+        // events REFUSÉ de kxcwah… : signature invalide »).
+        val expected = P2pProtocol.helloVerifierString(hello)
         val authOk = verifier?.invoke(hello.onion, expected, hello.sig) == true
         if (!authOk) {
             DesktopLog.w(

@@ -47,6 +47,39 @@ class P2pEventsTest {
         assertEquals("nyx-p2p|call|$onion|cid42", P2pProtocol.helloSignedString("call", onion, "cid42"))
     }
 
+    /**
+     * v0.2.59 — RÉGRESSION terrain 28/10 17:24:03 : « HELLO events REFUSÉ :
+     * signature invalide » pour TOUT dépôt direct P2P. Le vérificateur
+     * recalculait la chaîne avec le CID (VIDE pour events) au lieu du COUNT
+     * que l'émetteur [P2pClient.pushEvents] signe réellement.
+     */
+    @Test
+    fun `sélecteur du vérificateur - events signe le COUNT (régression 28-10)`() {
+        // Ce que le TÉLÉPHONE signe (P2pClient.pushEvents, count = 3) :
+        val emitted = P2pProtocol.helloSignedString("events", onion, "3")
+        // Ce que le SERVEUR doit recalculer pour vérifier :
+        val h = P2pProtocol.Hello("events", onion, "alias", "", "", 3, "sig")
+        assertEquals(emitted, P2pProtocol.helloVerifierString(h))
+        // L'ANCIEN code (sélecteur = cid, vide) produisait la chaîne FAUSSE :
+        val old = P2pProtocol.helloSignedString("events", onion, h.cid)
+        org.junit.Assert.assertNotEquals(emitted, old)
+    }
+
+    /** v0.2.59 — non-régression : « call » reste vérifié par le CID. */
+    @Test
+    fun `sélecteur du vérificateur - call signe le CID, file le COUNT`() {
+        val call = P2pProtocol.Hello("call", onion, "a", "cid77", "", 0, "s")
+        assertEquals(
+            P2pProtocol.helloSignedString("call", onion, "cid77"),
+            P2pProtocol.helloVerifierString(call)
+        )
+        val file = P2pProtocol.Hello("file", onion, "a", "", "", 5, "s")
+        assertEquals(
+            P2pProtocol.helloSignedString("file", onion, "5"),
+            P2pProtocol.helloVerifierString(file)
+        )
+    }
+
     @Test
     fun `trame F_EVENT - roundtrip avec WireEvent JSON filaire`() {
         // Le payload de F_EVENT est le JSON EXACT déposé sur POST /client/event.

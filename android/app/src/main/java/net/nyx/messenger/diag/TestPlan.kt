@@ -535,6 +535,14 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_59 = listOf(
+        Item("visio-bidirectionnelle", "LA VISIO TÉLÉPHONE↔PC PRODUIT UNE IMAGE DES DEUX CÔTÉS — ITEM DÉCISIF n°1 (NOUVEAU v0.2.59, retour terrain 28/10 17:24-17:25 : « visio tel => pc : je n'ai pas eu de video, idem dans l'autre sens » — preuve exports : « CaptureRequest contains unconfigured Input/Output Surface! » puis « CameraDevice was already closed » : la bascule H.264→MJPEG et le rattachement de l'aperçu UI SE COURSAIENT, la caméra perdue tuait AUSSI la vue du pair) : appel visio depuis OU vers le PC (bureau v0.3.11) → au décroché, le PC voit VOTRE caméra (portrait/paysage droit) ET vous voyez la webcam/écran du PC, PLUS D'UNE MINUTE sans crash ni bande noire ; l'aperçu LOCAL s'affiche aussi ; si votre caméra est reprise par le système, la VUE DU PAIR RESTE (message « Votre caméra est coupée — vous recevez toujours la vidéo », journal « émission visio coupée — la RÉCEPTION CONTINUE »)"),
+        Item("messages-tel-vers-pc", "MESSAGES TÉLÉPHONE→PC : NOTIFIÉS CHEZ LE PAIR + ACCUSÉS CHEZ VOUS — ITEM DÉCISIF n°2 (NOUVEAU v0.2.59, retour terrain 28/10 17:26-17:30 : « envoi de message tel => pc : pas de notification coté pc, pas d'accusé de réception/lecture coté tel » — CAUSE RACINE PROUVÉE export 17:24:03 « HELLO events REFUSÉ : signature invalide » : le vérificateur recalculait la chaîne « events » avec le CID VIDE au lieu du COUNT signé → TOUT dépôt direct P2P était refusé) : envoyer un message au PC (bureau v0.3.11) → la bulle plateau apparaît CHEZ LE PC (même fenêtre réduite/arrière-plan) et l'accusé ✓ (réception) puis ✓✓ (lecture à l'ouverture) reviennent SUR VOTRE bulle en quelques secondes (journaux « accusés en attente : … » côté bureau)"),
+        Item("media-vue-manuelle", "MÉDIA À VUE LIMITÉE : AFFICHAGE JUSQU'À FERMETURE MANUELLE — ITEM DÉCISIF n°3 (NOUVEAU v0.2.59, retour terrain 28/10 17:32 : « le média s'affiche et se referme de suite, il a été détruit sans que je ne puisse le voir. je veux pouvoir terminer l'affichage moi-même ») : recevoir un média à vue limitée DEPUIS le PC (bureau v0.3.11) → taper la bulle verrouillée → le média S'AFFICHE ET RESTE affiché (la bulle montre l'image depuis la mémoire, le fichier est détruit à la révélation) ; fermez la visionneuse VOUS-MÊME quand vous voulez (retour) ; l'image reste dans la conversation tant que vous n'en sortez pas ; en y revenant plus tard : carte « média expiré (vue(s) consommée(s)) »"),
+        Item("regressions-appels-59", "Régressions appels : audio tel↔PC et tel↔tel, visio tel↔tel (H.264 inchangé), tonalité de retour d'appel (v0.2.58 conservée), décrochage verrouillé (v0.2.56/57 conservé), fin d'appel journalisée (« appel terminé (…) — motif »)"),
+        Item("build-propre-v59", "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.59 vérifié : CAMÉRA GARDE DE GÉNÉRATION » (chaîne complète du marqueur — cf. notes de release)"),
+    )
+
     val ITEMS_V0_2_58 = listOf(
         Item("retour-appel-audible", "TONALITÉ DE RETOUR D'APPEL CHEZ L'APPELANT — ITEM DÉCISIF n°1 (NOUVEAU v0.2.58, demande opérateur verbatim 28/10 : « lors d'une tentative d'appel, je veux une sonnerie côté appelant pour indiquer que le tel ou pc appelle ») : appeler le PC (audio ou visio) → TONALITÉ bi-ton douce (1,5 s son / 3,5 s pause) pendant TOUTE la sonnerie du PC, COUPÉE À L'INSTANT où l'on décroche (journal « retour d'appel DÉMARRÉ » à l'appel et « retour d'appel STOPPÉ » au décroché) ; idem quand le PC appelle le téléphone (miroir bureau v0.3.10) ; refus/timeout/raccroché coupent aussi la tonalité"),
         Item("visio-orientation-resolution", "VISIO : L'ORIENTATION ET LA RÉSOLUTION SUIVENT LE TÉLÉPHONE — ITEM DÉCISIF n°2 (NOUVEAU v0.2.58, demande verbatim : « toujours un problème d'orientation de la video et de resolution qui devrait s'adapter à l'orientation ») : visio vers un PC en v0.3.10 → tenir le téléphone en PORTRAIT : l'image sur le PC est DROITE en 240x320 (journal « visio MJPEG démarrée PRÉ-TOURNÉE (240x320 portrait) ») ; TOURNER le téléphone en paysage : l'image reste DROITE et passe en 320x240 SANS coupure (journal « orientation suivie » puis trames à l'aspect paysage) ; AUCUN étirement, AUCUNE bande noire"),
@@ -670,7 +678,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

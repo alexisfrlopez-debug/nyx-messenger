@@ -44,6 +44,48 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 
 ## 3. État actuel (session 17 — 2026-10-13)
 
+> 🔴 **INSTRUCTIONS SESSION 81 — REÇUES 2026-10-29 (retour terrain
+> v0.2.58/v0.3.10 opérateur Alek : « logs envoyés » — 4 exports reçus et
+> téléchargés : 2× téléphone nyx-logs-v0.2.58-test-20261028-172912.txt /
+> 173438.txt + 2× bureau nyx-logs-desktop-v0.3.10-20261028-172919.txt /
+> 173433.txt, dossier Drive 1KHOY…, sauvegardés dans reports/logs-s81/),
+> ENREGISTRÉES AVANT TRAVAIL (règle §9.9). Toute session qui reprend ce
+> fichier DOIT les traiter :**
+>
+> 1. **« lors d'un appel qui abouti sur pc, je veux la boite de décrochage de
+>    l'appel toujours au premier plan, et un bouton pour raccrocher toujours au
+>    premier plan jusqu'à la fin de l'appel »** → l'overlay d'appel du bureau
+>    (carte Décrocher/Refuser, puis fenêtre en cours d'appel) doit rester
+>    TOUJOURS AU PREMIER PLAN (always-on-top) pendant TOUT l'appel, et le
+>    bouton RACCROCHER doit rester visible/cliquable en permanence jusqu'à la
+>    fin de l'appel (même fenêtre en arrière-plan, même interaction avec la
+>    messagerie pendant l'appel).
+> 2. **« visio tel => pc : je n'ai pas eu de video, idem dans l'autre sens »** →
+>    la visio interop tel↔PC ne produit AUCUNE image des deux côtés malgré
+>    v0.2.58/v0.3.10 (pré-rotation + vpr). Diagnostiquer dans les exports
+>    (pipeline MJPEG : émission du téléphone, réception/rendu bureau, et
+>    inversement émission caméra ffmpeg bureau → réception téléphone) et
+>    corriger.
+> 3. **« envoi de message tel => pc : pas de notification coté pc, pas d'accusé
+>    de réception/lecture coté tel (ok dans l'autre sens) »** → messages
+>    tel→PC : AUCUNE bulle plateau côté bureau, et l'expéditeur téléphone ne
+>    voit NI accusé de réception NI accusé de lecture ; l'inverse (PC→tel)
+>    fonctionne. Vérifier le chemin ingest/notify bureau (la dédup
+>    v0.3.10 n'aurait-elle pas TUÉ toute notification ?) + les reçus
+>    (delivered/read) du côté bureau.
+> 4. **« fermeture de l'appli pc : le bouton annuler ne fait rien »** → dans le
+>    dialogue de fermeture du bureau, le bouton Annuler est inerte (fenêtre se
+>    ferme quand même / ne réagit pas). Corriger le wiring du dialogue.
+> 5. **« message média éphémère pc => tel : le média s'affiche et se referme de
+>    suite, il a été détruit sans que je ne puisse le voir. je veux pouvoir
+>    terminer l'affichage moi-même »** → média à vue limitée PC→tel : la vue
+>    se referme immédiatement (compteur détruit avant visualisation).
+>    L'AFFICHAGE doit durer jusqu'à fermeture MANUELLE par le destinataire
+>    (le compte à rebours/délai ne doit détruire le média qu'à la FERMETURE
+>    par l'utilisateur, pas à l'ouverture).
+>
+> Livraison attendue : **v0.2.59 Android + v0.3.11 desktop** + logs terrain.
+
 > 🔴 **INSTRUCTIONS SESSION 80 — REÇUES 2026-10-28 ~14:00 (retour terrain
 > v0.2.57/v0.3.9 opérateur Alek : « logs envoyés » — 4ᵉ export téléphone
 > nyx-logs-v0.2.57-test-20261028-133508.txt reçus dans logs-terrain/ ; PAS

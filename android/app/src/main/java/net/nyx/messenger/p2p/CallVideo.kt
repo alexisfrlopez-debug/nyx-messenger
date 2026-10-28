@@ -114,6 +114,22 @@ class CallVideo(
     @Volatile var mjpegPreRotated = false
         private set
 
+    /** v0.2.59 — GARDE DE GÉNÉRATION CAMÉRA : chaque openCamera/stopCamera
+     *  incrémente [camGen] ; les callbacks asynchrones (onOpened/onConfigured/
+     *  onDisconnected/onError) d'une ouverture PÉRIMÉE sont IGNORÉS. Terrain
+     *  28/10 17:24 : la bascule H.264→MJPEG (stopCamera+openCamera) et le
+     *  rattachement de l'aperçu UI (setPreviewSurface → stopCamera+openCamera)
+     *  se COURSAIENT — le onConfigured de la session morte exécutait
+     *  setRepeatingRequest sur une surface libérée → « CaptureRequest contains
+     *  unconfigured Input/Output Surface! » → visio coupée d'office. */
+    private val camGen = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** v0.2.59 — retries caméra (erreurs TRANSITOIRES uniquement) : la 1ʳᵉ
+     *  configuration qui échoue sur une erreur de course est REJOUÉE une fois
+     *  400 ms plus tard AVANT de dégrader la visio (terrain 28/10 : « CameraDevice
+     *  was already closed » 0,4 s après le début de la visio). */
+    @Volatile private var camRetries = 0
+
     /** Caméra active (émission en cours). */
     @Volatile var cameraOn = false
         private set
@@ -254,29 +270,35 @@ class CallVideo(
             val handler = ensureCameraHandler()
             val reader = ImageReader.newInstance(w, h, android.graphics.ImageFormat.YUV_420_888, 2)
             reader.setOnImageAvailableListener({ r ->
-                if (stopped) return@setOnImageAvailableListener
+                if (stopped || sendingStopped) return@setOnImageAvailableListener
                 if (!mjpegBusy.compareAndSet(false, true)) {
                     // La trame précédente est encore en compression/émission :
                     // on JETTE les périmées (acquireLatestImage vide la file).
                     runCatching { r.acquireLatestImage()?.close() }
                     return@setOnImageAvailableListener
                 }
-                mjpegExecutor?.execute {
-                    try {
-                        val img = r.acquireLatestImage() ?: return@execute
+                try {
+                    mjpegExecutor?.execute {
                         try {
-                            if (transmit && !stopped) {
-                                val jpeg = compressJpeg(img)
-                                if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
+                            val img = r.acquireLatestImage() ?: return@execute
+                            try {
+                                if (transmit && !stopped) {
+                                    val jpeg = compressJpeg(img)
+                                    if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
+                                }
+                            } finally {
+                                img.close()
                             }
+                        } catch (e: Exception) {
+                            if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
                         } finally {
-                            img.close()
+                            mjpegBusy.set(false)
                         }
-                    } catch (e: Exception) {
-                        if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
-                    } finally {
-                        mjpegBusy.set(false)
                     }
+                } catch (_: java.util.concurrent.RejectedExecutionException) {
+                    // v0.2.59 — exécuteur arrêté (stopSendingOnly) : trame jetée,
+                    // jamais de crash sur le thread caméra.
+                    mjpegBusy.set(false)
                 }
             }, handler)
             mjpegReader = reader
@@ -342,27 +364,32 @@ class CallVideo(
             val handler = ensureCameraHandler()
             val reader = ImageReader.newInstance(w, h, android.graphics.ImageFormat.YUV_420_888, 2)
             reader.setOnImageAvailableListener({ r ->
-                if (stopped) return@setOnImageAvailableListener
+                if (stopped || sendingStopped) return@setOnImageAvailableListener
                 if (!mjpegBusy.compareAndSet(false, true)) {
                     runCatching { r.acquireLatestImage()?.close() }
                     return@setOnImageAvailableListener
                 }
-                mjpegExecutor?.execute {
-                    try {
-                        val img = r.acquireLatestImage() ?: return@execute
+                try {
+                    mjpegExecutor?.execute {
                         try {
-                            if (transmit && !stopped) {
-                                val jpeg = compressJpeg(img)
-                                if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
+                            val img = r.acquireLatestImage() ?: return@execute
+                            try {
+                                if (transmit && !stopped) {
+                                    val jpeg = compressJpeg(img)
+                                    if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
+                                }
+                            } finally {
+                                img.close()
                             }
+                        } catch (e: Exception) {
+                            if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
                         } finally {
-                            img.close()
+                            mjpegBusy.set(false)
                         }
-                    } catch (e: Exception) {
-                        if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
-                    } finally {
-                        mjpegBusy.set(false)
                     }
+                } catch (_: java.util.concurrent.RejectedExecutionException) {
+                    // v0.2.59 — exécuteur arrêté : trame jetée, jamais de crash.
+                    mjpegBusy.set(false)
                 }
             }, handler)
             mjpegReader = reader
@@ -600,13 +627,46 @@ class CallVideo(
                 }
             } catch (e: Exception) {
                 // v0.2.57 — émission perdue ≠ appel perdu (miroir micro HS).
-                if (!stopped) onVideoLost("encodeur : ${e.message ?: e::class.simpleName}")
+                // v0.2.59 — sauf si l'émission a été coupée VOLONTAIREMENT
+                // ([stopSendingOnly]) : la réception continue, pas de dégradation.
+                if (!stopped && !sendingStopped) onVideoLost("encodeur : ${e.message ?: e::class.simpleName}")
             }
         }, "nyx-video-enc")
         t.isDaemon = true
         t.start()
         threads.add(t)
     }
+
+    /**
+     * v0.2.59 — COUPE L'ÉMISSION SEULE (caméra + encodeur + lecteur MJPEG) :
+     * la RÉCEPTION du flux du pair CONTINUE (miroir exact du micro HS —
+     * « émission coupée, réception maintenue »). Terrain 28/10 17:24-17:25 :
+     * la caméra perdue tuait AUSSI la vue du pair — l'appelé ne voyait PLUS
+     * la visio entrante alors que le bureau continuait d'envoyer son écran
+     * (« je n'ai pas eu de video, idem dans l'autre sens »). Le décodeur, la
+     * surface distante et [feedDecoder] restent EN PLACE : seules les trames
+     * LOCALES cessent de partir.
+     */
+    fun stopSendingOnly() {
+        if (stopped) return
+        // Les erreurs tardives du drain/encodeur ne doivent PLUS dégrader la
+        // réception : l'émission est déjà déclarée morte volontairement.
+        sendingStopped = true
+        stopRotationTracking()
+        stopCamera()
+        runCatching { encoder?.stop() }
+        runCatching { encoder?.release() }
+        runCatching { encSurface?.release() }
+        encoder = null; encSurface = null
+        runCatching { mjpegExecutor?.shutdownNow() }
+        mjpegExecutor = null
+        runCatching { mjpegReader?.close() }
+        mjpegReader = null
+    }
+
+    /** v0.2.59 — émission volontairement arrêtée : les erreurs d'encodeur
+     *  tardives n'invoquent plus [onVideoLost] (la réception continue). */
+    @Volatile private var sendingStopped = false
 
     /** Taille caméra/encodeur : la plus petite supportée ≥ 320×240 (bord 640). */
     private fun pickCaptureSize(): Pair<Int, Int> {
@@ -643,6 +703,11 @@ class CallVideo(
         val mgr = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val pick = pickCamera(mgr) ?: throw IllegalStateException("aucune caméra")
         camPick = pick
+        camDesired = true
+        // v0.2.59 — cette ouverture invalide toutes les précédentes : leurs
+        // callbacks (session en cours de configuration, fermeture en vol) seront
+        // ignorés par la comparaison de génération.
+        val gen = camGen.incrementAndGet()
         // v0.2.48 — HANDLER EXPLICITE (terrain 24/10 08:49 : « caméra
         // indisponible — visio audio-only : No handler given, and current
         // thread has no looper! ») : openCamera exige un thread POURVU d'un
@@ -652,7 +717,7 @@ class CallVideo(
         val handler = ensureCameraHandler()
         mgr.openCamera(pick.id, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
-                if (stopped) { runCatching { device.close() }; return }
+                if (stopped || gen != camGen.get()) { runCatching { device.close() }; return }
                 camera = device
                 try {
                     val targets = mutableListOf<Surface>(encoderSurface)
@@ -667,7 +732,7 @@ class CallVideo(
                             // process tué. Désormais : session refermée
                             // proprement, visio dégradée, l'appel vit.
                             try {
-                                if (stopped) { runCatching { s.close() }; return }
+                                if (stopped || gen != camGen.get()) { runCatching { s.close() }; return }
                                 session = s
                                 val req = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                                     addTarget(encoderSurface)
@@ -677,16 +742,29 @@ class CallVideo(
                                 }
                                 s.setRepeatingRequest(req.build(), null, handler)
                                 cameraOn = true
+                                camRetries = 0
                                 net.nyx.messenger.diag.DiagLog.i(
                                     "nyx-video", "caméra active (visio en émission)"
                                 )
                             } catch (e: Exception) {
                                 cameraOn = false
                                 runCatching { s.close() }
-                                if (!stopped) onVideoLost(
-                                    "caméra fermée pendant la configuration : " +
-                                        "${e.message ?: e::class.simpleName}"
-                                )
+                                // v0.2.59 — ERREUR TRANSITOIRE ? UNE relance avant
+                                // d'abandonner (courses stopCamera/openCamera,
+                                // périphérique juste refermé).
+                                if (!stopped && gen == camGen.get() && isTransientCamError(e) && camRetries < 2) {
+                                    camRetries++
+                                    net.nyx.messenger.diag.DiagLog.w(
+                                        "nyx-video",
+                                        "configuration caméra échouée (${"" + e.message?.take(70)}) — relance ${camRetries}/2 dans 400 ms"
+                                    )
+                                    scheduleCameraRetry(encoderSurface)
+                                } else {
+                                    if (!stopped) onVideoLost(
+                                        "caméra fermée pendant la configuration : " +
+                                            "${e.message ?: e::class.simpleName}"
+                                    )
+                                }
                             }
                         }
 
@@ -694,7 +772,17 @@ class CallVideo(
                             // v0.2.57 — session refusée : visio coupée, appel maintenu.
                             cameraOn = false
                             runCatching { s.close() }
-                            if (!stopped) onVideoLost("session caméra refusée")
+                            if (stopped || gen != camGen.get()) return
+                            // v0.2.59 — une session refusée peut être une course
+                            // (surface d'aperçu en cours de remplacement) : une
+                            // RELANCE honnête avant de dégrader.
+                            if (camRetries < 2) {
+                                camRetries++
+                                net.nyx.messenger.diag.DiagLog.w(
+                                    "nyx-video", "session caméra refusée — relance ${camRetries}/2"
+                                )
+                                scheduleCameraRetry(encoderSurface)
+                            } else if (!stopped) onVideoLost("session caméra refusée")
                         }
                     }, handler)
                 } catch (e: Exception) {
@@ -711,6 +799,10 @@ class CallVideo(
                 // v0.2.57 — le système ferme la caméra (appli en arrière-plan,
                 // autre appli caméra) : visio coupée, appel maintenu.
                 runCatching { device.close() }
+                // v0.2.59 — PÉRIMÉ ? une fermeture volontaire (stopCamera/
+                // bascule) déclenche ce callback APRÈS qu'une NOUVELLE
+                // ouverture a pris le relais : ne PAS tuer la nouvelle session.
+                if (gen != camGen.get() || stopped) return
                 camera = null
                 cameraOn = false
                 if (!stopped) onVideoLost("caméra déconnectée par le système")
@@ -719,11 +811,37 @@ class CallVideo(
             override fun onError(device: CameraDevice, error: Int) {
                 // v0.2.57 — caméra en erreur : visio coupée, appel maintenu.
                 runCatching { device.close() }
+                if (gen != camGen.get() || stopped) return
                 camera = null
                 cameraOn = false
                 if (!stopped) onVideoLost("caméra en erreur ($error)")
             }
         }, handler)
+    }
+
+    /** v0.2.59 — erreurs caméra TRANSITOIRES (courses de reconfiguration) :
+     *  une relance à 400 ms est légitime, la dégradation n'est pas encore
+     *  méritée (terrain 28/10 : « unconfigured Input/Output Surface »,
+     *  « CameraDevice was already closed », « Camera in use »). */
+    private fun isTransientCamError(e: Exception): Boolean {
+        val m = e.message ?: e::class.simpleName ?: return false
+        return m.contains("unconfigured", ignoreCase = true) ||
+            m.contains("already closed", ignoreCase = true) ||
+            m.contains("in use", ignoreCase = true) ||
+            m.contains("CameraDevice", ignoreCase = true)
+    }
+
+    /** v0.2.59 — relance différée de l'ouverture caméra (sur le handler caméra,
+     *  après invalidation des ouvertures en vol). */
+    private fun scheduleCameraRetry(surface: Surface) {
+        val h = runCatching { ensureCameraHandler() }.getOrNull() ?: return
+        camGen.incrementAndGet() // invalide les callbacks en vol AVANT la relance
+        h.postDelayed({
+            if (!stopped) {
+                runCatching { stopCamera() }
+                runCatching { openCamera(surface) }
+            }
+        }, 400L)
     }
 
     /** Handler unique du looper caméra (callbacks caméra + rotation d'écran). */
@@ -737,18 +855,50 @@ class CallVideo(
         return requireNotNull(cameraHandler) { "handler caméra indisponible" }
     }
 
-    /** Attache/détache la surface d'APERÇU local (TextureView de l'overlay). */
+    /** Attache/détache la surface d'APERÇU local (TextureView de l'overlay).
+     *  v0.2.59 — RE-CRÉATION DE SESSION DÉBOUNCÉE : le rattachement de l'aperçu
+     *  arrive PRÉCISÉMENT pendant la configuration de la bascule H.264→MJPEG
+     *  (terrain 28/10 : « CaptureRequest contains unconfigured Input/Output
+     *  Surface! » 0,2 s après la bascule) — deux openCamera se coursaient.
+     *  Désormais la reconfiguration est COALESCÉE sur le handler caméra avec
+     *  250 ms de débounce : les attach/détach en rafale ne produisent QU'UNE
+     *  reconfiguration, avec l'état FINAL des surfaces. */
     fun setPreviewSurface(s: Surface?) {
         synchronized(lock) {
             if (preview == s) return
             preview = s
-            if (camera != null && !stopped) {
-                // Re-crée la session avec/sans aperçu.
-                stopCamera()
-                captureSurface()?.let { runCatching { openCamera(it) } }
+            if (!stopped && (camera != null || camDesired)) {
+                val h = runCatching { ensureCameraHandler() }.getOrNull()
+                if (h != null) {
+                    val pending = Runnable {
+                        synchronized(lock) {
+                            // camDesired = une ouverture est live OU en vol : la
+                            // garde de génération rend la reconfiguration SÛRE
+                            // même si elle concurrence une ouverture en cours.
+                            if (!stopped && (camera != null || camDesired)) {
+                                stopCamera()
+                                captureSurface()?.let { runCatching { openCamera(it) } }
+                            }
+                        }
+                    }
+                    previewPending?.let { h.removeCallbacks(it) }
+                    previewPending = pending
+                    h.postDelayed(pending, 250L)
+                } else {
+                    stopCamera()
+                    captureSurface()?.let { runCatching { openCamera(it) } }
+                }
             }
         }
     }
+
+    /** v0.2.59 — reconfiguration d'aperçu en attente (débounce 250 ms). */
+    private var previewPending: Runnable? = null
+
+    /** v0.2.59 — une ouverture caméra est DÉSIRÉE (live ou en vol) : guide le
+     *  débounce d'aperçu — rattacher une surface pendant une ouverture en vol
+     *  est SÛR grâce à la garde de génération. */
+    @Volatile private var camDesired = false
 
     /**
      * Démarre le DÉCODEUR H.264 avec le csd du pair (SPS+PPS concaténés) —
@@ -878,6 +1028,10 @@ class CallVideo(
         synchronized(lock) { encSurface ?: mjpegReader?.surface }
 
     private fun stopCamera() {
+        // v0.2.59 — invalide les ouvertures en vol : leurs callbacks seront
+        // ignorés (garde de génération [camGen]).
+        camGen.incrementAndGet()
+        camDesired = false
         runCatching { session?.stopRepeating() }
         runCatching { session?.close() }
         session = null

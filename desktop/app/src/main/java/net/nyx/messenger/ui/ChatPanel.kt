@@ -135,6 +135,15 @@ fun ChatPanel(
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) runCatching { listState.animateScrollToItem(messages.size - 1) }
+        // v0.3.11 — MARQUAGE « LU » DES NOUVEAUX ENTRANTS PENDANT QUE LA
+        // CONVERSATION EST OUVERTE (miroir Android ChatViewModel) : avant, le
+        // marquage n'arrivait qu'à la RÉ-OUVERTURE de la conversation —
+        // l'expéditeur téléphonait des minutes sans accusé (terrain 28/10 :
+        // message stocké 17:26, accusé « read » parti 17:30 seulement).
+        val unreadIn = messages.count { !it.outgoing && it.readLocal == 0 }
+        if (unreadIn > 0) {
+            runCatching { ServiceLocator.repository.markConversationRead(peer) }
+        }
     }
     LaunchedEffect(peer) {
         ServiceLocator.repository.markConversationRead(peer)
@@ -570,6 +579,12 @@ private fun MediaBubble(
     }
     val file = a.localPath.takeIf { it.isNotBlank() }?.let(::File)
     var revealed by remember(m.fid) { mutableStateOf(false) }
+    // v0.3.11 — octets MÉMOIRE du média révélé (vue limitée) : le fichier est
+    // DÉTRUIT à la révélation — l'affichage survit depuis la mémoire, jusqu'à
+    // la sortie de la conversation (miroir Android v0.2.59 ; terrain 28/10 :
+    // « le média s'affiche et se referme de suite, détruit sans que je
+    // puisse le voir »).
+    var memBytes by remember(m.fid) { mutableStateOf<ByteArray?>(null) }
 
     // Badge de politique de vue (miroir Android — les deux côtés).
     ChatFormat.viewBadge(a.viewPolicy)?.let { badge ->
@@ -579,6 +594,29 @@ private fun MediaBubble(
 
     val limited = !m.outgoing && a.viewPolicy != DesktopStore.VIEW_FOREVER
     when {
+        // v0.3.11 — L'AFFICHAGE EN COURS D'ABORD : un média révélé RESTE à
+        // l'écran (depuis la mémoire) même à 0 vue restante — c'est la sortie
+        // de la conversation qui termine l'affichage, pas le compteur.
+        limited && revealed && memBytes != null && a.mime.startsWith("image/") -> {
+            val bmp = remember(memBytes) {
+                runCatching {
+                    org.jetbrains.skia.Image.makeFromEncoded(memBytes!!).asImageBitmap()
+                }.getOrNull()
+            }
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp,
+                    contentDescription = a.name,
+                    modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            return
+        }
+        limited && revealed && memBytes != null -> {
+            Text("🖼 ${a.name} — affiché, fichier détruit", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return
+        }
         // Vues consommées → carte « média expiré » (miroir Android).
         limited && a.viewsLeft <= 0 -> {
             Text("${a.name} — média expiré (vue(s) consommée(s))", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -592,7 +630,8 @@ private fun MediaBubble(
                     .padding(10.dp)
                     .nyxClickable(onLeft = {
                         revealed = true
-                        ServiceLocator.consumeMediaView(m.fid)
+                        // v0.3.11 — octets chargés AVANT la destruction.
+                        memBytes = ServiceLocator.repository.revealMediaView(m.fid)
                     })
             ) {
                 Text(

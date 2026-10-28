@@ -312,12 +312,34 @@ class ChatViewModel(peerOnion: String) : ViewModel() {
         )
     }
 
+    /* ---------- v0.2.59 — médias à vue limitée : affichage depuis la MÉMOIRE ---------- */
+
+    /** Médias révélés (fid → octets DÉCHIFFRÉS en mémoire) : le fichier étant
+     * DÉTRUIT à la révélation, l'affichage vit depuis ce cache JUSQU'À LA
+     * SORTIE de l'écran — c'est le destinataire qui termine l'affichage
+     * (retour/fermeture), JAMAIS un minuteur (terrain 28/10 17:32 : « le média
+     * s'affiche et se referme de suite, il a été détruit sans que je ne
+     * puisse le voir. je veux pouvoir terminer l'affichage moi-même »). */
+    val revealedMedia = MutableStateFlow<Map<String, ByteArray>>(emptyMap())
+
     /**
-     * v0.2.28 — consommation d'une vue d'un média à affichage limité (récep-
-     * teur) : décrémente le compteur et détruit le fichier à 0 vue restante.
+     * v0.2.59 — RÉVÉLATION d'un média à vue limitée : les octets sont chargés
+     * AVANT la consommation de la vue ; l'affichage démarre depuis la mémoire
+     * et SURVIT à la destruction du fichier. L'écran quitté, le cache meurt
+     * avec le ViewModel : la bulle affiche « média expiré » (vues consommées).
      */
-    fun consumeView(fid: String) {
+    fun revealMedia(fid: String) {
         viewModelScope.launch {
+            val att = db.attachmentDao().get(fid)
+            if (att != null && att.localPath.isNotBlank()) {
+                val ctx = ServiceLocator.appContext()
+                val bytes = runCatching {
+                    net.nyx.messenger.media.MediaVault.readBytes(ctx, att.localPath)
+                }.getOrNull()
+                if (bytes != null) {
+                    revealedMedia.value = revealedMedia.value + (fid to bytes)
+                }
+            }
             runCatching { repo.consumeMediaView(fid) }
                 .onFailure { e -> android.util.Log.w("nyx-media", "vue non consommée : ${e.message}") }
         }
@@ -399,6 +421,10 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     var input by remember { mutableStateOf("") }
     var showAttach by remember { mutableStateOf(false) }
     var viewerPath by remember { mutableStateOf<String?>(null) }
+    // v0.2.59 — fid du média à vue limitée ouvert en visionneuse : les octets
+    // mémoire (révélés) servent l'affichage, le fichier disque étant détruit.
+    var viewerFid by remember { mutableStateOf<String?>(null) }
+    val revealedMedia by vm.revealedMedia.collectAsState()
     val listState = rememberLazyListState()
     val peer = peerOnion.trim().lowercase()
     val ctx = LocalContext.current
@@ -551,7 +577,7 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                     items(messages, key = { it.eventId }) { m ->
                         MessageRow(
                             m, vm, sendProgress,
-                            onOpenImage = { viewerPath = it },
+                            onOpenImage = { path, fid -> viewerPath = path; viewerFid = fid },
                             onDelete = { deleteMsg = m },
                             nowMs = nowTick
                         )
@@ -646,7 +672,7 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
                 // échanges de cette conversation, suppression par appui long.
                 MediaTab(
                     vm = vm,
-                    onOpenImage = { viewerPath = it },
+                    onOpenImage = { path, fid -> viewerPath = path; viewerFid = fid },
                     onDelete = { deleteAtt = it },
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 )
@@ -760,10 +786,13 @@ fun ChatScreen(peerOnion: String, onOpenProfile: (String) -> Unit = {}) {
     }
 
     // v0.2.17 : visionneuse plein écran des images.
+    // v0.2.59 — un média à vue limitée DÉTRUIT s'affiche depuis la MÉMOIRE
+    // (le fichier n'existe plus) ; l'utilisateur ferme LUI-MÊME la visionneuse.
     viewerPath?.let { path ->
         ImageViewerDialog(
             path = path,
-            onDismiss = { viewerPath = null }
+            bytes = viewerFid?.let { revealedMedia[it] },
+            onDismiss = { viewerPath = null; viewerFid = null }
         )
     }
 
@@ -790,7 +819,7 @@ private fun MessageRow(
     m: MessageEntity,
     vm: ChatViewModel,
     sendProgress: Map<String, Pair<Int, Int>>,
-    onOpenImage: (String) -> Unit,
+    onOpenImage: (String, String) -> Unit,
     onDelete: () -> Unit = {},
     nowMs: Long = System.currentTimeMillis(),
 ) {
@@ -898,11 +927,14 @@ private fun MediaBubble(
     m: MessageEntity,
     vm: ChatViewModel,
     sendProgress: Map<String, Pair<Int, Int>>,
-    onOpenImage: (String) -> Unit,
+    onOpenImage: (String, String) -> Unit,
     onDelete: () -> Unit = {},
 ) {
     val att by vm.attachmentFlow(m.fid).collectAsState(initial = null)
     val receivedChunks by vm.chunksFlow(m.fid).collectAsState(initial = 0)
+    // v0.2.59 — octets MÉMOIRE du média révélé (vue limitée) : l'affichage
+    // survit à la destruction du fichier, jusqu'à la sortie de l'écran.
+    val revealedBytes by vm.revealedMedia.collectAsState()
     val a = att
     if (a == null) {
         Text(m.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(4.dp))
@@ -912,9 +944,15 @@ private fun MediaBubble(
     // encore révélé s'affiche verrouillé ; chaque révélation consomme une vue
     // (compteur DB) ; à 0 vues le fichier est DÉTRUIT ([NyxRepository
     // .consumeMediaView]) et la bulle affiche « média expiré ».
+    // v0.2.59 — l'ORDRE des branches est CORRIGÉ : « révélé » (affichage
+    // mémoire en cours) passe AVANT « expiré » — avant, la décrément de
+    // viewsLeft (1→0) à la révélation faisait IMMÉDIATEMENT basculer sur la
+    // carte « média expiré » : le média se refermait de suite, détruit avant
+    // d'être vu (terrain 28/10 17:32).
     var revealed by remember(m.fid) { mutableStateOf(false) }
     val limited = !m.outgoing &&
         a.viewPolicy != net.nyx.messenger.data.db.AttachmentEntity.VIEW_FOREVER
+    val memBytes = revealedBytes[m.fid]
     Column(
         horizontalAlignment = if (m.outgoing) Alignment.End else Alignment.Start,
         modifier = Modifier
@@ -944,6 +982,13 @@ private fun MediaBubble(
                     color = MaterialTheme.colorScheme.error
                 )
             }
+            // v0.2.59 — L'AFFICHAGE EN COURS D'ABORD : un média révélé RESTE à
+            // l'écran (depuis la mémoire) même à 0 vue restante — c'est la
+            // sortie de l'écran qui termine l'affichage, pas le compteur.
+            limited && revealed && memBytes != null && a.mime.startsWith("image/") ->
+                ReadyImageBytes(memBytes) { onOpenImage(a.localPath, m.fid) }
+            limited && revealed && memBytes != null ->
+                ReadyFileCardBytes(memBytes, a.name, a.mime)
             limited && a.viewsLeft <= 0 -> {
                 // v0.2.28 — vues épuisées : le média a été détruit localement.
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -965,7 +1010,7 @@ private fun MediaBubble(
                         .background(MaterialTheme.colorScheme.surface)
                         .clickable {
                             revealed = true
-                            vm.consumeView(m.fid)
+                            vm.revealMedia(m.fid)
                         }
                         .padding(10.dp)
                 ) {
@@ -1023,7 +1068,7 @@ private fun MediaBubble(
 @Composable
 private fun MediaTab(
     vm: ChatViewModel,
-    onOpenImage: (String) -> Unit,
+    onOpenImage: (String, String) -> Unit,
     onDelete: (AttachmentEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1050,7 +1095,7 @@ private fun MediaTab(
 @Composable
 private fun MediaListItem(
     a: AttachmentEntity,
-    onOpenImage: (String) -> Unit,
+    onOpenImage: (String, String) -> Unit,
     onDelete: (AttachmentEntity) -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -1063,7 +1108,7 @@ private fun MediaListItem(
                 onClick = {
                     if (a.state == NyxRepository.AT_READY) {
                         if (a.mime.startsWith("image/")) {
-                            onOpenImage(a.localPath)
+                            onOpenImage(a.localPath, a.fid)
                         } else {
                             scope.launch {
                                 val saved = withContext(Dispatchers.IO) {
@@ -1157,9 +1202,62 @@ private fun MediaThumbnail(path: String) {
     }
 }
 
+/** v0.2.59 — image affichée depuis la MÉMOIRE (média à vue limitée révélé :
+ *  le fichier disque est DÉTRUIT — l'affichage survit jusqu'à la sortie). */
+@Composable
+private fun ReadyImageBytes(bytes: ByteArray, onOpen: () -> Unit) {
+    val bitmap = remember(bytes) {
+        runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0) return@runCatching null
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1024) sample *= 2
+            BitmapFactory.decodeByteArray(
+                bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }
+            )
+        }.getOrNull()
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio((bitmap.width.toFloat() / bitmap.height).coerceIn(0.6f, 1.8f))
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onOpen() }
+        )
+    } else {
+        Text("média", style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** v0.2.59 — carte fichier d'un média révélé DÉTRUIT (affichage honnête :
+ *  les octets ne sont plus sur le disque — l'utilisateur garde la vue). */
+@Composable
+private fun ReadyFileCardBytes(bytes: ByteArray, name: String, mime: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (mime.startsWith("video/")) Icons.Filled.PlayArrow else Icons.Filled.InsertDriveFile,
+            null, tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(name, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "${ChunkCodec.humanSize(bytes.size.toLong())} — affiché, fichier détruit",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 /** Image prête : aperçu décodé (échantillonné ~1024 px) → visionneuse. */
 @Composable
-private fun ReadyImage(path: String, onOpen: (String) -> Unit) {
+private fun ReadyImage(path: String, onOpen: (String, String) -> Unit) {
     val ctx = LocalContext.current
     val bitmap = remember(path) {
         runCatching {
@@ -1187,7 +1285,7 @@ private fun ReadyImage(path: String, onOpen: (String) -> Unit) {
                     (bitmap.width.toFloat() / bitmap.height).coerceIn(0.6f, 1.8f)
                 )
                 .clip(RoundedCornerShape(8.dp))
-                .clickable { onOpen(path) }
+                .clickable { onOpen(path, "") }
         )
     } else {
         Text(path.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium)
@@ -1306,7 +1404,7 @@ private fun ReadyFileCard(path: String, name: String, mime: String, size: Long, 
 
 /** Visionneuse plein écran (image locale décodée en taille écran). */
 @Composable
-private fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
+private fun ImageViewerDialog(path: String, bytes: ByteArray? = null, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -1314,14 +1412,21 @@ private fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.scrim)
         ) {
-            val bitmap = remember(path) {
+            // v0.2.59 — octets MÉMOIRE d'abord (média à vue limitée révélé : le
+            // fichier disque est DÉTRUIT — l'affichage continue depuis la
+            // mémoire jusqu'à la fermeture MANUELLE par le destinataire).
+            val bitmap = remember(path, bytes) {
                 runCatching {
-                    // v0.2.18 : déchiffrement mémoire (fichier chiffré au repos).
-                    val bytes = net.nyx.messenger.media.MediaVault.readBytes(ctx, path)
                     val decoded = if (bytes != null) {
                         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     } else {
-                        BitmapFactory.decodeFile(path) // rélictuel clair v0.2.17
+                        // v0.2.18 : déchiffrement mémoire (fichier chiffré au repos).
+                        val fromVault = net.nyx.messenger.media.MediaVault.readBytes(ctx, path)
+                        if (fromVault != null) {
+                            BitmapFactory.decodeByteArray(fromVault, 0, fromVault.size)
+                        } else {
+                            BitmapFactory.decodeFile(path) // rélictuel clair v0.2.17
+                        }
                     }
                     decoded ?: return@runCatching null
                 }.getOrNull()

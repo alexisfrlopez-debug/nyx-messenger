@@ -68,6 +68,12 @@ fun main(args: Array<String>) {
         // d'acceptation et a relancé l'appli.
         net.nyx.messenger.ui.IncomingCallWindow()
 
+        // v0.3.11 — CARTE D'APPEL FLOTTANTE (demande terrain 28/10 : « un
+        // bouton pour raccrocher toujours au premier plan jusqu'à la fin de
+        // l'appel ») : au-dessus de TOUT pendant l'appel (sortant + actif) —
+        // la sonnerie entrante garde sa carte dédiée IncomingCallWindow.
+        net.nyx.messenger.ui.CallFloatWindow()
+
         Window(
             title = "Nyx — messagerie de la nuit",
             state = rememberWindowState(width = 1220.dp, height = 840.dp),
@@ -81,7 +87,7 @@ fun main(args: Array<String>) {
                         ServiceLocator.shutdownBackend()
                         exitApplication()
                     }
-                    else -> exitDialogOpen = true
+                    else -> exitDialogOpenFlow.value = true
                 }
             },
         ) {
@@ -100,8 +106,11 @@ fun main(args: Array<String>) {
     }
 }
 
-/** État du dialogue de sortie (partagé main()/App()). */
-@Volatile private var exitDialogOpen = false
+/** État du dialogue de sortie (partagé main()/App()) — v0.3.11 : FLUX
+ *  OBSERVABLE (avant : simple @Volatile que Compose n'observait PAS — « le
+ *  bouton annuler ne fait rien », terrain 28/10 : le dialogue ne se fermait
+ *  qu'à la prochaine recomposition fortuite, ≤ 15 s plus tard). */
+private val exitDialogOpenFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
 
 private fun hideToTray() {
     // Réduit au plateau : Tor reste actif (miroir « Réduire » Android —
@@ -141,6 +150,11 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
     var gateDone by remember { mutableStateOf(DesktopVault.anySet()) }
 
     // v0.3.4 — plateau système + notifications (icône → remonte la fenêtre).
+    // v0.3.11 — SUIIVI DU FOCUS : la suppression de notification (conversation
+    // ouverte) ne s'applique QUE si la fenêtre est VISIBLE ET ACTIVE — avant,
+    // ouvrir une conversation tuait les notifications du pair POUR TOUJOURS,
+    // même fenêtre minimisée ou en arrière-plan (terrain 28/10 : « pas de
+    // notification coté pc » alors que le message était bien stocké).
     LaunchedEffect(window) {
         appWindow = window
         DesktopNotifier.init {
@@ -149,6 +163,22 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
                 extendedState = extendedState or Frame.NORMAL
                 toFront()
             }
+        }
+        if (window is java.awt.Window) {
+            val w = window as java.awt.Window
+            w.addWindowFocusListener(object : java.awt.event.WindowFocusListener {
+                override fun windowGainedFocus(e: java.awt.event.WindowEvent) {
+                    DesktopNotifier.setWindowActive(true)
+                }
+                override fun windowLostFocus(e: java.awt.event.WindowEvent) {
+                    DesktopNotifier.setWindowActive(false)
+                }
+            })
+            w.addWindowStateListener { e ->
+                val iconified = e.newState and java.awt.Frame.ICONIFIED != 0
+                DesktopNotifier.setWindowActive(!iconified && w.isFocused)
+            }
+            DesktopNotifier.setWindowActive(w.isFocused)
         }
     }
 
@@ -162,6 +192,9 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
     // par l'overlay ci-dessous. v0.3.9 : la CARTE DÉDIÉE
     // [IncomingCallWindow] (racine application{}) montre les icônes
     // Décrocher/Refuser pendant la sonnerie.
+    // v0.3.11 — au DÉCROCHÉ aussi (ACTIVE) : la fenêtre principale revient AU
+    // PREMIER PLAN une fois (terrain 28/10 : décroché depuis la carte dédiée,
+    // fenêtre principale restée enterrée — l'appel semblait absent).
     val callUi by net.nyx.messenger.p2p.DesktopCallManager.ui.collectAsState()
     LaunchedEffect(callUi.phase) {
         val f = window as? Frame ?: return@LaunchedEffect
@@ -169,6 +202,16 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
             f.isAlwaysOnTop = true
             f.isVisible = true
             // dé-minimisation (préserve l'état maximisé) : retire le bit ICONIFIED
+            f.extendedState = f.extendedState and java.awt.Frame.ICONIFIED.inv()
+            f.toFront()
+        } else if (callUi.phase == net.nyx.messenger.p2p.DesktopCallManager.Phase.ACTIVE) {
+            // v0.3.11 — au DÉCROCHÉ : ramenée AU PREMIER PLAN UNE FOIS (terrain
+            // 28/10 : décroché depuis la carte dédiée, fenêtre principale
+            // restée enterrée — l'appel semblait absent). Elle ne RESTE pas
+            // always-on-top : la CARTE FLOTTANTE [CallFloatWindow] assure le
+            // « raccrocher toujours au premier plan jusqu'à la fin de l'appel »
+            // sans empêcher d'utiliser les autres applications.
+            f.isVisible = true
             f.extendedState = f.extendedState and java.awt.Frame.ICONIFIED.inv()
             f.toFront()
         } else if (f.isAlwaysOnTop) {
@@ -313,9 +356,14 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
     }
 
     // ---------- dialogue de sortie (miroir ExitDialog Android) ----------
+    // v0.3.11 — état OBSERVÉ : « Annuler » referme le dialogue IMMÉDIATEMENT
+    // (terrain 28/10 : « le bouton annuler ne fait rien » — l'ancien @Volatile
+    // n'était pas observé par Compose, le dialogue ne partait qu'au tick
+    // de poll suivant, ≤ 15 s plus tard).
+    val exitDialogOpen by exitDialogOpenFlow.collectAsState()
     if (exitDialogOpen) {
         AlertDialog(
-            onDismissRequest = { exitDialogOpen = false },
+            onDismissRequest = { exitDialogOpenFlow.value = false },
             title = { Text("Fermer Nyx ?") },
             text = {
                 Text(
@@ -325,17 +373,17 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    exitDialogOpen = false
+                    exitDialogOpenFlow.value = false
                     onHide()
                 }) { Text("Réduire") }
             },
             dismissButton = {
                 Row {
                     Button(onClick = {
-                        exitDialogOpen = false
+                        exitDialogOpenFlow.value = false
                         onQuit()
                     }) { Text("Quitter") }
-                    TextButton(onClick = { exitDialogOpen = false }) { Text("Annuler") }
+                    TextButton(onClick = { exitDialogOpenFlow.value = false }) { Text("Annuler") }
                 }
             }
         )

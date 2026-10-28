@@ -194,12 +194,46 @@ class DesktopCallVideo(
         while (System.currentTimeMillis() < deadline && camW == 0 && !stopped) {
             Thread.sleep(80)
         }
+        // v0.3.11 — CHIEN DE GARDE DES TRAMES : un ffmpeg VIVANT mais MUET
+        // (webcam ouverte, confidentialité Windows bloquant le flux, pilote
+        // capricieux) laissait l'émission vide SANS bascule — le pair ne
+        // voyait aucune image et le terrain n'avait aucune trace. Après 8 s
+        // sans trame : journal honnête + repli écran.
+        if (camW == 0 && !stopped) {
+            val silent = Thread({
+                try {
+                    Thread.sleep(8_000)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+                if (!stopped && source == Source.CAMERA && ffmpeg === p && camFrame == null) {
+                    val alive = runCatching { p.isAlive }.getOrDefault(false)
+                    DesktopLog.w(
+                        "nyx-video",
+                        "caméra muette (aucune trame en 8 s, ffmpeg ${if (alive) "vivant" else "mort"}) — " +
+                            "vérifier l'accès caméra Windows ou basculer 🖥️ — repli écran"
+                    )
+                    if (alive) runCatching { switchSource() }
+                }
+            }, "nyx-video-camsilent")
+            silent.isDaemon = true
+            silent.start()
+        }
         val w = if (camW > 0) camW else CAP_W
         val h = if (camH > 0) camH else CAP_W * 3 / 4
         return VideoSendInfo(w, h, Source.CAMERA)
     }
 
-    /** Énumère les webcams (premier périphérique vidéo dshow). */
+    /** Énumère les webcams (premier périphérique vidéo dshow).
+     *  v0.3.11 — ANALYSE ROBUSTE + JOURNAL BRUT : le format de sortie de
+     *  ffmpeg -list_devices varie selon les builds (suffixe « (video) »,
+     *  en-têtes de section parfois absents) et le terrain 28/10 n'a montré
+     *  qu'un sec « aucune webcam dshow détectée — repli écran » SANS trace
+     *  pour trancher. Désormais : (1) analyse par section historique,
+     *  (2) repli TOUTE ligne « [dshow…] \"nom\" … (video) » sans exiger
+     *  l'en-tête, (3) l'ÉCHEC journalise les 500 premiers caractères du
+     *  stderr de ffmpeg — le prochain export dit EXACTEMENT ce que Windows
+     *  expose (périphérique absent, ou confidentialité caméra bloquée). */
     private fun discoverCamera(exe: File): String? {
         return try {
             val p = ProcessBuilder(
@@ -209,20 +243,36 @@ class DesktopCallVideo(
             val err = p.errorStream.readBytes().toString(Charsets.UTF_8)
             p.waitFor()
             var inVideo = false
+            var sectionMatch: String? = null
+            var suffixMatch: String? = null
             for (line in err.lineSequence()) {
                 if (line.contains("DirectShow video devices")) { inVideo = true; continue }
-                if (line.contains("DirectShow audio devices")) break
-                if (!inVideo) continue
+                if (line.contains("DirectShow audio devices")) inVideo = false
                 if (line.contains("Alternative name")) continue
                 val m = CAM_NAME_REGEX.find(line) ?: continue
                 val name = m.groupValues[1].trim()
-                if (name.isNotEmpty()) {
-                    DesktopLog.i("nyx-video", "webcam détectée : « $name » (dshow)")
-                    return name
-                }
+                if (name.isEmpty()) continue
+                if (inVideo && sectionMatch == null) sectionMatch = name
+                // Repli : la ligne porte elle-même « (video) » (ffmpeg ≥ 6).
+                if (line.contains("(video)") && suffixMatch == null) suffixMatch = name
             }
-            DesktopLog.w("nyx-video", "aucune webcam dshow détectée — repli écran")
-            null
+            val found = sectionMatch ?: suffixMatch
+            if (found != null) {
+                DesktopLog.i("nyx-video", "webcam détectée : « $found » (dshow)")
+                found
+            } else {
+                DesktopLog.w(
+                    "nyx-video",
+                    "aucune webcam dshow détectée — repli écran. Sortie brute ffmpeg : " +
+                        err.replace('\n', ' ').take(500)
+                )
+                DesktopLog.w(
+                    "nyx-video",
+                    "si la caméra existe : Paramètres Windows > Confidentialité et sécurité > " +
+                        "Caméra > « Autoriser les applications de bureau à accéder à la caméra » = ACTIVÉ"
+                )
+                null
+            }
         } catch (e: Exception) {
             DesktopLog.w("nyx-video", "énumération webcam impossible : ${e.message?.take(60)}")
             null

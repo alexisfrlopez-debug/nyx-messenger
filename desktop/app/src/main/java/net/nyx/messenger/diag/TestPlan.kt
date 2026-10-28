@@ -48,6 +48,29 @@ object TestPlan {
      * caméra du PC par défaut + bascule écran, notifications de messages à la
      * racine, sonnerie immédiate au HELLO + retour d'appel.
      */
+    val ITEMS_V0_3_11 = listOf(
+        Item(
+            "raccrocher-premier-plan",
+            "LA CARTE D'APPEL + LE BOUTON RACCROCHER RESTENT AU PREMIER PLAN — ITEM DÉCISIF n°1 (NOUVEAU v0.3.11, demande opérateur verbatim session 81 : « lors d'un appel qui abouti sur pc, je veux la boite de décrochage de l'appel toujours au premier plan, et un bouton pour raccrocher toujours au premier plan jusqu'à la fin de l'appel ») : appel abouti (entrant décroché ou sortant) → une CARTE COMPACTE en bas à droite « Nyx — appel en cours » (alias, durée vivante, 🎤 mute, 📹/🖥️ bascule visio) reste TOUJOURS AU-DESSUS de toutes les fenêtres pendant TOUT l'appel ; passez la messagerie en arrière-plan, utilisez d'autres applications → la carte RESTE visible et le bouton RACCROCHER (rouge) reste CLIQUABLE en toutes circonstances jusqu'à la fin de l'appel ; Alt+F4 sur la carte = raccrocher (jamais d'appel fantôme) ; au décroché d'un appel entrant, la fenêtre principale revient AUSSI au premier plan une fois"
+        ),
+        Item(
+            "visio-bidirectionnelle",
+            "LA VISIO TÉLÉPHONE↔PC PRODUIT UNE IMAGE DES DEUX CÔTÉS — ITEM DÉCISIF n°2 (NOUVEAU v0.3.11, retour terrain 28/10 17:24-17:25 : « visio tel => pc : je n'ai pas eu de video, idem dans l'autre sens ») : appel visio depuis OU vers le téléphone (v0.2.59) → au décroché, VOUS voyez la caméra du téléphone (portrait/paysage droit) ET le téléphone voit VOTRE webcam, PLUS D'UNE MINUTE sans bande noire ni effondrement ; webcam muette (confidentialité Windows bloquante) → journal honnête « caméra muette (aucune trame en 8 s…) — repli écran » et BASCULE AUTOMATIQUE vers l'écran ; énumération webcam robuste (journal « webcam détectée : « … » (dshow) » ou la sortie brute ffmpeg si absente)"
+        ),
+        Item(
+            "messages-notifies-accuses",
+            "MESSAGES TÉLÉPHONE→PC : BULLE + ACCUSÉS — ITEM DÉCISIF n°3 (NOUVEAU v0.3.11, retour terrain 28/10 17:26-17:30 : « envoi de message tel => pc : pas de notification coté pc, pas d'accusé de réception/lecture coté tel » — deux causes : la fenêtre minimisée tuait la bulle pour une conversation OUVERTE, et le téléphone réparé v0.2.59 dépote enfin ses événements directs) : envoyer un message DEPUIS le téléphone (v0.2.59) → l'info-bulle plateau apparaît DÈS la réception (même Nyx réduit ou derrière — la suppression « conversation ouverte » ne s'applique QUE fenêtre VISIBLE ET ACTIVE) ; l'accusé ✓ part en fin de poll propre (journal « accusés en attente : … ») et le ✓✓ dès l'ouverture de la conversation ; l'expéditeur téléphone voit les deux revenir sur sa bulle"
+        ),
+        Item(
+            "annuler-referme",
+            "LE BOUTON ANNULER DU DIALOGUE DE FERMETURE REFERME IMMÉDIATEMENT (NOUVEAU v0.3.11, retour terrain 28/10 : « fermeture de l'appli pc : le bouton annuler ne fait rien » — l'état @Volatile n'était pas observé par Compose, le dialogue ne partait qu'au tick de poll ≤ 15 s plus tard) : croix de la fenêtre → dialogue « Fermer Nyx ? » → « Annuler » → le dialogue se referme À L'INSTANT (fenêtre intacte, rien ne se ferme) ; « Réduire » → plateau ; « Quitter » → sortie propre"
+        ),
+        Item(
+            "media-vue-manuelle",
+            "MÉDIA À VUE LIMITÉE : AFFICHAGE JUSQU'À FERMETURE MANUELLE (NOUVEAU v0.3.11 miroir téléphone v0.2.59, retour terrain 28/10 17:32 : « le média s'affiche et se referme de suite, il a été détruit sans que je ne puisse le voir. je veux pouvoir terminer l'affichage moi-même ») : envoyer un média à vue limitée AU téléphone (v0.2.59) → le destinataire l'ouvre → il RESTE affiché TANT QU'IL VEUT (fermeture manuelle) ; côté PC : ouvrir un média à vue limitée REÇU → l'image reste affichée dans la conversation (octets mémoire, fichier détruit à la révélation) jusqu'à la sortie de la conversation — jamais de fermeture automatique"
+        ),
+    )
+
     val ITEMS_V0_3_10 = listOf(
         Item(
             "camera-par-defaut",
@@ -234,7 +257,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

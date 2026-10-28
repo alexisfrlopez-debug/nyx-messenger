@@ -235,6 +235,18 @@ fun CallOverlay() {
                     color = MaterialTheme.colorScheme.tertiary
                 )
             }
+            // v0.2.59 — émission locale coupée (caméra perdue) mais réception
+            // maintenue : dit LE pourquoi de l'aperçu noir (terrain 28/10 :
+            // « je n'ai pas eu de video » — la vue distante reste, la locale
+            // seule est morte).
+            if (ui.phase == CallManager.Phase.ACTIVE && ui.videoEnabled && ui.videoSendLost) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Votre caméra est coupée — vous recevez toujours la vidéo",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary
+                )
+            }
         }
 
         Row(
