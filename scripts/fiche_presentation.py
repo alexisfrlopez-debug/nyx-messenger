@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.55 et client Windows v0.3.7, au "
+         "(messagerie Android v0.2.56 et client Windows v0.3.8, au "
          "28 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,12 +378,12 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.55 · Client Windows v0.3.7 · "
+              ["Versions livrées", "Messagerie Android v0.2.56 · Client Windows v0.3.8 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(28 octobre 2026)"],
           ],
           [0.28, 0.72],
-          caption="Tableau 1 — Fiche d'identité du projet Nyx au 27 octobre 2026.")
+          caption="Tableau 1 — Fiche d'identité du projet Nyx au 28 octobre 2026.")
 
     # ================= 2. Comment ça marche =================
     p2 = Paragraph(
@@ -616,7 +616,14 @@ def build_story():
                  "échoue ; v0.2.47 : média direct réparé (cause racine IPv6 ::1) ; "
                  "v0.2.48 : décrochage débloqué côté applicatif (verrou de "
                  "contact aligné sur la sonnerie, 1er essai 45 s, permission "
-                 "micro demandée, §3.4)", "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48"],
+                 "micro demandée, §3.4) ; v0.2.56/v0.3.8 : DÉCROCHER/REFUSER "
+                 "ÉCRAN VERROUILLÉ (activité d'appel affichée SUR le keyguard par "
+                 "intent plein écran de la notification + boutons "
+                 "Décrocher/Refuser fonctionnant verrouillé + sonnerie bureau "
+                 "audible), micro ADPCM réparé (fin de l'ANR « Error -38 »), "
+                 "visio qui tient au décroché (ACCEPT toujours premier) et "
+                 "latence audio réduite (tampons minimaux + garde anti-arriéré)",
+               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56"],
               ["Plateformes", "CLIENT DESKTOP WINDOWS (ADR-019, Compose Desktop) : "
                  "même noyau Kotlin que l'Android, partagé 1:1 — messagerie "
                  "complète E2E (texte, fichiers 64 Mo, accusés, alias, "
@@ -641,7 +648,19 @@ def build_story():
                  "visionneuse, médias à affichage limité, suppression pour "
                  "moi/pour tous, mots de passe normal/panique/destruction, "
                  "session leurre, plateau système + notifications, éphémères, "
-                 "export/import des conversations, plan de tests) ; v0.3.7 "
+                 "export/import des conversations, plan de tests) ; v0.3.8 "
+                 "(VERSION TEST) : SONNERIE bureau audible enfin (bi-ton "
+                 "440+480 Hz généré en mémoire, stop déterministe < 150 ms — le "
+                 "bureau était MUET : un appel visio entrant de 54 s n'avait "
+                 "jamais été remarqué) + fenêtre ramenée au premier plan "
+                 "toujours-au-dessus pendant la sonnerie + décrochage app "
+                 "verrouillée (overlay d'appel au-dessus du verrou de l'app) + "
+                 "visio qui tient au décroché (cause racine : une trame de "
+                 "rotation expédiée AVANT le F_CALL_ACCEPT était lue comme « "
+                 "pas de réponse » → BYE silencieux à l'instant du décroché — "
+                 "ACCEPT désormais TOUJOURS premier + boucle qui route les "
+                 "trames précoces) + latence audio réduite (tampon 128 ms + "
+                 "garde anti-arriéré miroir) ; v0.3.7 "
                  "(VERSION TEST) : VISIO PC↔téléphone enfin interopérable "
                  "(codec vidéo logiciel commun MJPEG négocié par HELLO/ACCEPT "
                  "« vc » — le PC partage son ÉCRAN et affiche la caméra du "
@@ -660,7 +679,7 @@ def build_story():
                  "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
                  "au premier lancement, plus d'exception brute en rouge) ; "
                  "appels audio/visio = phase 2 documentée (visio LIVRÉE v0.3.7)",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7"],
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -691,7 +710,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.55 / v0.8.12 · client Windows v0.3.7).",
+                  "(version v0.2.56 / v0.8.12 · client Windows v0.3.8).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -831,11 +850,13 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.7, ADR-019, parité Android complète + appels audio ET "
-               "VISIO interop — MJPEG, VALIDÉ TERRAIN — "
+               "(v0.3.8, ADR-019, parité Android complète + appels audio ET "
+               "VISIO interop — MJPEG — + DÉCROCHAGE ÉCRAN VERROUILLÉ + "
+               "SONNERIE bureau — "
                "messagerie confirmée opérationnelle dans les deux sens par les "
                "journaux v0.3.4) ; appels AUDIO et VISIO livrés avec le "
-               "téléphone (v0.3.7 : MJPEG) ; restent un client iOS et des builds "
+               "téléphone (v0.3.7 : MJPEG, v0.2.56 : décrochage verrouillé) ; "
+               "restent un client iOS et des builds "
                "officielles macOS/Linux (le jar livré est déjà multiplateforme)."],
               ["Un seul appareil par identité", "Pas de synchronisation multi-appareils ; "
                "le transfert passe par la sauvegarde chiffrée et la clé nyx1."],
@@ -879,8 +900,24 @@ def build_story():
                "en orientation capteur, couchée à 90° et figée (la "
                "rotation devient une métadonnée de présentation : les "
                "vues tournent par matrice, une trame de 4 octets suit "
-               "chaque rotation de l'écran sans coupure) — la validation "
-               "de ce dernier lot reste attendue."],
+               "chaque rotation de l'écran sans coupure) ; le retour terrain "
+               "du 28/10 matinal (5ᵉ export bureau + 2ᵉ export téléphone) "
+               "révèle TROIS défauts résiduels — corrigés par la v0.2.56 + le "
+               "bureau v0.3.8 : (a) l'appelé expédiait sa trame de rotation "
+               "AVANT le F_CALL_ACCEPT et l'appelant lisait UNE SEULE trame → "
+               "BYE silencieux à l'instant du décroché (l'ACCEPT est désormais "
+               "TOUJOURS premier et la boucle de lecture route les trames "
+               "précoces) ; (b) le chemin micro ADPCM n'appelait jamais "
+               "startRecording() → 16 431 erreurs « Error -38 » en 147 ms → "
+               "CPU saturé + ANR + process tué (corrigé + garde "
+               "anti-tourbillon) ; (c) les tampons de lecture accumulation "
+               "le retard (512 ms Android, 256 ms bureau — réduits à ~128 ms "
+               "+ garde anti-arriéré : un bloc en avance de plus de 150 ms sur "
+               "l'horloge réelle est sauté, on rejoint le direct) ; la "
+               "DÉCROCHABILITÉ ÉCRAN VERROUILLÉ est livrée par la même "
+               "occasion (demande opérateur : activité d'appel sur le "
+               "keyguard + boutons sur la notification + sonnerie bureau) — "
+               "la validation de ce dernier lot reste attendue."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -894,7 +931,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.48) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.56) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -911,7 +948,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "27 octobre 2026 (messagerie v0.2.55 · client Windows v0.3.7). "
+                 "28 octobre 2026 (messagerie v0.2.56 · client Windows v0.3.8). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -934,18 +971,22 @@ def build_story():
                "TERRAIN 25/10) et du lot v0.2.53 (permissions au premier "
                "démarrage, orientation vidéo suivie) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.55 puis phase 2",
+               "v0.2.44-v0.2.56 puis phase 2",
                "Audio et visio confirmés terrain ; v0.2.54/v0.3.6 : appels audio "
                "téléphone↔PC par codec ADPCM négocié ; v0.2.55/v0.3.7 : VISIO "
-               "PC↔téléphone par codec MJPEG"],
-              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.7, ADR-019 : "
+               "PC↔téléphone par codec MJPEG ; v0.2.56/v0.3.8 : visio qui TIENT "
+               "au décroché + micro ADPCM réparé (ANR) + latence réduite + "
+               "décrochage écran verrouillé (téléphone ET app)"],
+              ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.8, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
                "portable, validé terrain v0.3.4 puis rendezvous signé corrigé "
                "en v0.3.5, accusés de réception réparés à la racine et appels "
-               "audio interop téléphone en v0.3.6, VISIO MJPEG en v0.3.7) ; "
+               "audio interop téléphone en v0.3.6, VISIO MJPEG en v0.3.7, "
+               "sonnerie + décrochage app verrouillée + visio qui tient au "
+               "décroché en v0.3.8) ; "
                "restent les builds macOS/Linux puis un client iOS",
-               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.7)"],
+               "Windows livré ; macOS/Linux à l'étude", "Livré (Windows v0.3.8)"],
               ["Un seul appareil", "Synchronisation multi-appareils sécurisée par "
                "dérivation de clés", "Phase 2 (à l'étude)", "Pré-étude"],
               ["Perte de clé = perte de compte", "Garde partagée (Shamir 2-sur-3) "
@@ -1086,6 +1127,32 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["22ᵉ édition", "28 octobre 2026", "Messagerie Android v0.2.56 · "
+              "Client Windows v0.3.8 (VERSION TEST) · Console v0.8.12 · "
+              "Serveur v0.2.38",
+              "Décrochage verrouillé + appels réparés : le 5ᵉ export bureau + "
+              "le 2ᵉ export téléphone PROUVENT trois causes racines — "
+              "(a) l'appelé expédiait sa trame de rotation AVANT son "
+              "F_CALL_ACCEPT, lu comme « pas de réponse » → BYE silencieux à "
+              "l'instant du décroché (l'ACCEPT est désormais TOUJOURS "
+              "premier + boucle qui route les trames précoces, miroir deux "
+              "côtés) ; (b) le chemin micro ADPCM n'appelait jamais "
+              "startRecording() → 16 431 erreurs « Error -38 » en 147 ms → "
+              "ANR + process tué (corrigé + garde anti-tourbillon) ; "
+              "(c) tampons de lecture accumulateurs de retard (512 ms "
+              "Android / 256 ms bureau → ~128 ms + garde anti-arriéré : "
+              "un bloc en avance de 150 ms est sauté pour rejoindre le "
+              "direct). Et la demande opérateur « décrocher ou rejeter un "
+              "appel quand le téléphone est verrouillé sans devoir tout "
+              "déverrouiller » est livrée : activité d'appel SUR le keyguard "
+              "(intent plein écran), boutons Décrocher/Refuser SUR la "
+              "notification (fonctionnent verrouillé), overlay d'appel "
+              "au-dessus du verrou de l'app, SONNERIE bureau audible "
+              "(DesktopRinger — le bureau était muet : un appel entrant de "
+              "54 s n'avait jamais été remarqué) + fenêtre toujours-"
+              "au-dessus pendant la sonnerie. Restriction OS documentée "
+              "honnêtement : l'écran de verrouillage Windows ne peut pas "
+              "afficher d'UI tierce — la sonnerie est le signal."],
               ["21ᵉ édition", "28 octobre 2026", "Messagerie Android v0.2.55 · "
               "Client Windows v0.3.7 (VERSION TEST) · Console v0.8.12 · "
               "Serveur v0.2.38",
@@ -1433,7 +1500,7 @@ html, body {
     Tor — messages, appels et visio compris — et les serveurs, eux-mêmes
     anonymes, se répliquent pour que rien ne se perde.</div>
   <div class="org">The Nyx Project Contributors</div>
-  <div class="meta">Octobre 2026 · v0.2.55 / Windows v0.3.7 / v0.8.12 · AGPL-3.0</div>
+  <div class="meta">Octobre 2026 · v0.2.56 / Windows v0.3.8 / v0.8.12 · AGPL-3.0</div>
 </div>
 </body>
 </html>
