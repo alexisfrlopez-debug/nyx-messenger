@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.56 et client Windows v0.3.8, au "
+         "(messagerie Android v0.2.58 et client Windows v0.3.10, au "
          "28 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,7 +378,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.56 · Client Windows v0.3.8 · "
+              ["Versions livrées", "Messagerie Android v0.2.58 · Client Windows v0.3.10 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(28 octobre 2026)"],
           ],
@@ -622,8 +622,11 @@ def build_story():
                  "Décrocher/Refuser fonctionnant verrouillé + sonnerie bureau "
                  "audible), micro ADPCM réparé (fin de l'ANR « Error -38 »), "
                  "visio qui tient au décroché (ACCEPT toujours premier) et "
-                 "latence audio réduite (tampons minimaux + garde anti-arriéré)",
-               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56"],
+                 "latence audio réduite (tampons minimaux + garde anti-arriéré) ; "
+                 "v0.2.58/v0.3.10 : RETOUR D'APPEL audible chez l'appelant + "
+                 "visio pré-tournée (portrait ↔ paysage — la résolution suit "
+                 "l'orientation) + sonnerie immédiate + caméra du PC par défaut",
+               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56 · v0.2.58"],
               ["Plateformes", "CLIENT DESKTOP WINDOWS (ADR-019, Compose Desktop) : "
                  "même noyau Kotlin que l'Android, partagé 1:1 — messagerie "
                  "complète E2E (texte, fichiers 64 Mo, accusés, alias, "
@@ -648,8 +651,11 @@ def build_story():
                  "visionneuse, médias à affichage limité, suppression pour "
                  "moi/pour tous, mots de passe normal/panique/destruction, "
                  "session leurre, plateau système + notifications, éphémères, "
-                 "export/import des conversations, plan de tests) ; v0.3.8 "
-                 "(VERSION TEST) : SONNERIE bureau audible enfin (bi-ton "
+                 "export/import des conversations, plan de tests) ; v0.3.10 "
+                 "(VERSION TEST) : CAMÉRA DU PC PAR DÉFAUT en visio (ffmpeg embarqué, "
+                 "bascule 📹/🖥️ à chaud), NOTIFICATIONS de messages une seule fois, "
+                 "SONNERIE d'appel entrant IMMÉDIATE dès la connexion directe, "
+                 "RETOUR D'APPEL chez l'appelant ; v0.3.8 : SONNERIE bureau audible enfin (bi-ton "
                  "440+480 Hz généré en mémoire, stop déterministe < 150 ms — le "
                  "bureau était MUET : un appel visio entrant de 54 s n'avait "
                  "jamais été remarqué) + fenêtre ramenée au premier plan "
@@ -679,7 +685,7 @@ def build_story():
                  "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
                  "au premier lancement, plus d'exception brute en rouge) ; "
                  "appels audio/visio = phase 2 documentée (visio LIVRÉE v0.3.7)",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8"],
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8 · v0.3.9 · v0.3.10"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -710,7 +716,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.56 / v0.8.12 · client Windows v0.3.8).",
+                  "(version v0.2.58 / v0.8.12 · client Windows v0.3.10).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -850,12 +856,13 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.8, ADR-019, parité Android complète + appels audio ET "
-               "VISIO interop — MJPEG — + DÉCROCHAGE ÉCRAN VERROUILLÉ + "
-               "SONNERIE bureau — "
+               "(v0.3.10, ADR-019, parité Android complète + appels audio ET "
+               "VISIO interop — MJPEG, caméra du PC par défaut, bascule écran — + "
+               "DÉCROCHAGE ÉCRAN VERROUILLÉ + SONNERIE bureau + RETOUR D'APPEL — "
                "messagerie confirmée opérationnelle dans les deux sens par les "
                "journaux v0.3.4) ; appels AUDIO et VISIO livrés avec le "
-               "téléphone (v0.3.7 : MJPEG, v0.2.56 : décrochage verrouillé) ; "
+               "téléphone (v0.3.7 : MJPEG, v0.2.56 : décrochage verrouillé, v0.2.58 : "
+               "trames pré-tournées suivant l'orientation) ; "
                "restent un client iOS et des builds "
                "officielles macOS/Linux (le jar livré est déjà multiplateforme)."],
               ["Un seul appareil par identité", "Pas de synchronisation multi-appareils ; "
@@ -916,8 +923,17 @@ def build_story():
                "l'horloge réelle est sauté, on rejoint le direct) ; la "
                "DÉCROCHABILITÉ ÉCRAN VERROUILLÉ est livrée par la même "
                "occasion (demande opérateur : activité d'appel sur le "
-               "keyguard + boutons sur la notification + sonnerie bureau) — "
-               "la validation de ce dernier lot reste attendue."],
+               "keyguard + boutons sur la notification + sonnerie bureau) ; validés au "
+               "passage par les exports du 28/10 : v0.2.57 (crash caméra du "
+               "décroché visio verrouillé corrigé — caméra perdue = visio "
+               "perdue PAS appel perdu) puis v0.2.58 + bureau v0.3.10 sur les "
+               "preuves du 4ᵉ export : (a) appel entrant bureau créé À "
+               "L'INSTANT de la connexion média (carte ✓/✕ + sonnerie, offre "
+               "du poll en confirmation, poll 15 s, RETOUR D'APPEL chez "
+               "l'appelant) ; (b) CAMÉRA du PC par défaut en visio (ffmpeg "
+               "embarqué, bascule 📹/🖥️ à chaud) ; (c) trames PRÉ-TOURNÉES "
+               "(portrait 240x320 ↔ paysage 320x240 — la résolution suit "
+               "l'orientation) ; notifications bureau dédupliquées."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -948,7 +964,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "28 octobre 2026 (messagerie v0.2.56 · client Windows v0.3.8). "
+                 "28 octobre 2026 (messagerie v0.2.58 · client Windows v0.3.10). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -971,10 +987,12 @@ def build_story():
                "TERRAIN 25/10) et du lot v0.2.53 (permissions au premier "
                "démarrage, orientation vidéo suivie) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.56 puis phase 2",
+               "v0.2.44-v0.2.58 puis phase 2",
                "Audio et visio confirmés terrain ; v0.2.54/v0.3.6 : appels audio "
                "téléphone↔PC par codec ADPCM négocié ; v0.2.55/v0.3.7 : VISIO "
-               "PC↔téléphone par codec MJPEG ; v0.2.56/v0.3.8 : visio qui TIENT "
+               "PC↔téléphone par codec MJPEG ; v0.2.56/v0.3.8 : visio qui TIENT, "
+               "v0.2.58/v0.3.10 : caméra du PC par défaut, trames pré-tournées, "
+               "retour d'appel "
                "au décroché + micro ADPCM réparé (ANR) + latence réduite + "
                "décrochage écran verrouillé (téléphone ET app)"],
               ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.8, ADR-019 : "
@@ -1127,7 +1145,33 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
-              ["22ᵉ édition", "28 octobre 2026", "Messagerie Android v0.2.56 · "
+              ["23ᵉ édition", "28 octobre 2026", "Messagerie Android v0.2.58 · "
+              "Client Windows v0.3.10 (VERSION TEST) · Console v0.8.12 · "
+              "Serveur v0.2.38",
+              "Caméra du PC + fin de la saison appels : le 4ᵉ export téléphone "
+              "PROUVE l'interop saine (visio active, flux écran du PC reçu, "
+              "audio décroché verrouillé) et porte les demandes finales de "
+              "l'opérateur : (1) CAMÉRA DU PC PAR DÉFAUT en visio — ffmpeg.exe "
+              "EMBARQUÉ (GPL-3 documentée, dshow → MJPEG stdout, aucun JNI) "
+              "avec bascule à chaud 📹 Caméra ↔ 🖥️ Écran ; (2) notifications "
+              "bureau DÉDUPLIQUÉES (une bulle par message réellement nouveau — "
+              "le même événement livré par plusieurs sources de poll "
+              "re-notifiait chaque fois) ; (3) appel entrant bureau créé À "
+              "L'INSTANT de la connexion média authentifiée (carte ✓/✕ + "
+              "sonnerie dès le HELLO — cause racine commune de « pas de son / "
+              "notification longue » ET « visio tel=>pc n'a pas fonctionné » : "
+              "le téléphone attendait 60 s un bureau muet ; poll 15 s, ringer "
+              "durci) ; (4) trames MJPEG PRÉ-TOURNÉES à l'encodage (portrait "
+              "240x320 ↔ paysage 320x240 — la résolution SUIT l'orientation, "
+              "négociation « vpr », H.264 tel↔tel inchangé ; le bureau rend "
+              "par l'aspect de la trame) ; (5) TONALITÉ DE RETOUR D'APPEL "
+              "chez l'appelant, les DEUX bouts (CallRingback + mode ringback "
+              "DesktopRinger, stop déterministe au décroché). 340×2 tests "
+              "Android + 234 desktop ; la 22ᵉ édition avait livré le "
+              "décrochage verrouillé, la 23ᵉ le valide (v0.2.57 : crash "
+              "caméra du décroché visio verrouillé corrigé, carte "
+              "Décrocher/Refuser au bureau, micro bureau non fatal)."],
+["22ᵉ édition", "28 octobre 2026", "Messagerie Android v0.2.56 · "
               "Client Windows v0.3.8 (VERSION TEST) · Console v0.8.12 · "
               "Serveur v0.2.38",
               "Décrochage verrouillé + appels réparés : le 5ᵉ export bureau + "
