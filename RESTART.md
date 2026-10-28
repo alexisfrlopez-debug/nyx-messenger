@@ -121,7 +121,9 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    le PC → visio PC→tel : le PC envoie SA WEBCAM ; 🖥️ du PC → dialogue
 >    ✓/✕ SUR LE TÉLÉPHONE ; 🖥️ du téléphone → validation PC PUIS dialogue
 >    système ; appel PC→tel tient sur circuit froid ; ENVOYER LES LOGS
->    (marqueurs v0.2.60/v0.3.12 attendus).**
+>    (marqueurs v0.2.60/v0.3.12 attendus). closeout PASS (§9.11) : 0 FAIL,
+>    2 WARN (serveur binaire en asset GitHub — convention Drive respectée ;
+>    dépôt console absent du poste — vérifié GitHub seul).**
 
 > 🔴 **INSTRUCTIONS SESSION 81 — REÇUES 2026-10-29 (retour terrain
 > v0.2.58/v0.3.10 opérateur Alek : « logs envoyés » — 4 exports reçus et
