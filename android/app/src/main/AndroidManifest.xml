@@ -14,6 +14,10 @@
          prévu pour ce cas (pas de plafond de durée). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- v0.2.60 — capture d'écran pour le PARTAGE D'ÉCRAN VALIDÉ des appels
+         visio (le PC doit l'avoir autorisé par F_SCREEN_ACCEPT AVANT que le
+         dialogue système Android ne propose la capture — double consentement). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- v0.2.56 — décrocher verrouillé (session 78) : l'intent plein écran de la
          notification d'appel lance CallLockActivity SUR le keyguard (mécanisme
@@ -74,6 +78,15 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Démon Tor embarqué : proxy SOCKS 127.0.0.1 local utilisé par TOUTE la messagerie et hébergeant le service onion personnel (ADR-007) ; fonctionnement continu requis, aucun transfert média." />
         </service>
+
+        <!-- v0.2.60 — PARTAGE D'ÉCRAN d'appel (MediaProjection) : ne tourne QUE
+             pendant un appel visio dont le pair a VALIDÉ le partage
+             (F_SCREEN_ACCEPT — protocole sc). Exigence Android 14+ : service au
+             premier plan de type mediaProjection AVANT createVirtualDisplay. -->
+        <service
+            android:name=".p2p.screenshare.ScreenCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <!-- v0.2.14 : actions Accepter/Refuser des notifications d'invitation.
              exported=false : déclenchable UNIQUEMENT par nos propres

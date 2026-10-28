@@ -720,6 +720,12 @@ class NyxRepository(
         //   2. LA FLOTTE (rendez-vous commun) — jamais le journal d'un pair.
         inserted += pollOwnReplica(me, priv)
         inserted += pollFleetReplicas(me, priv)
+        // v0.2.60 — traçabilité du dédup (miroir bureau v0.3.12) : UNE ligne
+        // par cycle au lieu de dizaines de re-traitements silencieux.
+        val dups = dupCountThisCycle.getAndSet(0)
+        if (dups > 0) {
+            android.util.Log.i("nyx-poll", "$dups doublon(s) de livraison ignoré(s) (eventId connu)")
+        }
         inserted
     }
 
@@ -857,6 +863,17 @@ class NyxRepository(
      * [receiveDirectEvents]) — TOUT le reste est PARTAGÉ.
      */
     private suspend fun ingestInboxEvent(ev: WireEvent, priv: ByteArray): Ingest {
+            // v0.2.60 — DÉDOUP PAR eventId AVANT TOUT TRAVAIL (miroir bureau
+            // v0.3.12 — preuve terrain 28/10 21:12→21:28 : la flotte re-livrait
+            // le MÊME journal à chaque poll, ~30 re-traitements/cycle) : la
+            // re-livraison ne re-signe pas, ne re-déchiffre pas, ne re-persiste pas.
+            if (RecentIngest.remember(eventIdOf(
+                    MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+                ))
+            ) {
+                dupCountThisCycle.incrementAndGet()
+                return Ingest.APPLIED
+            }
             // v0.2.11 : l'auteur est normalisé (trim+minuscules) — la clé locale
             // (contacts/messages) doit matcher la clé utilisée à l'envoi.
             val author = ev.author.trim().lowercase()
@@ -947,8 +964,10 @@ class NyxRepository(
                 if (replicaAnn != null) {
                     val linkOk = contactDao.get(author)?.status == ContactStatus.ACCEPTED
                     if (net.nyx.messenger.repo.ReplicaCodec.isSelfAnnounced(author, replicaAnn) && linkOk) {
+                        // v0.2.60 — HORODATÉ PAR L'ÉVÉNEMENT (miroir bureau) : une
+                        // re-livraison devient « (connue) », plus de re-persist tempête.
                         val changed = net.nyx.messenger.net.ReplicaRegistry
-                            .ingest(replicaAnn.replica, System.currentTimeMillis())
+                            .ingest(replicaAnn.replica, ev.ts * 1000L)
                         android.util.Log.i(
                             "nyx-recv",
                             "   ✓ annonce réplica de ${author.take(16)}… → " +
@@ -2805,6 +2824,31 @@ class NyxRepository(
     }
 
     companion object {
+
+        /**
+         * v0.2.60 — DÉDOUBLONNAGE PAR eventId (miroir bureau v0.3.12) : la
+         * flotte peut re-livrer le même journal à chaque poll — un eventId
+         * récemment traité est ignoré SILENCIEUSEMENT quelle que soit la
+         * source (réplica propre, flotte, canal direct P2P).
+         */
+        private object RecentIngest {
+            private val seen = object : LinkedHashMap<String, Long>(256, 0.75f, false) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean =
+                    size > 4096 || (eldest != null && System.currentTimeMillis() - eldest.value > 24 * 3_600_000L)
+            }
+
+            /** true si l'id ÉTAIT DÉJÀ traité (doublon à ignorer). */
+            fun remember(id: String): Boolean = synchronized(seen) {
+                val last = seen[id]
+                val dup = last != null && System.currentTimeMillis() - last < 24 * 3_600_000L
+                seen[id] = System.currentTimeMillis()
+                dup
+            }
+        }
+
+        /** v0.2.60 — doublons écrêtés depuis le début du cycle courant. */
+        private val dupCountThisCycle = java.util.concurrent.atomic.AtomicInteger(0)
+
         const val STATE_PENDING = 0
         const val STATE_SENT = 1
         const val STATE_FAILED = 2

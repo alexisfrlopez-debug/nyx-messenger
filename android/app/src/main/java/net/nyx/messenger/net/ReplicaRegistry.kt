@@ -60,24 +60,36 @@ object ReplicaRegistry {
     fun ingest(replicaAddr: String, now: Long): Boolean {
         val addr = replicaAddr.trim().lowercase()
         if (!BootstrapReplicas.ENTRY.matches(addr)) return false
-        var changed = false
+        var isNew = false
+        var dirty = false
         synchronized(_lock) {
             val prev = entries[addr]
             if (prev == null) {
                 entries[addr] = now
-                changed = true
+                isNew = true
+                dirty = true
             } else {
-                entries[addr] = maxOf(prev, now) // re-annonce → rafraîchit le TTL
+                // v0.2.60 — re-annonce STRICTEMENT plus récente seule : une
+                // re-livraison du MÊME événement (même ts — v0.2.60 : ingest
+                // appelé avec le ts de l'ÉVÉNEMENT) ne réécrit PLUS le disque
+                // (terrain 28/10, ~100 re-persistances/minute). Le rafraîchissement
+                // TTL d'une annonce PLUS RÉCENTE reste persisté mais n'est pas
+                // « nouvelle entrée » (contrat verrouillé par ReplicaRegistryTest).
+                val refresh = maxOf(prev, now)
+                if (refresh != prev) {
+                    entries[addr] = refresh
+                    dirty = true
+                }
             }
-            persistLocked()
+            if (dirty) persistLocked()
         }
-        if (changed) {
+        if (isNew) {
             // Taille brute (entries.size) et NON list() : la liste épure à la
             // volée au now RÉEL — un appel ici retirerait l'entrée qui vient
             // d'être insérée avec un horodatage de test/horloge décalée.
             Log.i("nyx-replica", "réplica découvert et persisté : ${addr.take(20)}… (${entries.size} au total)")
         }
-        return changed
+        return isNew
     }
 
     /**

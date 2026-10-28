@@ -1,6 +1,7 @@
 package net.nyx.messenger.repo
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -279,9 +280,37 @@ class DesktopRepository(
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
                 val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
-                val depositAddr = depositTargetFor(peerLower) ?: error("aucun réplica configuré")
-                postSigned(relayFor(depositAddr), me, signed, canonical, priv).getOrThrow()
-            Unit
+                // v0.3.12 — CIBLES EN CASCADE (terrain 28/10 21:17:40→57 : l'appel
+                // PC→téléphone est mort « réplica injoignable » après 17 s alors
+                // que le réplica du téléphone répondait 30 s plus tard — le dépôt
+                // n'avait QU'UNE cible, sans repli flotte). Désormais : la BOÎTE
+                // du pair, puis CHAQUE cible de flotte, jusqu'à 3 tours espacés
+                // de 8 s — la sonnerie d'appel ne meurt plus pour un circuit
+                // onion froid (miroir du comportement Android multi-chemins).
+                val targets = ArrayList<String>(4)
+                depositTargetFor(peerLower)?.let { targets.add(it) }
+                DepositRouting.pollTargets(replicas) { addr -> isPeerPhone(addr) }
+                    .forEach { if (it !in targets) targets.add(it) }
+                if (targets.isEmpty()) error("aucun réplica configuré")
+                var lastErr: Throwable? = null
+                for (round in 1..3) {
+                    for (addr in targets) {
+                        val posted = runCatching { postSigned(relayFor(addr), me, signed, canonical, priv) }
+                        val res = posted.getOrNull() ?: continue
+                        if (res.isSuccess) {
+                            if (round > 1 || addr != targets.first()) {
+                                DesktopLog.i(
+                                    "nyx-call",
+                                    "signalisation déposée sur ${addr.take(16)}… (cible ${targets.indexOf(addr) + 1}, tour $round)"
+                                )
+                            }
+                            return@runCatching
+                        }
+                        lastErr = res.exceptionOrNull()
+                    }
+                    if (round < 3) delay(8_000)
+                }
+                throw lastErr ?: IllegalStateException("dépôt de signalisation impossible")
             }
         }
 
@@ -363,6 +392,12 @@ class DesktopRepository(
                 runCatching { ensureReceiptsSent() }
                 // v0.3.4 — repartie des suppressions différées à chaque poll (miroir Android).
                 runCatching { ensureDeletionsSent() }
+                // v0.3.12 — traçabilité du dédup : UNE ligne par cycle si la
+                // flotte a re-livré du déjà-vu (au lieu de ~30 lignes).
+                val dups = dupCountThisCycle.getAndSet(0)
+                if (dups > 0) {
+                    DesktopLog.i("nyx-poll", "$dups doublon(s) de livraison ignoré(s) (eventId connu)")
+                }
                 inserted
             }
         } finally {
@@ -430,9 +465,44 @@ class DesktopRepository(
 
     private enum class Ingest { NEW, APPLIED, REJECTED }
 
+    /**
+     * v0.3.12 — DÉDOUBLONNAGE PAR IDENTIFIANT D'ÉVÉNEMENT : la flotte
+     * re-livre le MÊME journal à chaque poll (preuve terrain 28/10
+     * 21:12→21:28 : ~30 lignes « ✓ annonce réplica (persistée) » + « offre
+     * périmée » PAR CYCLE de 15 s pendant 16 min — ~13 000 ingestions en
+     * double, écritures disque + signature + déchiffrement pour rien). Un
+     * eventId (SHA-256 du canonique) récemment traité est IGNORÉ SILENCIEUSEMENT
+     * quelle que soit la source (réplica propre, flotte, cible annoncée) ;
+     * un compteur par cycle journalise le volume écrêté (traçabilité).
+     */
+    private val recentIngestIds = object : LinkedHashMap<String, Long>(256, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean =
+            size > 4096 || (eldest != null && System.currentTimeMillis() - eldest.value > 24 * 3_600_000L)
+    }
+
+    /** v0.3.12 — doublons écrêtés depuis le début du cycle courant (log fin de poll). */
+    private val dupCountThisCycle = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun alreadyIngested(id: String): Boolean = synchronized(recentIngestIds) {
+        val last = recentIngestIds[id]
+        if (last != null && System.currentTimeMillis() - last < 24 * 3_600_000L) true else false
+    }
+
+    private fun markIngested(id: String) = synchronized(recentIngestIds) {
+        recentIngestIds[id] = System.currentTimeMillis()
+    }
+
     private suspend fun ingestInboxEvent(ev: WireEvent, priv: ByteArray): Ingest {
         val author = ev.author.trim().lowercase()
         val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
+        // v0.3.12 — DÉDOUP PAR eventId AVANT TOUT TRAVAIL : la re-livraison
+        // flotte ne re-signe pas, ne re-déchiffre pas, ne re-persiste pas.
+        val dedupId = eventIdOf(canonical)
+        if (alreadyIngested(dedupId)) {
+            dupCountThisCycle.incrementAndGet()
+            return Ingest.APPLIED
+        }
+        markIngested(dedupId)
         val authorPub = runCatching { OnionCodec.onionToPubKey(author) }.getOrNull()
         if (authorPub == null || !cipher.verifyEvent(canonical, ev.sig, authorPub)) {
             DesktopLog.w("nyx-recv", "   signature invalide type=${ev.type} author=${author.take(16)}…")
@@ -553,14 +623,18 @@ class DesktopRepository(
         if (replicaAnn != null) {
             val linkOk = store.contact(author)?.status == ACCEPTED
             if (ReplicaCodec.isSelfAnnounced(author, replicaAnn) && linkOk) {
+                // v0.3.12 — HORODATÉ PAR L'ÉVÉNEMENT (plus par l'heure du
+                // poll) : une re-livraison du MÊME événement devient « (connue) »
+                // — fini la tempête « (persistée) » + rebuild + écriture disque
+                // à chaque cycle (terrain 28/10, ~100 re-persist/minute).
                 val changed = net.nyx.messenger.net.ReplicaRegistry.ingest(
-                    replicaAnn.replica, System.currentTimeMillis()
+                    replicaAnn.replica, ev.ts * 1000L
                 )
                 DesktopLog.i(
                     "nyx-recv",
                     "   ✓ annonce réplica de ${author.take(16)}… → ${replicaAnn.replica.take(24)}…${if (changed) " (persistée)" else " (connue)"}"
                 )
-                onChangedReplicas()
+                if (changed) onChangedReplicas()
             }
             return Ingest.APPLIED
         }
@@ -1139,8 +1213,20 @@ class DesktopRepository(
     }
 
     suspend fun fetchProfile(peer: String) {
-        val relay = runCatching { relayFor(activeOrFirstReplica() ?: return) }.getOrNull() ?: return
-        relay.profile(peer).getOrNull()?.let { resp ->
+        // v0.3.12 — MULTI-CIBLES + BACKOFF (terrain 28/10 : le PC demandait le
+        // profil du téléphone à SON réplica (activeOrFirstReplica = la boîte du
+        // pair) → 404 toutes les ~17 s pendant des heures — le téléphone publie
+        // sa carte sur la FLOTTE ; le profil n'était JAMAIS trouvé et la fiche
+        // pair restait générique). Désormais : la boîte du pair PUIS les cibles
+        // de flotte ; à défaut, fetchedAt est posé avec un TTL court (10 min)
+        // pour ne plus marteler le pair à chaque cycle.
+        val me = identity.onionAddress
+        val tried = ArrayList<String>(4)
+        if (me != null) tried.add("own:$me")
+        DepositRouting.pollTargets(replicas) { addr -> isPeerPhone(addr) }.forEach { tried.add(it) }
+        for (addr in tried) {
+            val relay = runCatching { relayFor(addr) }.getOrNull() ?: continue
+            val resp = relay.profile(peer).getOrNull() ?: continue
             val existing = store.peerProfile(peer)
             store.upsertPeerProfile(
                 (existing ?: DesktopStore.PeerProfile(onion = peer)).apply {
@@ -1152,7 +1238,16 @@ class DesktopRepository(
                     fetchedAt = System.currentTimeMillis()
                 }
             )
+            return
         }
+        // Aucune cible ne connaît la carte : backoff honnête (fiche générique
+        // pendant 10 min, pas de tempête 404 chez le pair).
+        val existing = store.peerProfile(peer)
+        store.upsertPeerProfile(
+            (existing ?: DesktopStore.PeerProfile(onion = peer)).apply {
+                fetchedAt = System.currentTimeMillis() - 3_600_000L + 600_000L
+            }
+        )
     }
 
     /**

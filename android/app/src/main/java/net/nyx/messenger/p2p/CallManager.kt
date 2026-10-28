@@ -73,6 +73,13 @@ object CallManager {
         // v0.2.59 — ÉMISSION locale coupée (caméra perdue) mais RÉCEPTION
         // maintenue : l'overlay garde la vue distante et signale l'état.
         val videoSendLost: Boolean = false,
+        // v0.2.60 — PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS (miroir bureau
+        // v0.3.12 — trames F_SCREEN_REQ/ACCEPT/STOP, champ « sc ») :
+        val screenSharePending: Boolean = false,  // notre REQ est en vol
+        val screenShareRequest: Boolean = false,  // REQ du pair à valider (✓/✕)
+        val screenSharing: Boolean = false,       // NOUS partageons notre écran
+        val peerScreenShare: Boolean = false,     // le pair partage SON écran
+        val screenNotice: String = "",            // message transitoire
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
@@ -101,6 +108,36 @@ object CallManager {
     /** Offre entrante en attente (signalisation arrivée avant le média). */
     private var pendingOffer: CallSignal? = null
     private var acceptedCid: String? = null
+
+    /**
+     * v0.2.60 — cids récemment TERMINÉS (miroir bureau v0.3.12, terrain 28/10
+     * 21:16 : l'offre du cid b2829fd6 re-livrée par la flotte a RE-SONNÉ après
+     * la fin de l'appel) : un doublon de livraison ne re-sonne JAMAIS (TTL 10 min).
+     */
+    private val endedCids = HashMap<String, Long>()
+
+    /** v0.2.60 — le pair comprend le protocole partage d'écran (sc=1). */
+    @Volatile private var peerScreenProtocol = false
+
+    /**
+     * v0.2.60 — LANCEMENT de la capture d'écran (MediaProjection) après
+     * F_SCREEN_ACCEPT : câblé par l'UI (l'intention système exige une
+     * ACTIVITÉ — jamais depuis le moteur d'appel).
+     */
+    @Volatile var screenShareStarter: ((onResult: (granted: Boolean) -> Unit) -> Unit)? = null
+
+    /** v0.2.60 — suite du dialogue système MediaProjection (résultat d'activité). */
+    @Volatile private var pendingProjectionResult: ((Boolean) -> Unit)? = null
+
+    /** v0.2.60 — l'UI enregistre la suite AVANT de lancer le dialogue système. */
+    fun setPendingProjectionResult(cb: (Boolean) -> Unit) { pendingProjectionResult = cb }
+
+    /** v0.2.60 — le dialogue système a répondu (accordé/refusé). */
+    fun onScreenProjectionGranted(granted: Boolean) {
+        val cb = pendingProjectionResult ?: return
+        pendingProjectionResult = null
+        cb(granted)
+    }
 
     fun init(repoRef: NyxRepository, context: android.content.Context) {
         repo = repoRef
@@ -321,6 +358,7 @@ object CallManager {
                     video = engine
                     audioEngine.videoSink = { bytes -> engine.feedDecoder(bytes) }
                     audioEngine.rotSink = { p -> onPeerRotation(p) }
+                    audioEngine.screenSink = { t, p -> onScreenFrame(t, p) }
                     vCsdB64 = java.util.Base64.getEncoder().encodeToString(vSend.csd)
                     vRot = vSend.rotation; vW = vSend.w; vH = vSend.h
                     myVc = P2pProtocol.VC_H264 + "," + P2pProtocol.VC_MJPEG
@@ -354,7 +392,10 @@ object CallManager {
                     // v0.2.55 — vc : codecs vidéo SUPPORTÉS (un appelé bureau — mjpeg seul —
                     // choisira mjpeg dans son ACCEPT ; un pair ≤ v0.2.54 ignore la clé).
                     P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64, vRot, vW, vH,
-                        "aac," + P2pProtocol.AC_ADPCM, myVc), sig
+                        "aac," + P2pProtocol.AC_ADPCM, myVc,
+                        // v0.2.60 — protocole partage d'écran validé (l'appelé
+                        // bureau ≥ v0.3.12 l'écho-t-il dans son ACCEPT).
+                        P2pProtocol.SC_PROTOCOL), sig
                 ))
             }.getOrElse { e ->
                 net.nyx.messenger.diag.DiagLog.w("nyx-call", "HELLO non remis : ${e.message}")
@@ -374,6 +415,8 @@ object CallManager {
                     // v0.2.20 : payload JSON {csd, vcsd} (ou b64 brut v0.2.19) ;
                     // v0.2.53 : + présentation vidéo de l'appelé (vrot/vw/vh).
                     val accept = P2pProtocol.AcceptPayload.parse(answer.payload)
+                    // v0.2.60 — le pair écho-t-il le protocole partage d'écran ?
+                    peerScreenProtocol = P2pProtocol.supportsScreenShare(accept.sc)
                     val peerCsd = runCatching {
                         java.util.Base64.getDecoder().decode(accept.audioCsd)
                     }.getOrElse { ByteArray(0) }
@@ -480,6 +523,17 @@ object CallManager {
                 // Anti-rejeu souple : une offre trop vieille est un appel manqué.
                 if (signal.ts in 1 until now - CallSignal.OFFER_TTL_S) {
                     r.addCallInfo(author, false, "Appel manqué")
+                    return
+                }
+                // v0.2.60 — offre d'un appel TERMINÉ il y a < 10 min (miroir
+                // bureau v0.3.12, terrain 28/10 : re-livraison flotte d'une
+                // offre déjà consommée) : doublon, JAMAIS de re-sonnerie.
+                val endedAt = synchronized(endedCids) { endedCids[signal.cid] }
+                if (endedAt != null && nowMs() - endedAt < 600_000L) {
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-call",
+                        "offre d'un appel déjà terminé (cid ${signal.cid.take(8)}…) — ignorée (doublon de livraison)"
+                    )
                     return
                 }
                 if (_ui.value.phase != Phase.IDLE) {
@@ -781,6 +835,9 @@ object CallManager {
     }
 
     private fun finalizeIncomingBody(c: P2pCallConnection) {
+        // v0.2.60 — protocole partage d'écran validé : capacité de L'APPELANT
+        // (le bureau ≥ v0.3.12 annonce sc="1" dans son HELLO).
+        peerScreenProtocol = P2pProtocol.supportsScreenShare(c.hello.sc)
         val peerCsd = runCatching {
             java.util.Base64.getDecoder().decode(c.hello.csd)
         }.getOrElse { ByteArray(0) }
@@ -830,6 +887,7 @@ object CallManager {
                 video = vEngine
                 engine.videoSink = { bytes -> vEngine.feedDecoder(bytes) }
                 engine.rotSink = { p -> onPeerRotation(p) }
+                engine.screenSink = { t, p -> onScreenFrame(t, p) }
                 // csd VIDE en MJPEG (aucun paramètre de décodeur) — le HELLO du
                 // bureau n'en attend aucun, l'ACCEPT répond vc="mjpeg".
                 myVCsdB64 = if (chosenMjpeg) "" else java.util.Base64.getEncoder().encodeToString(vSend.csd)
@@ -873,7 +931,10 @@ object CallManager {
             c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(
                 myCsdB64, myVCsdB64, myVRot, myVW, myVH,
                 if (chosenAdpcm) P2pProtocol.AC_ADPCM else "",
-                if (chosenMjpeg) P2pProtocol.VC_MJPEG else ""
+                if (chosenMjpeg) P2pProtocol.VC_MJPEG else "",
+                // v0.2.60 — ÉCHO du protocole partage d'écran (l'appelant
+                // bureau ≥ v0.3.12 y lit notre capacité sc).
+                if (peerScreenProtocol) P2pProtocol.SC_PROTOCOL else ""
             ).toByteArray(Charsets.UTF_8))
         }.getOrElse { e ->
             net.nyx.messenger.diag.DiagLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
@@ -913,6 +974,140 @@ object CallManager {
     }
 
     /* ------------------------- visio (v0.2.20) ------------------------- */
+
+    /**
+     * v0.2.60 — PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS (miroir bureau v0.3.12).
+     * Demande au pair la permission de remplacer NOTRE caméra par NOTRE écran
+     * (MediaProjection) ; la capture ne démarre qu'à son F_SCREEN_ACCEPT.
+     */
+    fun requestScreenShare() {
+        val state = _ui.value
+        if (!state.videoEnabled || state.phase != Phase.ACTIVE) return
+        val c = conn ?: return
+        if (state.screenSharing) {
+            // On partage déjà : arrêt + information du pair.
+            runCatching { c.send(P2pProtocol.F_SCREEN_STOP) }
+            net.nyx.messenger.p2p.screenshare.ScreenShare.stop()
+            video?.switchSendingBackToCamera()
+            _ui.value = state.copy(screenSharing = false, screenNotice = "Partage d'écran arrêté — caméra.")
+            return
+        }
+        if (!peerScreenProtocol) {
+            _ui.value = state.copy(
+                screenNotice = "Partage d'écran : le PC ne le valide pas (≥ v0.3.12 requis)."
+            )
+            return
+        }
+        if (state.screenSharePending) return
+        runCatching { c.send(P2pProtocol.F_SCREEN_REQ, P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)) }
+        _ui.value = state.copy(screenSharePending = true, screenNotice = "Demande envoyée — en attente du PC…")
+        net.nyx.messenger.diag.DiagLog.i("nyx-video", "F_SCREEN_REQ émis — attente de la validation du PC")
+        val reqAt = nowMs()
+        scope.launch {
+            delay(30_000)
+            if (_ui.value.screenSharePending && _ui.value.phase == Phase.ACTIVE && nowMs() - reqAt >= 29_000) {
+                _ui.value = _ui.value.copy(
+                    screenSharePending = false,
+                    screenNotice = "Partage d'écran : aucune réponse du PC — caméra maintenue."
+                )
+            }
+        }
+    }
+
+    /** v0.2.60 — RÉPONSE à la demande DU PC (boutons ✓/✕ de l'écran d'appel). */
+    fun answerScreenShare(accept: Boolean) {
+        val state = _ui.value
+        if (!state.screenShareRequest) return
+        val c = conn ?: return
+        runCatching {
+            c.send(
+                if (accept) P2pProtocol.F_SCREEN_ACCEPT else P2pProtocol.F_SCREEN_STOP,
+                P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)
+            )
+        }
+        _ui.value = state.copy(
+            screenShareRequest = false,
+            peerScreenShare = accept,
+            screenNotice = if (accept) "Le PC partage son écran." else "Demande refusée."
+        )
+        net.nyx.messenger.diag.DiagLog.i("nyx-video", "REQ partage d'écran du PC → ${if (accept) "ACCEPTÉ" else "REFUSÉ"}")
+    }
+
+    /**
+     * v0.2.60 — trames de partage d'écran du PAIR (routées par CallAudio).
+     * F_SCREEN_ACCEPT déclenche l'intention système MediaProjection (via
+     * [screenShareStarter] câblé par l'UI) : la capture ne part QU'après le
+     * consentement opérateur ET la validation du pair — les DEUX côtés.
+     */
+    private fun onScreenFrame(type: Int, @Suppress("UNUSED_PARAMETER") payload: ByteArray) {
+        when (type) {
+            P2pProtocol.F_SCREEN_REQ -> {
+                if (_ui.value.phase != Phase.ACTIVE || !peerScreenProtocol) {
+                    runCatching { conn?.send(P2pProtocol.F_SCREEN_STOP) }
+                    return
+                }
+                _ui.value = _ui.value.copy(screenShareRequest = true)
+                net.nyx.messenger.diag.DiagLog.i("nyx-video", "F_SCREEN_REQ du PC — dialogue ✓/✕ affiché")
+            }
+            P2pProtocol.F_SCREEN_ACCEPT -> {
+                if (!_ui.value.screenSharePending) return
+                _ui.value = _ui.value.copy(screenSharePending = false)
+                val starter = screenShareStarter
+                if (starter == null) {
+                    runCatching { conn?.send(P2pProtocol.F_SCREEN_STOP) }
+                    _ui.value = _ui.value.copy(screenNotice = "Partage d'écran indisponible ici.")
+                    return
+                }
+                net.nyx.messenger.diag.DiagLog.i("nyx-video", "partage d'écran VALIDÉ par le PC — demande MediaProjection (dialogue système)")
+                starter { granted ->
+                    scope.launch {
+                        if (!granted) {
+                            runCatching { conn?.send(P2pProtocol.F_SCREEN_STOP) }
+                            _ui.value = _ui.value.copy(screenNotice = "Capture d'écran refusée — caméra maintenue.")
+                            return@launch
+                        }
+                        val ctx = appContext ?: return@launch
+                        val ok = net.nyx.messenger.p2p.screenshare.ScreenShare.start(ctx) { jpeg ->
+                            video?.feedScreenFrame(jpeg)
+                        }
+                        if (ok && video != null) {
+                            video?.switchSendingToScreen()
+                            _ui.value = _ui.value.copy(
+                                screenSharing = true,
+                                screenNotice = "Votre écran est partagé (validé par le PC)."
+                            )
+                        } else {
+                            net.nyx.messenger.p2p.screenshare.ScreenShare.stop()
+                            runCatching { conn?.send(P2pProtocol.F_SCREEN_STOP) }
+                            _ui.value = _ui.value.copy(screenNotice = "Capture d'écran impossible — caméra maintenue.")
+                        }
+                    }
+                }
+            }
+            P2pProtocol.F_SCREEN_STOP -> {
+                val st = _ui.value
+                when {
+                    st.screenSharePending -> _ui.value = st.copy(
+                        screenSharePending = false,
+                        screenNotice = "Partage REFUSÉ par le PC — caméra maintenue."
+                    )
+                    st.screenSharing -> {
+                        net.nyx.messenger.p2p.screenshare.ScreenShare.stop()
+                        video?.switchSendingBackToCamera()
+                        _ui.value = st.copy(
+                            screenSharing = false,
+                            screenNotice = "Partage révoqué par le PC — caméra."
+                        )
+                    }
+                    st.peerScreenShare -> _ui.value = st.copy(
+                        peerScreenShare = false,
+                        screenNotice = "Le PC a arrêté son partage d'écran."
+                    )
+                }
+                net.nyx.messenger.diag.DiagLog.i("nyx-video", "F_SCREEN_STOP du PC")
+            }
+        }
+    }
 
     /** Surface de rendu DISTANT (SurfaceView de l'overlay) — null = détachée. */
     fun setRemoteSurface(s: android.view.Surface?) { video?.setRemoteSurface(s) }
@@ -1013,6 +1208,18 @@ object CallManager {
             "appel terminé (${_ui.value.phase}) — $reason (cid ${_ui.value.cid.take(8)}…, " +
                 "pair ${_ui.value.peer.take(10)}…)"
         )
+        // v0.2.60 — mémorise le cid terminé (un doublon de livraison flotte de
+        // son offre ne re-sonnera PAS — miroir bureau) + arrêt du partage
+        // d'écran éventuel + reset de la capacité pair.
+        val endedCid = _ui.value.cid
+        if (endedCid.isNotEmpty()) {
+            synchronized(endedCids) {
+                endedCids[endedCid] = nowMs()
+                endedCids.entries.removeIf { nowMs() - it.value > 600_000L }
+            }
+        }
+        runCatching { net.nyx.messenger.p2p.screenshare.ScreenShare.stop() }
+        peerScreenProtocol = false
         runCatching { audio?.stop() }
         runCatching { video?.stop() }
         runCatching { conn?.close() }

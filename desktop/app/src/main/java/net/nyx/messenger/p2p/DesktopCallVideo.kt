@@ -65,6 +65,15 @@ class DesktopCallVideo(
     @Volatile var source: Source = Source.CAMERA
         private set
 
+    /**
+     * v0.3.12 — MESSAGE D'ÉTAT DE LA SOURCE pour l'overlay (bannière visible
+     * sous la vidéo) : "" = caméra nominale ; sinon repli/motif honnête
+     * (terrain 28/10 : le repli écran n'était qu'une ligne de journal —
+     * l'opérateur voyait « le pc fait un partage d'écran » sans savoir POURQUOI).
+     */
+    @Volatile var sourceNotice: String = ""
+        private set
+
     /** Dernier JPEG reçu du pair (null avant la 1ʳᵉ trame) — l'UI y poll. */
     @Volatile var latestJpeg: ByteArray? = null
         private set
@@ -114,6 +123,7 @@ class DesktopCallVideo(
             val cam = startCamera()
             if (cam != null) {
                 startSenderLoop()
+                sourceNotice = ""
                 DesktopLog.i(
                     "nyx-video",
                     "CAMÉRA du PC active (${cam.w}x${cam.h} @ ~$FPS fps, MJPEG ffmpeg — « je veux par défaut le flux caméra »)"
@@ -123,12 +133,17 @@ class DesktopCallVideo(
             val scr = startScreen()
             if (scr != null) {
                 startSenderLoop()
+                sourceNotice =
+                    "Caméra indisponible — ÉCRAN envoyé. Vérifier : Paramètres Windows › " +
+                        "Confidentialité et sécurité › Caméra › « Autoriser les applications de bureau " +
+                        "à accéder à la caméra », puis basculer 📹."
                 DesktopLog.w(
                     "nyx-video",
                     "caméra indisponible — repli PARTAGE D'ÉCRAN (${scr.w}x${scr.h}) ; bascule possible depuis l'overlay"
                 )
                 return scr
             }
+            sourceNotice = "Aucune source vidéo (caméra ni écran) — audio seul."
             DesktopLog.w("nyx-video", "aucune source vidéo (caméra ni écran) — visio audio-only")
             null
         } catch (e: Exception) {
@@ -137,7 +152,14 @@ class DesktopCallVideo(
         }
     }
 
-    /** Ouvre la webcam (ffmpeg dshow) — null si indisponible. */
+    /** Ouvre la webcam (ffmpeg dshow) — null si indisponible.
+     *
+     * v0.3.12 — CANDIDATS EN CASCADE : la sortie de « -list_devices » fournit
+     * un CHEMIN UNIQUE (@device_pnp…, préféré) puis un nom convivial — chacun
+     * est tenté à son tour : un ffmpeg qui MEURT ou reste MUET ≤ 4 s laisse
+     * la place au suivant (terrain 28/10 : « Integrated Camera » listée mais
+     * déclarée absente par l'ancien parseur ffmpeg-6 — LE PC ENVOYAIT SON
+     * ÉCRAN ; retour session 80 vivant jusqu'ici). */
     private fun startCamera(): VideoSendInfo? {
         if (!DesktopPaths.isWindows) {
             DesktopLog.i("nyx-video", "caméra : capture dshow Windows seulement (ici ${System.getProperty("os.name")})")
@@ -147,7 +169,25 @@ class DesktopCallVideo(
             DesktopLog.w("nyx-video", "ffmpeg introuvable (installé à côté de l'app ?) — caméra indisponible")
             return null
         }
-        val device = ffmpegDevice.ifEmpty { discoverCamera(exe) ?: return null }
+        val candidates: List<String> = if (ffmpegDevice.isNotEmpty()) {
+            listOf(ffmpegDevice)
+        } else {
+            discoverCameras(exe)
+        }
+        if (candidates.isEmpty()) return null
+        for (device in candidates) {
+            val opened = tryOpenCamera(exe, device) ?: continue
+            return opened
+        }
+        DesktopLog.w(
+            "nyx-video",
+            "aucune webcam dshow ouvrable (${candidates.size} candidat(s) essayé(s)) — repli écran"
+        )
+        return null
+    }
+
+    /** Tente UN périphérique : ffmpeg + attente 1ʳᵉ trame ≤ 4 s (mort/muet → null). */
+    private fun tryOpenCamera(exe: File, device: String): VideoSendInfo? {
         val p: Process
         try {
             val args = mutableListOf(
@@ -174,6 +214,23 @@ class DesktopCallVideo(
         val t = Thread({ readCameraStream(p.inputStream) }, "nyx-video-cam")
         t.isDaemon = true
         t.start()
+        // Dimensions honnêtes : attendre la 1ʳᵉ trame (≤ 4 s) pour annoncer
+        // vw/vh réels au pair (le JPEG est auto-descriptif ensuite). Un ffmpeg
+        // MORT ou MUET dans ce créneau invalide le candidat (relais au suivant).
+        val deadline = System.currentTimeMillis() + 4_000
+        while (System.currentTimeMillis() < deadline && camW == 0 && !stopped) {
+            if (!p.isAlive) break
+            Thread.sleep(80)
+        }
+        if (camW == 0 && !stopped && !p.isAlive) {
+            DesktopLog.w(
+                "nyx-video",
+                "candidat caméra « ${device.take(40)}… » : ffmpeg mort sans trame — candidat suivant"
+            )
+            ffmpeg = null
+            return null
+        }
+        DesktopLog.i("nyx-video", "webcam ouverte : « ${device.take(48)}… »")
         // Surveillant de mort : un ffmpeg mort (webcam débranchée) dégrade
         // l'émission en écran SEULEMENT si un écran existe — jamais de crash.
         val watch = Thread({
@@ -188,12 +245,6 @@ class DesktopCallVideo(
         }, "nyx-video-camwatch")
         watch.isDaemon = true
         watch.start()
-        // Dimensions honnêtes : attendre la 1ʳᵉ trame (≤ 4 s) pour annoncer
-        // vw/vh réels au pair (le JPEG est auto-descriptif ensuite).
-        val deadline = System.currentTimeMillis() + 4_000
-        while (System.currentTimeMillis() < deadline && camW == 0 && !stopped) {
-            Thread.sleep(80)
-        }
         // v0.3.11 — CHIEN DE GARDE DES TRAMES : un ffmpeg VIVANT mais MUET
         // (webcam ouverte, confidentialité Windows bloquant le flux, pilote
         // capricieux) laissait l'émission vide SANS bascule — le pair ne
@@ -224,17 +275,13 @@ class DesktopCallVideo(
         return VideoSendInfo(w, h, Source.CAMERA)
     }
 
-    /** Énumère les webcams (premier périphérique vidéo dshow).
-     *  v0.3.11 — ANALYSE ROBUSTE + JOURNAL BRUT : le format de sortie de
-     *  ffmpeg -list_devices varie selon les builds (suffixe « (video) »,
-     *  en-têtes de section parfois absents) et le terrain 28/10 n'a montré
-     *  qu'un sec « aucune webcam dshow détectée — repli écran » SANS trace
-     *  pour trancher. Désormais : (1) analyse par section historique,
-     *  (2) repli TOUTE ligne « [dshow…] \"nom\" … (video) » sans exiger
-     *  l'en-tête, (3) l'ÉCHEC journalise les 500 premiers caractères du
-     *  stderr de ffmpeg — le prochain export dit EXACTEMENT ce que Windows
-     *  expose (périphérique absent, ou confidentialité caméra bloquée). */
-    private fun discoverCamera(exe: File): String? {
+    /** Énumère les webcams — CANDIDATS d'ouverture (chemin unique puis nom
+     *  convivial). v0.3.12 : l'analyse est déléguée à [DshowDeviceParser]
+     *  (formats ffmpeg ≤ 6 ET ≥ 7 — terrain 28/10 : « [in#0 @ …] "Integrated
+     *  Camera" (video) » listée puis déclarée absente par le parseur ffmpeg-6) ;
+     *  l'ÉCHEC journalise les 500 premiers caractères du stderr — le prochain
+     *  export dit EXACTEMENT ce que Windows expose. */
+    private fun discoverCameras(exe: File): List<String> {
         return try {
             val p = ProcessBuilder(
                 exe.absolutePath, "-hide_banner",
@@ -242,24 +289,15 @@ class DesktopCallVideo(
             ).start()
             val err = p.errorStream.readBytes().toString(Charsets.UTF_8)
             p.waitFor()
-            var inVideo = false
-            var sectionMatch: String? = null
-            var suffixMatch: String? = null
-            for (line in err.lineSequence()) {
-                if (line.contains("DirectShow video devices")) { inVideo = true; continue }
-                if (line.contains("DirectShow audio devices")) inVideo = false
-                if (line.contains("Alternative name")) continue
-                val m = CAM_NAME_REGEX.find(line) ?: continue
-                val name = m.groupValues[1].trim()
-                if (name.isEmpty()) continue
-                if (inVideo && sectionMatch == null) sectionMatch = name
-                // Repli : la ligne porte elle-même « (video) » (ffmpeg ≥ 6).
-                if (line.contains("(video)") && suffixMatch == null) suffixMatch = name
-            }
-            val found = sectionMatch ?: suffixMatch
-            if (found != null) {
-                DesktopLog.i("nyx-video", "webcam détectée : « $found » (dshow)")
-                found
+            val devices = DshowDeviceParser.parseDevices(err)
+            if (devices.isNotEmpty()) {
+                DesktopLog.i(
+                    "nyx-video",
+                    "webcam(s) détectée(s) : " + devices.joinToString(" ; ") {
+                        "« ${it.friendly} »${if (it.alternative != null) " (+chemin unique)" else ""}"
+                    }
+                )
+                DshowDeviceParser.candidates(devices)
             } else {
                 DesktopLog.w(
                     "nyx-video",
@@ -271,11 +309,11 @@ class DesktopCallVideo(
                     "si la caméra existe : Paramètres Windows > Confidentialité et sécurité > " +
                         "Caméra > « Autoriser les applications de bureau à accéder à la caméra » = ACTIVÉ"
                 )
-                null
+                emptyList()
             }
         } catch (e: Exception) {
             DesktopLog.w("nyx-video", "énumération webcam impossible : ${e.message?.take(60)}")
-            null
+            emptyList()
         }
     }
 
@@ -408,6 +446,8 @@ class DesktopCallVideo(
                         return if (source == Source.CAMERA) Source.CAMERA else null
                     }
                     source = Source.SCREEN
+                    sourceNotice =
+                        "Écran partagé (bascule 📹 pour revenir à la caméra)."
                     DesktopLog.i("nyx-video", "source vidéo basculée → PARTAGE D'ÉCRAN (${scr.w}x${scr.h})")
                     Source.SCREEN
                 }
@@ -420,9 +460,12 @@ class DesktopCallVideo(
                         val scr = prepareScreenOnly()
                         if (scr == null) return null
                         source = Source.SCREEN
+                        sourceNotice =
+                            "Caméra indisponible à la bascule — ÉCRAN maintenu (vérifier l'accès caméra Windows)."
                         DesktopLog.w("nyx-video", "caméra indisponible à la bascule — écran maintenu")
                         return Source.SCREEN
                     }
+                    sourceNotice = ""
                     DesktopLog.i("nyx-video", "source vidéo basculée → CAMÉRA (${cam.w}x${cam.h})")
                     Source.CAMERA
                 }
@@ -568,9 +611,6 @@ class DesktopCallVideo(
 
         /** Poids max conseillé d'une trame (recompression au-delà). */
         const val MAX_FRAME_BYTES = 32 * 1024
-
-        /** Ligne dshow « "Nom" » après le préfixe [dshow @ …]. */
-        private val CAM_NAME_REGEX = Regex("\\[dshow[^\\]]*\\]\\s+\"([^\"]+)\"")
     }
 }
 

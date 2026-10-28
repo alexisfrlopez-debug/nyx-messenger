@@ -67,3 +67,9 @@ desktop/app/build/
 desktop/.gradle/
 desktop/installer/payload.zip
 desktop/installer/nyx-messenger-windows-*.exe
+
+# Session 82 — payload Tor Android : binaires libTor.so (4 ABI) restaurés de
+# l'archive projet Drive (règle §9.4 — les binaires ne vivent JAMAIS dans git).
+android/app/src/main/jniLibs/
+# Session 82 — clé de signature rendezvous (Drive « Messagerie », JAMAIS git)
+/rendezvous-ed25519.json

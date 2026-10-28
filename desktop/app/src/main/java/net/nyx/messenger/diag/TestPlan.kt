@@ -48,6 +48,30 @@ object TestPlan {
      * caméra du PC par défaut + bascule écran, notifications de messages à la
      * racine, sonnerie immédiate au HELLO + retour d'appel.
      */
+    /** v0.3.12 — items de validation (miroir de docs/releases/v0.3.12-desktop.md). */
+    val ITEMS_V0_3_12 = listOf(
+        Item(
+            "webcam-detectee",
+            "LA WEBCAM DU PC EST ENFIN DÉTECTÉE — ITEM DÉCISIF n°1 (NOUVEAU v0.3.12, cause racine 6ᵉ export 21:16:35 : le parseur dshow lisait le format ffmpeg ≤ 6 alors que le ffmpeg 7.1 embarqué liste « [in#0 @ …] \"Integrated Camera\" (video) » — la webcam ÉTAIT listée mais déclarée absente → le PC envoyait son ÉCRAN) : appel visio vers le téléphone → l'export contient « webcam détectée(s) : « … » » puis « webcam ouverte : « … » » et « CAMÉRA du PC active » ; le téléphone voit VOTRE WEBCAM (plus l'écran) ; si la caméra est réellement absente : bannière orange dans l'overlay « Caméra indisponible — ÉCRAN envoyé. Vérifier : Paramètres Windows › Confidentialité et sécurité › Caméra… » (plus une ligne de journal invisible)"
+        ),
+        Item(
+            "ecran-valide",
+            "PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS — ITEM DÉCISIF n°2 (NOUVEAU v0.3.12, demande opérateur verbatim session 78 : « partage d'écran dans les 2 sens UNIQUEMENT si validé des 2 côtés ») : bouton 🖥️ → « ⏳ Autorisation… » et la demande part au téléphone (journal « F_SCREEN_REQ émis ») ; ✓ Autoriser SUR LE TÉLÉPHONE → bascule écran (« Partage d'écran actif (validé par le pair) ») ; ✕ ou 30 s sans réponse → caméra maintenue avec message honnête ; pendant le partage, 📹 → retour caméra + le téléphone est informé ; une demande DU téléphone ouvre « Le pair demande à partager son écran » ✓/✕ dans l'overlay ; avec un téléphone < v0.2.60 : « Partage d'écran refusé : le pair ne le valide pas » — JAMAIS de bascule unilatérale"
+        ),
+        Item(
+            "appel-pc-vers-tel-fiable",
+            "APPEL PC→TÉLÉPHONE FIABLE (NOUVEAU v0.3.12, preuve 6ᵉ export 21:17:40→57 : appel mort « réplica injoignable » après 17 s alors que le réplica répondait 30 s plus tard) : lancer un appel PC→téléphone → la sonnerie part MÊME si le premier dépôt échoue (journal « signalisation déposée sur … (cible N, tour M) » en cas de repli) ; plus de « réplica injoignable — appel impossible » tant qu'UNE cible vit"
+        ),
+        Item(
+            "dedup-flotte-bureau",
+            "TEMPÊTE DE RE-LIVRAISON MORTES (NOUVEAU v0.3.12, preuve 6ᵉ export 21:12→21:28 : ~30 lignes re-traitées PAR CYCLE de 15 s pendant 16 min) : l'export montre AU PLUS UNE ligne « N doublon(s) de livraison ignoré(s) (eventId connu) » par cycle ; plus de « ✓ annonce réplica … (persistée) » répétées en boucle ; l'offre d'un appel TERMINÉ ne re-sonne jamais (« offre d'un appel déjà terminé … doublon de livraison »)"
+        ),
+        Item(
+            "fiche-pair-resolue",
+            "FICHE PAIR RÉSOLUE (NOUVEAU v0.3.12, preuve : « GET /client/profile → 404 » chez le téléphone toutes les ~17 s — le PC demandait sa carte au MAUVAIS réplica) : la fiche du contact téléphone affiche l'alias/avatars publiés ; l'export téléphone ne montre PLUS de 404 en boucle (backoff 10 min quand la carte est introuvable)"
+        ),
+    )
+
     val ITEMS_V0_3_11 = listOf(
         Item(
             "raccrocher-premier-plan",
@@ -257,7 +281,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_12 + ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "net.nyx"
-version = "0.3.11"
+version = "0.3.12"
 
 repositories {
     mavenCentral()

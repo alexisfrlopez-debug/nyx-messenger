@@ -535,6 +535,30 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    /** v0.2.60 — items de validation (miroir de docs/releases/v0.2.60.md). */
+    val ITEMS_V0_2_60 = listOf(
+        Item(
+            "ecran-valide-pc-vers-tel",
+            "PARTAGE D'ÉCRAN VALIDÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.60, demande opérateur verbatim session 78 : « partage d'écran dans les 2 sens UNIQUEMENT si validé des 2 côtés ») : appel visio AVEC le PC v0.3.12 → le PC appuie 🖥️ → SUR LE TÉLÉPHONE s'affiche « Le PC demande à partager son écran » avec ✓ Autoriser / ✕ Refuser ; ✓ → l'écran du PC remplace sa caméra ; ✕ → le PC garde sa caméra (message chez lui) ; pendant le partage le téléphone appuie son propre bouton d'arrêt → le PC REVIENT à sa caméra immédiatement"
+        ),
+        Item(
+            "ecran-valide-tel-vers-pc",
+            "PARTAGE D'ÉCRAN TÉLÉPHONE→PC — ITEM DÉCISIF n°2 (NOUVEAU v0.2.60) : pendant la visio, bouton 🖥️ de l'écran d'appel → « Demande envoyée — en attente du PC… » ; le PC valide → le DIALOGUE SYSTÈME Android « Capturer l'écran » apparaît (deuxième consentement) ; Autoriser → une notification « Nyx — partage d'écran actif » et l'écran du téléphone part en JPEG (~5 fps) vers le PC ; Refuser au dialogue système OU raccrocher → la caméra reprend, la notification disparaît ; sans validation PC : « Partage d'écran : le PC ne le valide pas (≥ v0.3.12 requis) »"
+        ),
+        Item(
+            "camera-recuperation",
+            "RÉCUPÉRATION CAMÉRA (NOUVEAU v0.2.60, preuve 5ᵉ export 28/10 20:16:55 : « caméra en erreur (3) » à 19 s d'une visio saine) : pendant une visio > 1 min, si la caméra meurt (erreur fatale 3/10 du HAL), l'export montre « TENTATIVE DE RÉCUPÉRATION 1/1 » puis « récupération caméra : réouverture effectuée » et l'émission REPREND ; en cas de second échec : dégradation honnête « émission visio coupée — la RÉCEPTION CONTINUE », l'appel tient"
+        ),
+        Item(
+            "dedup-flotte",
+            "DOUBLONS DE LIVRAISON ÉCRÊTÉS (NOUVEAU v0.2.60, miroir bureau — preuve 6ᵉ export 21:12→21:28 : la flotte re-livrait le MÊME journal à chaque poll) : dans l'export, AU PLUS UNE ligne « N doublon(s) de livraison ignoré(s) (eventId connu) » par cycle de poll, PLUS JAMAIS de dizaines de « ✓ annonce réplica (persistée) » identiques ; une offre d'appel terminé ne re-sonne pas (une seule sonnerie par appel réel)"
+        ),
+        Item(
+            "build-propre-v60",
+            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.60 vérifié : PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS » (chaîne complète du marqueur — cf. notes de release)"
+        ),
+    )
+
     val ITEMS_V0_2_59 = listOf(
         Item("visio-bidirectionnelle", "LA VISIO TÉLÉPHONE↔PC PRODUIT UNE IMAGE DES DEUX CÔTÉS — ITEM DÉCISIF n°1 (NOUVEAU v0.2.59, retour terrain 28/10 17:24-17:25 : « visio tel => pc : je n'ai pas eu de video, idem dans l'autre sens » — preuve exports : « CaptureRequest contains unconfigured Input/Output Surface! » puis « CameraDevice was already closed » : la bascule H.264→MJPEG et le rattachement de l'aperçu UI SE COURSAIENT, la caméra perdue tuait AUSSI la vue du pair) : appel visio depuis OU vers le PC (bureau v0.3.11) → au décroché, le PC voit VOTRE caméra (portrait/paysage droit) ET vous voyez la webcam/écran du PC, PLUS D'UNE MINUTE sans crash ni bande noire ; l'aperçu LOCAL s'affiche aussi ; si votre caméra est reprise par le système, la VUE DU PAIR RESTE (message « Votre caméra est coupée — vous recevez toujours la vidéo », journal « émission visio coupée — la RÉCEPTION CONTINUE »)"),
         Item("messages-tel-vers-pc", "MESSAGES TÉLÉPHONE→PC : NOTIFIÉS CHEZ LE PAIR + ACCUSÉS CHEZ VOUS — ITEM DÉCISIF n°2 (NOUVEAU v0.2.59, retour terrain 28/10 17:26-17:30 : « envoi de message tel => pc : pas de notification coté pc, pas d'accusé de réception/lecture coté tel » — CAUSE RACINE PROUVÉE export 17:24:03 « HELLO events REFUSÉ : signature invalide » : le vérificateur recalculait la chaîne « events » avec le CID VIDE au lieu du COUNT signé → TOUT dépôt direct P2P était refusé) : envoyer un message au PC (bureau v0.3.11) → la bulle plateau apparaît CHEZ LE PC (même fenêtre réduite/arrière-plan) et l'accusé ✓ (réception) puis ✓✓ (lecture à l'ouverture) reviennent SUR VOTRE bulle en quelques secondes (journaux « accusés en attente : … » côté bureau)"),
@@ -678,7 +702,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_60 + ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

@@ -409,6 +409,69 @@ class CallVideo(
         }
     }
 
+    /** v0.2.60 — source d'émission = ÉCRAN (partage validé F_SCREEN_*). */
+    @Volatile private var screenSource = false
+
+    /** v0.2.60 — anti-chevauchement des trames écran (la capture produit ~5 fps). */
+    private val screenBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * v0.2.60 — BASCULE L'ÉMISSION SUR L'ÉCRAN (partage validé par le pair —
+     * F_SCREEN_ACCEPT reçu). Seule en MJPEG (visio bureau) : un pair H.264
+     * (téléphone↔téléphone) ne décode pas nos JPEG → refus propre.
+     * La caméra est LIBÉRÉE (l'autre appli peut s'en servir) ; les trames
+     * arrivent de [feedScreenFrame] (ScreenShare/MediaProjection).
+     * @return true si la bascule est effective.
+     */
+    fun switchSendingToScreen(): Boolean {
+        if (stopped || sendingStopped) return false
+        if (!mjpeg) {
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-video", "partage d'écran impossible en H.264 (téléphone↔téléphone) — MJPEG requis"
+            )
+            return false
+        }
+        if (screenSource) return true
+        screenSource = true
+        stopCamera()
+        net.nyx.messenger.diag.DiagLog.i("nyx-video", "émission basculée sur l'ÉCRAN (partage validé) — caméra libérée")
+        return true
+    }
+
+    /**
+     * v0.2.60 — RETOUR À LA CAMÉRA (arrêt/révocation du partage) : rouvre la
+     * caméra sur le lecteur MJPEG existant (mêmes dimensions, même session).
+     */
+    fun switchSendingBackToCamera() {
+        if (stopped || !screenSource) return
+        screenSource = false
+        if (!mjpeg) return
+        try {
+            val surface = mjpegReader?.surface ?: return
+            openCamera(surface)
+            net.nyx.messenger.diag.DiagLog.i("nyx-video", "émission revenue sur la CAMÉRA (partage d'écran arrêté)")
+        } catch (e: Exception) {
+            android.util.Log.w("nyx-video", "retour caméra impossible : ${e.message} — réception maintenue")
+        }
+    }
+
+    /**
+     * v0.2.60 — trame JPEG de l'écran (ScreenShare) → émission. Appelée par le
+     * worker de capture (thread dédié) ; anti-chevauchement par échange
+     * atomique, une trame en attente est REMPLACÉE (direct du direct).
+     */
+    fun feedScreenFrame(jpeg: ByteArray) {
+        if (stopped || sendingStopped || !screenSource || !transmit) return
+        if (!screenBusy.compareAndSet(false, true)) return
+        try {
+            write(P2pProtocol.F_VIDEO, jpeg)
+        } catch (e: Exception) {
+            android.util.Log.w("nyx-video", "trame écran non émise : ${e.message}")
+        } finally {
+            screenBusy.set(false)
+        }
+    }
+
     /** Image YUV_420_888 → NV21 (VU entrelacé, gère rowStride/pixelStride). */
     private fun yuv420ToNv21(img: Image): ByteArray {
         val w = img.width
@@ -700,6 +763,7 @@ class CallVideo(
 
     @SuppressLint("MissingPermission")
     private fun openCamera(encoderSurface: Surface) {
+        pendingEncoderSurface = encoderSurface // v0.2.60 — pour la récupération d'erreur fatale
         val mgr = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val pick = pickCamera(mgr) ?: throw IllegalStateException("aucune caméra")
         camPick = pick
@@ -814,6 +878,28 @@ class CallVideo(
                 if (gen != camGen.get() || stopped) return
                 camera = null
                 cameraOn = false
+                // v0.2.60 — RÉCUPÉRATION UNE FOIS (terrain 28/10 20:16:55 : erreur
+                // fatale 3 [ERROR_CAMERA_DEVICE] à 19 s d'une visio saine — le
+                // HAL de certains téléphones meurt d'un coup puis REVIENT) :
+                // fermeture complète + 1,2 s de repos + réouverture fraîche
+                // AVANT de dégrader. La réception du pair continue pendant
+                // l'essai (miroir micro HS) ; en cas de nouvel échec →
+                // dégradation honnête habituelle.
+                val fatal = error == 3 /* ERROR_CAMERA_DEVICE */ ||
+                    error == 10 /* ERROR_CAMERA_SERVICE */
+                if (fatal && !stopped && !sendingStopped &&
+                    fatalCamRecoveries.getAndIncrement() < 1 && !screenSource
+                ) {
+                    net.nyx.messenger.diag.DiagLog.w(
+                        "nyx-video",
+                        "caméra en erreur FATALE ($error) — TENTATIVE DE RÉCUPÉRATION 1/1 (réouverture dans 1,2 s)"
+                    )
+                    val surface = mjpegReader?.surface ?: pendingEncoderSurface
+                    if (surface != null) {
+                        scheduleCameraRecovery(surface)
+                        return
+                    }
+                }
                 if (!stopped) onVideoLost("caméra en erreur ($error)")
             }
         }, handler)
@@ -842,6 +928,32 @@ class CallVideo(
                 runCatching { openCamera(surface) }
             }
         }, 400L)
+    }
+
+    /** v0.2.60 — compteur de récupérations après erreur FATALE (max 1 par appel). */
+    private val fatalCamRecoveries = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** v0.2.60 — dernière surface d'encodeur demandée (pour la récupération). */
+    @Volatile private var pendingEncoderSurface: Surface? = null
+
+    /**
+     * v0.2.60 — RÉCUPÉRATION après erreur caméra FATALE : fermeture complète,
+     * repos 1,2 s (le HAL doit rendre la main), PUIS réouverture fraîche.
+     * Une seule tentative par appel — l'échec retombe dans la dégradation
+     * honnête (émission coupée, réception maintenue — terrain 28/10).
+     */
+    private fun scheduleCameraRecovery(surface: Surface) {
+        val h = runCatching { ensureCameraHandler() }.getOrNull() ?: return
+        camGen.incrementAndGet()
+        // Repos 1,2 s pour laisser le HAL rendre la main, PUIS fermeture et
+        // réouverture fraîches (sur le handler caméra — jamais l'appel).
+        h.postDelayed({
+            if (!stopped && !sendingStopped) {
+                runCatching { stopCamera() }
+                runCatching { openCamera(surface) }
+                net.nyx.messenger.diag.DiagLog.i("nyx-video", "récupération caméra : réouverture effectuée")
+            }
+        }, 1_200L)
     }
 
     /** Handler unique du looper caméra (callbacks caméra + rotation d'écran). */

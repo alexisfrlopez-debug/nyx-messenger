@@ -18,9 +18,13 @@ import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -78,6 +82,30 @@ fun CallOverlay() {
     val answerPerm = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { CallManager.acceptIncoming() }
+
+    // v0.2.60 — PARTAGE D'ÉCRAN VALIDÉ : le lancement MediaProjection exige
+    // une ACTIVITÉ (dialogue système) — le moteur d'appel passe par
+    // [CallManager.screenShareStarter], câblé ICI. La capture ne part qu'après
+    // le F_SCREEN_ACCEPT du pair ET ce consentement système (les DEUX côtés).
+    val projectionPerm = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        if (res.resultCode == android.app.Activity.RESULT_OK && res.data != null) {
+            net.nyx.messenger.p2p.screenshare.ScreenShare.grant(ansCtx, res.resultCode, res.data!!)
+            CallManager.onScreenProjectionGranted(true)
+        } else {
+            CallManager.onScreenProjectionGranted(false)
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        CallManager.screenShareStarter = { onResult ->
+            val ctx = ansCtx
+            val mgr = ctx.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE)
+                as android.media.projection.MediaProjectionManager
+            CallManager.setPendingProjectionResult(onResult)
+            projectionPerm.launch(mgr.createScreenCaptureIntent())
+        }
+    }
 
     var seconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(ui.phase, ui.startedAt) {
@@ -247,6 +275,40 @@ fun CallOverlay() {
                     color = MaterialTheme.colorScheme.tertiary
                 )
             }
+            // v0.2.60 — messages du protocole de partage d'écran (refus,
+            // validation, révocation, attente).
+            if (ui.phase == CallManager.Phase.ACTIVE && ui.screenNotice.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    ui.screenNotice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary
+                )
+            }
+            // v0.2.60 — DEMANDE DU PC (F_SCREEN_REQ) : validation ✓/✕ AVANT que
+            // son écran n'arrive chez nous (partage VALIDÉ des 2 côtés).
+            if (ui.phase == CallManager.Phase.ACTIVE && ui.screenShareRequest) {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        "Le PC demande à\npartager son écran",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
+                    Button(
+                        onClick = { CallManager.answerScreenShare(true) },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2E7D32)
+                        )
+                    ) { androidx.compose.material3.Icon(Icons.Filled.Check, null) }
+                    Button(
+                        onClick = { CallManager.answerScreenShare(false) },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) { androidx.compose.material3.Icon(Icons.Filled.Close, null) }
+                }
+            }
         }
 
         Row(
@@ -301,6 +363,15 @@ fun CallOverlay() {
                             bg = Color(0xFF444444),
                             desc = stringResource(R.string.call_camera_toggle)
                         ) { CallManager.toggleCamera() }
+                        // v0.2.60 — PARTAGE D'ÉCRAN VALIDÉ : demande au pair
+                        // (F_SCREEN_REQ) ; la capture ne démarre qu'à SON
+                        // accept ET au dialogue système (les DEUX validations).
+                        CircleButton(
+                            icon = Icons.Filled.ScreenShare,
+                            tint = if (ui.screenSharing) MaterialTheme.colorScheme.tertiary else Color.White,
+                            bg = Color(0xFF444444),
+                            desc = "Partage d'écran (validé par le pair)"
+                        ) { CallManager.requestScreenShare() }
                     }
                     CircleButton(
                         icon = Icons.Filled.CallEnd,

@@ -45,6 +45,10 @@ class DesktopCallAudio(
     /** v0.3.7 — trames F_VIDEO_ROT (rotation de l'écran du PAIR) → moteur vidéo. */
     @Volatile var rotSink: ((ByteArray) -> Unit)? = null
 
+    /** v0.3.12 — trames de PARTAGE D'ÉCRAN VALIDÉ (F_SCREEN_REQ/ACCEPT/STOP)
+     * → gestionnaire d'appel (dialogue ✓/✕, bascule, révocation). */
+    @Volatile var screenSink: ((Int, ByteArray) -> Unit)? = null
+
     /** v0.2.18 miroir : l'audio ne part QU'après acceptation (pas d'écoute à l'insu). */
     @Volatile var transmit = false
 
@@ -210,6 +214,8 @@ class DesktopCallAudio(
                         P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
                         P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
                         P2pProtocol.F_VIDEO_ROT -> rotSink?.invoke(frame.payload)
+                        P2pProtocol.F_SCREEN_REQ, P2pProtocol.F_SCREEN_ACCEPT,
+                        P2pProtocol.F_SCREEN_STOP -> screenSink?.invoke(frame.type, frame.payload)
                     }
                 }
             } catch (e: Exception) {

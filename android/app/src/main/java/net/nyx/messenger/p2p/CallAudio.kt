@@ -62,6 +62,10 @@ class CallAudio(
      *  distante) — le flux et le décodeur ne bougent pas. */
     @Volatile var rotSink: ((ByteArray) -> Unit)? = null
 
+    /** v0.2.60 — trames de PARTAGE D'ÉCRAN VALIDÉ (F_SCREEN_REQ/ACCEPT/STOP)
+     * → gestionnaire d'appel (miroir bureau). */
+    @Volatile var screenSink: ((Int, ByteArray) -> Unit)? = null
+
     @Volatile var stopped = false
         private set
 
@@ -415,6 +419,8 @@ class CallAudio(
                             }
                             P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
                             P2pProtocol.F_VIDEO_ROT -> rotSink?.invoke(frame.payload)
+                            P2pProtocol.F_SCREEN_REQ, P2pProtocol.F_SCREEN_ACCEPT,
+                            P2pProtocol.F_SCREEN_STOP -> screenSink?.invoke(frame.type, frame.payload)
                             P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
                         }
                     }
@@ -447,6 +453,8 @@ class CallAudio(
                         P2pProtocol.F_AUDIO -> feedDecoder(dec, frame.payload, info)
                         P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
                         P2pProtocol.F_VIDEO_ROT -> rotSink?.invoke(frame.payload)
+                        P2pProtocol.F_SCREEN_REQ, P2pProtocol.F_SCREEN_ACCEPT,
+                        P2pProtocol.F_SCREEN_STOP -> screenSink?.invoke(frame.type, frame.payload)
                         P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
                     }
                 }

@@ -232,15 +232,25 @@ fun CallOverlay() {
                             ),
                         ) { Text(if (ui.muted) "🔇 Micro coupé" else "🎤 Micro actif", fontSize = 14.sp) }
                         if (ui.videoEnabled) {
-                            // v0.3.10 — BASCULE CAMÉRA ↔ ÉCRAN (demande opérateur :
-                            // « je veux par défaut le flux caméra mais la possibilité
-                            // de partager l'écran »).
+                            // v0.3.12 — bascule écran VALIDÉE PAR LE PAIR (session 78 :
+                            // « partage d'écran … UNIQUEMENT si validé des 2 côtés ») :
+                            // le bouton envoie une DEMANDE ; la bascule n'a lieu qu'à
+                            // la réception du F_SCREEN_ACCEPT (DesktopCallManager).
                             Button(
                                 onClick = { DesktopCallManager.toggleVideoSource() },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (ui.videoIsScreen) Color(0x5E35B1) else Color(0x37474F)
+                                    containerColor = if (ui.videoIsScreen) Color(0x5E35B1)
+                                    else if (ui.screenSharePending) Color(0x8D6E63) else Color(0x37474F)
                                 ),
-                            ) { Text(if (ui.videoIsScreen) "🖥️ Écran" else "📹 Caméra", fontSize = 14.sp) }
+                            ) {
+                                Text(
+                                    when {
+                                        ui.videoIsScreen -> "🖥️ Écran"
+                                        ui.screenSharePending -> "⏳ Autorisation…"
+                                        else -> "📹 Caméra"
+                                    }, fontSize = 14.sp
+                                )
+                            }
                             Button(
                                 onClick = { DesktopCallManager.toggleVideo() },
                                 colors = ButtonDefaults.buttonColors(
@@ -253,17 +263,50 @@ fun CallOverlay() {
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xB3261E)),
                         ) { Text("Raccrocher", fontSize = 14.sp) }
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(10.dp))
+                    // v0.3.12 — DEMANDE DU PAIR (F_SCREEN_REQ) : validation ✓/✕
+                    // AVANT que SON écran arrive chez nous.
+                    if (ui.screenShareRequest) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Le pair demande à partager son écran :", fontSize = 13.sp, color = Color(0xE8DCC8))
+                            Button(
+                                onClick = { DesktopCallManager.answerScreenShare(true) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0x2E7D32)),
+                            ) { Text("✓ Autoriser", fontSize = 13.sp) }
+                            Button(
+                                onClick = { DesktopCallManager.answerScreenShare(false) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xB3261E)),
+                            ) { Text("✕ Refuser", fontSize = 13.sp) }
+                        }
+                    }
+                    // v0.3.12 — état honnête de NOTRE source (repli écran, écran
+                    // partagé validé…) : bannière sous les boutons, plus jamais
+                    // une ligne de journal invisible (terrain 28/10 : « le pc
+                    // fait un partage d'écran » sans savoir pourquoi).
+                    val engineNotice = DesktopCallManager.remoteVideo?.sourceNotice ?: ""
+                    val banner = ui.screenNotice.ifBlank { engineNotice }
+                    if (banner.isNotEmpty()) {
+                        Text(
+                            banner, fontSize = 11.sp, color = Color(0xFFB74D),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Spacer(Modifier.height(10.dp))
                     Text(
                         if (ui.videoEnabled)
                             if (ui.videoIsScreen)
                                 "La vidéo passe par Tor (~5 trames/s) : votre ÉCRAN est partagé " +
-                                    "— basculez sur 📹 Caméra si besoin ; vous voyez la caméra du téléphone. " +
+                                    "(validé par le pair) — basculez sur 📹 pour revenir à la caméra. " +
                                     "Une latence de 0,5 à 3 s est normale."
                             else
                                 "La vidéo passe par Tor (~5 trames/s) : votre CAMÉRA est partagée " +
-                                    "(basculez sur 🖥️ Écran pour un partage d'écran) ; vous voyez la caméra " +
-                                    "du téléphone. Une latence de 0,5 à 3 s est normale."
+                                    "(🖥️ envoie une demande de partage d'écran — le pair doit l'autoriser) ; " +
+                                    "vous voyez la caméra du téléphone. Une latence de 0,5 à 3 s est normale."
                         else
                             "L'audio passe par Tor — une latence de 0,5 à 3 secondes est normale.",
                         fontSize = 11.sp, color = Color(0x776B5E), textAlign = TextAlign.Center

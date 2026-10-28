@@ -38,6 +38,23 @@ object P2pProtocol {
     const val F_CALL_REJECT = 0x13
     const val F_BYE = 0x15       // raccroché
     const val F_ACK = 0x7F       // payload = [reçus:4 BE]
+    // v0.2.60 — PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS (miroir bureau v0.3.12,
+    // demande opérateur session 78 : « partage d'écran dans les 2 sens
+    // UNIQUEMENT si validé des 2 côtés »). Payloads ASCII vides ou « 1 ».
+    const val F_SCREEN_REQ = 0x19    // « puis-je partager mon écran ? »
+    const val F_SCREEN_ACCEPT = 0x1A // validation du pair → bascule écran de l'émetteur
+    const val F_SCREEN_STOP = 0x1B   // refus / arrêt / révocation → retour caméra
+
+    /**
+     * v0.2.60 — PROTOCOLE PARTAGE D'ÉCRAN VALIDÉ (champ HELLO/ACCEPT « sc ») :
+     * "1" = ce pair comprend F_SCREEN_REQ/ACCEPT/STOP et y répondra. Un pair
+     * sans le champ (téléphone ≤ v0.2.59, bureau ≤ v0.3.11) ne SAIT ni
+     * demander ni valider → le partage unilatéral est refusé proprement.
+     * Miroir bureau v0.3.12.
+     */
+    const val SC_PROTOCOL = "1"
+
+    fun supportsScreenShare(sc: String): Boolean = sc == SC_PROTOCOL
 
     // v0.2.54 — codecs audio négociés (interop appels PC↔téléphone) :
     // HELLO.ac = liste SUPPORTÉE par l'appelant, ACCEPT.ac = codec CHOISI par
@@ -149,6 +166,9 @@ object P2pProtocol {
         // l'interop visio PC↔téléphone). L'APPELÉ choisit et répond dans
         // AcceptPayload.vc. Un pair ancien ignore la clé (MiniJson par clé).
         val vc: String = "",
+        // v0.2.60 — PROTOCOLE PARTAGE D'ÉCRAN VALIDÉ ("1" ; "" = pair ≤
+        // v0.2.59 / bureau ≤ v0.3.11 qui ne sait ni demander ni valider).
+        val sc: String = "",
     )
 
     fun encodeHello(h: Hello, sigB64: String): ByteArray {
@@ -182,6 +202,10 @@ object P2pProtocol {
         if (h.vc.isNotEmpty()) {
             sb.append(",\"vc\":\"").append(esc(h.vc)).append('"')
         }
+        // v0.2.60 — protocole partage d'écran validé (un pair ancien ignore la clé).
+        if (h.sc.isNotEmpty()) {
+            sb.append(",\"sc\":\"").append(esc(h.sc)).append('"')
+        }
         sb.append(",\"sig\":\"").append(esc(sigB64)).append("\"}")
         return sb.toString().toByteArray(Charsets.UTF_8)
     }
@@ -204,7 +228,9 @@ object P2pProtocol {
             // v0.2.54 — codecs audio (absent = AAC seul, pair ≤ v0.2.53)
             MiniJson.str(s, "ac") ?: "",
             // v0.2.55 — codecs vidéo (absent = H.264 seul, pair ≤ v0.2.54)
-            MiniJson.str(s, "vc") ?: ""
+            MiniJson.str(s, "vc") ?: "",
+            // v0.2.60 — protocole partage d'écran validé (absent = pair ancien)
+            MiniJson.str(s, "sc") ?: ""
         )
     }
 
@@ -229,6 +255,9 @@ object P2pProtocol {
         // v0.2.58 — MJPEG PRÉ-TOURNÉ accordé par l'appelé ("1" = bureau
         // ≥ v0.3.10 qui rend la trame par SON aspect ; "" = historique).
         val vpr: String = "",
+        // v0.2.60 — protocole partage d'écran validé compris par l'appelé
+        // ("1" = bureau ≥ v0.3.12 ; "" = pair ancien).
+        val sc: String = "",
     )
 
     /**
@@ -243,17 +272,20 @@ object P2pProtocol {
             vrot: Int = 0, vw: Int = 0, vh: Int = 0,
             ac: String = "",
             vc: String = "",
+            sc: String = "",
         ): String {
             // v0.2.54 — ac vide ET pas de vidéo → format historique (un
             // appelant v0.2.19 lit le b64 brut) ; sinon JSON (v0.2.20+).
             // v0.2.55 — idem avec vc (le MJPEG passe forcément en JSON).
-            if (videoCsdB64.isEmpty() && ac.isEmpty() && vc.isEmpty()) return audioCsdB64
+            // v0.2.60 — idem avec sc (écho du protocole partage d'écran).
+            if (videoCsdB64.isEmpty() && ac.isEmpty() && vc.isEmpty() && sc.isEmpty()) return audioCsdB64
             fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
             return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"" +
                 ",\"vrot\":${vrot.coerceIn(0, 359)},\"vw\":${vw.coerceIn(0, 4096)}" +
                 ",\"vh\":${vh.coerceIn(0, 4096)}" +
                 (if (ac.isEmpty()) "" else ",\"ac\":\"${esc(ac)}\"") +
-                (if (vc.isEmpty()) "" else ",\"vc\":\"${esc(vc)}\"") + "}"
+                (if (vc.isEmpty()) "" else ",\"vc\":\"${esc(vc)}\"") +
+                (if (sc.isEmpty()) "" else ",\"sc\":\"${esc(sc)}\"") + "}"
         }
 
         /** Infos d'acceptation — tolère l'ancien format brut ET le JSON v0.2.20. */
@@ -270,7 +302,9 @@ object P2pProtocol {
                     MiniJson.str(s, "ac") ?: "",
                     MiniJson.str(s, "vc") ?: "",
                     // v0.2.58 — pré-rotation MJPEG accordée par un bureau ≥ v0.3.10
-                    MiniJson.str(s, "vpr") ?: ""
+                    MiniJson.str(s, "vpr") ?: "",
+                    // v0.2.60 — protocole partage d'écran validé (bureau ≥ v0.3.12)
+                    MiniJson.str(s, "sc") ?: ""
                 )
             }
             return AcceptInfo(s, "")

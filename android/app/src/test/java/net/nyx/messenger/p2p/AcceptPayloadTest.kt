@@ -301,4 +301,48 @@ class AcceptPayloadTest {
         val mjpeg = P2pProtocol.AcceptPayload.encode("AAEC", "", 0, 240, 320, "adpcm", "mjpeg")
         assertTrue(!mjpeg.contains("vpr"))
     }
+
+    // ---------- v0.2.60 — PROTOCOLE PARTAGE D'ÉCRAN VALIDÉ (champ sc) ----------
+
+    @Test
+    fun `v0260 - ACCEPT du téléphone écho sc=1 quand l'appelant l'annonce`() {
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "", 0, 320, 240, "adpcm", "mjpeg", "1")
+        assertTrue(payload.contains("\"sc\":\"1\""))
+        val info = P2pProtocol.AcceptPayload.parse(payload.toByteArray())
+        assertTrue(P2pProtocol.supportsScreenShare(info.sc))
+    }
+
+    @Test
+    fun `v0260 - ACCEPT SANS sc - téléphone↔téléphone inchangé`() {
+        // Un appelé téléphone (pas bureau) ne met pas sc : champ absent.
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "AAAAMUcC", 90, 320, 240, "", "")
+        assertTrue(!payload.contains("\"sc\""))
+        assertTrue(!P2pProtocol.supportsScreenShare(P2pProtocol.AcceptPayload.parse(payload.toByteArray()).sc))
+    }
+
+    @Test
+    fun `v0260 - HELLO du téléphone porte sc - le bureau peut l'écho-t-il`() {
+        val sig = "SIGB64"
+        val bytes = P2pProtocol.encodeHello(
+            P2pProtocol.Hello("call", "a".repeat(56) + ".onion", "alias", "cid1", "AAEC", 0, sig,
+                vcsd = "AAAAMUcC", vrot = 270, vw = 320, vh = 240,
+                ac = "aac,adpcm", vc = "h264,mjpeg", sc = P2pProtocol.SC_PROTOCOL), sig
+        )
+        val hello = P2pProtocol.parseHello(bytes)!!
+        assertTrue(P2pProtocol.supportsScreenShare(hello.sc))
+        assertTrue(bytes.toString(Charsets.UTF_8).contains("\"sc\":\"1\""))
+    }
+
+    @Test
+    fun `v0260 - ACCEPT du bureau v0312 avec sc lu par le téléphone`() {
+        // Le bureau ≥ v0.3.12 répond sc="1" : le téléphone sait qu'il peut
+        // demander le partage de SON écran (F_SCREEN_REQ → ACCEPT → capture).
+        // (L'ENCODE Android n'a pas de vpr : le sc du bureau est SIMULÉ par un
+        // JSON littéral ci-dessous, byte pour byte ce que le bureau émet.)
+        val bureau = "{\"csd\":\"AAEC\",\"vcsd\":\"\",\"vrot\":0,\"vw\":480,\"vh\":270," +
+            "\"ac\":\"adpcm\",\"vc\":\"mjpeg\",\"vpr\":\"1\",\"sc\":\"1\"}"
+        val info = P2pProtocol.AcceptPayload.parse(bureau.toByteArray())
+        assertTrue(P2pProtocol.supportsScreenShare(info.sc))
+        assertEquals("1", info.vpr)
+    }
 }

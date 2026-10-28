@@ -186,3 +186,13 @@ desktop/app/src/test/java/net/nyx/messenger/p2p/P2pProtocolDesktopTest.kt:portag
 # de sonnerie par identité de conception).
 android/app/src/main/java/net/nyx/messenger/notify/CallRingback.kt:portage-miroir
 desktop/app/src/main/java/net/nyx/messenger/notify/DesktopRinger.kt:portage-miroir
+
+# v0.2.60 — PARTAGE D'ÉCRAN VALIDÉ des appels visio (demande opérateur
+# session 78 : « partage d'écran dans les 2 sens UNIQUEMENT si validé des
+# 2 côtés ») : MediaProjection exige un service au premier plan de type
+# mediaProjection depuis Android 14 (exigence PLATEFORME — le type est
+# conditionné au double consentement : F_SCREEN_ACCEPT du pair PUIS
+# dialogue système Android ; jamais de capture unilatérale, la capture ne
+# tourne QUE pendant l'appel, aucune image ne quitte l'appareil sans le
+# canal média chiffré Tor E2E, rien n'est stocké).
+android/app/src/main/AndroidManifest.xml:android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION

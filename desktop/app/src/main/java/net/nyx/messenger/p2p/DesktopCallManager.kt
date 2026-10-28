@@ -72,6 +72,12 @@ object DesktopCallManager {
         val videoPeerRot: Int = 0,          // rotation caméra du pair (F_VIDEO_ROT)
         val videoPeerW: Int = 0,            // taille d'encodage du pair (aspect)
         val videoPeerH: Int = 0,
+        // v0.3.12 — PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS (trames
+        // F_SCREEN_REQ/ACCEPT/STOP, champ HELLO/ACCEPT « sc ») :
+        val screenSharePending: Boolean = false,  // notre REQ est en vol (attente du pair)
+        val screenShareRequest: Boolean = false,  // REQ du pair à valider (✓/✕ overlay)
+        val peerScreenShare: Boolean = false,     // le pair partage SON écran actuellement
+        val screenNotice: String = "",            // message transitoire (refus, révocation…)
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
@@ -102,6 +108,18 @@ object DesktopCallManager {
     /** v0.3.10 — cids récemment REFUSÉS (garde : l'offre journal arrive APRÈS
      * le refus de la carte → ne doit pas re-sonner). */
     private val rejectedCids = HashMap<String, Long>()
+
+    /**
+     * v0.3.12 — cids récemment TERMINÉS (terrain 28/10 21:16 : l'offre du
+     * cid b2829fd6, re-livérée par la flotte ~12 s après la fin de l'appel,
+     * a RE-SONNÉ comme appel entrant — l'opérateur a décroché dans le vide,
+     * mort en WAIT 4 s plus tard). Une offre dont le cid vient de se terminer
+     * est un doublon de livraison : ignorée pendant 10 min.
+     */
+    private val endedCids = HashMap<String, Long>()
+
+    /** v0.3.12 — le pair comprend le protocole partage d'écran (sc=1). */
+    @Volatile private var peerScreenProtocol = false
 
     fun init(repoRef: DesktopRepository) {
         repo = repoRef
@@ -238,6 +256,7 @@ object DesktopCallManager {
                     video = vEngine
                     audioEngine.videoSink = { bytes -> vEngine.feedVideo(bytes) }
                     audioEngine.rotSink = { p -> onPeerRotation(p) }
+                    audioEngine.screenSink = { t, p -> onScreenFrame(t, p) }
                     vW = vSend.w; vH = vSend.h
                     vSrcScreen = vSend.source == DesktopCallVideo.Source.SCREEN
                     DesktopLog.i(
@@ -271,7 +290,10 @@ object DesktopCallManager {
                     P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig,
                         vw = vW, vh = vH,
                         ac = P2pProtocol.AC_ADPCM,
-                        vc = if (_ui.value.videoEnabled) P2pProtocol.VC_MJPEG else ""), sig
+                        vc = if (_ui.value.videoEnabled) P2pProtocol.VC_MJPEG else "",
+                        // v0.3.12 — protocole partage d'écran validé (le pair
+                        // ancien ignore la clé : sc connu à l'ACCEPT sinon).
+                        sc = P2pProtocol.SC_PROTOCOL), sig
                 ))
             }.getOrElse { e ->
                 DesktopLog.w("nyx-call", "HELLO non remis : ${e.message}")
@@ -290,6 +312,11 @@ object DesktopCallManager {
             when (answer?.type) {
                 P2pProtocol.F_CALL_ACCEPT -> {
                     val accept = P2pProtocol.AcceptPayload.parse(answer.payload)
+                    // v0.3.12 — le pair écho-t-il le protocole partage d'écran ?
+                    peerScreenProtocol = P2pProtocol.supportsScreenShare(accept.sc)
+                    if (!peerScreenProtocol) {
+                        DesktopLog.i("nyx-video", "partage d'écran validé : pair sans protocole sc (≤ v0.2.59) — bascule écran désactivée")
+                    }
                     if (accept.ac != P2pProtocol.AC_ADPCM) {
                         // L'appelé a choisi l'AAC (téléphone ≤ v0.2.53 ou
                         // téléphone↔téléphone) — le bureau ne décode PAS l'AAC :
@@ -386,6 +413,15 @@ object DesktopCallManager {
                 val rejectedAt = synchronized(rejectedCids) { rejectedCids[signal.cid] }
                 if (rejectedAt != null && nowMs() - rejectedAt < 120_000L) {
                     DesktopLog.i("nyx-call", "offre d'un appel déjà refusé (cid ${signal.cid.take(8)}…) — ignorée")
+                    return
+                }
+                // v0.3.12 — offre d'un appel TERMINÉ il y a < 10 min : la flotte
+                // re-livre le journal (terrain 28/10 21:16 : le cid b2829fd6 a
+                // re-sonné 12 s après sa fin — décroché dans le vide) → doublon
+                // de livraison, JAMAIS une nouvelle sonnerie.
+                val endedAt = synchronized(endedCids) { endedCids[signal.cid] }
+                if (endedAt != null && nowMs() - endedAt < 600_000L) {
+                    DesktopLog.i("nyx-call", "offre d'un appel déjà terminé (cid ${signal.cid.take(8)}…) — ignorée (doublon de livraison)")
                     return
                 }
                 if (_ui.value.phase != Phase.IDLE) {
@@ -669,8 +705,12 @@ object DesktopCallManager {
                 DesktopLog.w("nyx-video", "aucune source vidéo (caméra ni écran) — réponse AUDIO seule")
             }
         }
+        // v0.3.12 — protocole partage d'écran validé : ÉCHO de la capacité
+        // de l'APPELANT (un bureau/téléphone ancien ne verra jamais la clé).
+        peerScreenProtocol = P2pProtocol.supportsScreenShare(c.hello.sc)
         val engine = DesktopCallAudio(c.input, { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
         audio = engine
+        engine.screenSink = { t, p -> onScreenFrame(t, p) }
         val myCsdB64 = runCatching {
             java.util.Base64.getEncoder().encodeToString(engine.startSending())
         }.getOrElse {
@@ -695,7 +735,8 @@ object DesktopCallManager {
             c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(
                 myCsdB64, "", 0, vW, vH, P2pProtocol.AC_ADPCM,
                 if (vEngine != null) P2pProtocol.VC_MJPEG else "",
-                if (vEngine != null) P2pProtocol.VPR_PREROTATED else ""
+                if (vEngine != null) P2pProtocol.VPR_PREROTATED else "",
+                if (peerScreenProtocol) P2pProtocol.SC_PROTOCOL else ""
             ).toByteArray(Charsets.UTF_8))
         }.getOrElse { e ->
             DesktopLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
@@ -755,16 +796,135 @@ object DesktopCallManager {
     }
 
     /**
-     * v0.3.10 — BASCULE CAMÉRA ↔ ÉCRAN (demande opérateur verbatim : « je
-     * veux par défaut le flux caméra mais la possibilité de partager
-     * l'écran ») : le moteur vidéo change de source À CHAUD, le pair suit
-     * (chaque trame JPEG porte son propre aspect).
+     * v0.3.10 — BASCULE CAMÉRA ↔ ÉCRAN ; v0.3.12 — VALIDÉ PAR LE PAIR :
+     * partager SON écran exige désormais que le pair réponde
+     * F_SCREEN_ACCEPT à notre F_SCREEN_REQ (demande opérateur session 78 :
+     * « partage d'écran dans les 2 sens UNIQUEMENT si validé des 2 côtés »).
+     * Un pair sans protocole sc (téléphone ≤ v0.2.59) ne reçoit JAMAIS notre
+     * écran : la bascule est refusée proprement (plus de partage unilatéral).
+     * Le retour à la caméra reste libre (F_SCREEN_STOP au pair, il est
+     * informé). La bascule AUTOMATIQUE de repli (caméra indisponible à
+     * l'ouverture) reste honnête : sourceNotice + bannière dans l'overlay.
      */
     fun toggleVideoSource() {
         val state = _ui.value
-        if (!state.videoEnabled) return
-        val newSource = video?.switchSource() ?: return
-        _ui.value = state.copy(videoIsScreen = newSource == DesktopCallVideo.Source.SCREEN)
+        if (!state.videoEnabled || state.phase != Phase.ACTIVE) return
+        val c = conn ?: return
+        if (state.videoIsScreen) {
+            // On PARTAGE déjà : retour caméra + information du pair.
+            runCatching { c.send(P2pProtocol.F_SCREEN_STOP) }
+            val newSource = video?.switchSource() ?: return
+            _ui.value = state.copy(
+                videoIsScreen = newSource == DesktopCallVideo.Source.SCREEN,
+                screenNotice = if (newSource == DesktopCallVideo.Source.SCREEN) "" else "Partage d'écran arrêté — caméra."
+            )
+            return
+        }
+        // Caméra → écran : AUTORISATION DU PAIR exigée.
+        if (!peerScreenProtocol) {
+            _ui.value = state.copy(
+                screenNotice = "Partage d'écran refusé : le pair ne le valide pas (appli téléphone ≥ v0.2.60 requise)."
+            )
+            DesktopLog.i("nyx-video", "bascule écran REFUSÉE : pair sans protocole sc")
+            return
+        }
+        if (state.screenSharePending) return  // REQ déjà en vol
+        runCatching { c.send(P2pProtocol.F_SCREEN_REQ, P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)) }
+        _ui.value = state.copy(screenSharePending = true, screenNotice = "Demande de partage d'écran envoyée — en attente du pair…")
+        DesktopLog.i("nyx-video", "F_SCREEN_REQ émis — attente de la validation du pair")
+        // Garde-fou : pas de réponse en 30 s → REQ annulée (caméra maintenue).
+        val reqAt = nowMs()
+        scope.launch {
+            delay(30_000)
+            if (_ui.value.screenSharePending && _ui.value.phase == Phase.ACTIVE && nowMs() - reqAt >= 29_000) {
+                _ui.value = _ui.value.copy(
+                    screenSharePending = false,
+                    screenNotice = "Partage d'écran : aucune réponse du pair — caméra maintenue."
+                )
+            }
+        }
+    }
+
+    /**
+     * v0.3.12 — RÉPONSE à la demande DU PAIR (boutons ✓/✕ de l'overlay).
+     * ✓ → F_SCREEN_ACCEPT (le pair bascule son flux sur SON écran) ;
+     * ✕ → F_SCREEN_STOP (refus explicite, le pair garde sa caméra).
+     */
+    fun answerScreenShare(accept: Boolean) {
+        val state = _ui.value
+        if (!state.screenShareRequest) return
+        val c = conn ?: return
+        runCatching {
+            c.send(
+                if (accept) P2pProtocol.F_SCREEN_ACCEPT else P2pProtocol.F_SCREEN_STOP,
+                P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)
+            )
+        }
+        _ui.value = state.copy(
+            screenShareRequest = false,
+            peerScreenShare = accept,
+            screenNotice = if (accept) "Le pair partage son écran." else "Demande de partage refusée."
+        )
+        DesktopLog.i("nyx-video", "REQ partage d'écran du pair → ${if (accept) "ACCEPTÉ" else "REFUSÉ"}")
+    }
+
+    /**
+     * v0.3.12 — TRAMES DE PARTAGE D'ÉCRAN DU PAIR (routées par DesktopCallAudio).
+     */
+    private fun onScreenFrame(type: Int, @Suppress("UNUSED_PARAMETER") payload: ByteArray) {
+        when (type) {
+            P2pProtocol.F_SCREEN_REQ -> {
+                // Le pair demande à partager SON écran : dialogue ✓/✕ (l'ancien
+                // partage unilatéral est mort — session 78 verbatim).
+                if (_ui.value.phase != Phase.ACTIVE || !peerScreenProtocol) {
+                    runCatching { conn?.send(P2pProtocol.F_SCREEN_STOP) }
+                    return
+                }
+                _ui.value = _ui.value.copy(screenShareRequest = true)
+                DesktopLog.i("nyx-video", "F_SCREEN_REQ du pair — dialogue ✓/✕ affiché")
+            }
+            P2pProtocol.F_SCREEN_ACCEPT -> {
+                // Notre REQ validée → bascule effective de NOTRE source.
+                if (!_ui.value.screenSharePending) return
+                val newSource = video?.switchSource()
+                if (newSource == DesktopCallVideo.Source.SCREEN) {
+                    _ui.value = _ui.value.copy(
+                        screenSharePending = false,
+                        videoIsScreen = true,
+                        screenNotice = "Partage d'écran actif (validé par le pair)."
+                    )
+                    DesktopLog.i("nyx-video", "partage d'écran VALIDÉ par le pair — bascule écran")
+                } else {
+                    _ui.value = _ui.value.copy(
+                        screenSharePending = false,
+                        screenNotice = "Écran indisponible — caméra maintenue."
+                    )
+                    runCatching { conn?.send(P2pProtocol.F_SCREEN_STOP) }
+                }
+            }
+            P2pProtocol.F_SCREEN_STOP -> {
+                val st = _ui.value
+                when {
+                    st.screenSharePending -> _ui.value = st.copy(
+                        screenSharePending = false,
+                        screenNotice = "Partage d'écran REFUSÉ par le pair — caméra maintenue."
+                    )
+                    st.videoIsScreen -> {
+                        // Révocation : le pair met fin à NOTRE partage → caméra.
+                        val back = video?.switchSource()
+                        _ui.value = st.copy(
+                            videoIsScreen = back == DesktopCallVideo.Source.SCREEN,
+                            screenNotice = "Partage d'écran révoqué par le pair — caméra."
+                        )
+                    }
+                    st.peerScreenShare -> _ui.value = st.copy(
+                        peerScreenShare = false,
+                        screenNotice = "Le pair a arrêté son partage d'écran."
+                    )
+                }
+                DesktopLog.i("nyx-video", "F_SCREEN_STOP du pair")
+            }
+        }
     }
 
     /**
@@ -812,6 +972,17 @@ object DesktopCallManager {
             "nyx-call",
             "appel terminé (${_ui.value.phase}) — $reason (cid ${_ui.value.cid.take(8)}…, pair ${_ui.value.peer.take(16)}…)"
         )
+        // v0.3.12 — mémorise le cid terminé : une re-livraison de son offre par
+        // la flotte ne doit JAMAIS re-sonner (terrain 28/10 21:16, cid b2829fd6).
+        val endedCid = _ui.value.cid
+        if (endedCid.isNotEmpty()) {
+            synchronized(endedCids) {
+                endedCids[endedCid] = nowMs()
+                // Purge : TTL 10 minutes.
+                endedCids.entries.removeIf { nowMs() - it.value > 600_000L }
+            }
+        }
+        peerScreenProtocol = false
         net.nyx.messenger.notify.DesktopRinger.stop()
         runCatching { audio?.stop() }
         runCatching { video?.stop() }

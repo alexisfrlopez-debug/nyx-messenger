@@ -328,4 +328,62 @@ class P2pProtocolDesktopTest {
         assertEquals("", info.vpr)
         assertEquals(270, info.vrot)   // métadonnée historique : rotation à la vue
     }
+
+    // ---------- v0.3.12 — PROTOCOLE PARTAGE D'ÉCRAN VALIDÉ (champ sc) ----------
+
+    @Test
+    fun `v0312 - HELLO avec sc=1 - capacité partage d'écran annoncée et relue`() {
+        val sig = "SIGB64"
+        val bytes = P2pProtocol.encodeHello(
+            P2pProtocol.Hello("call", "a".repeat(56) + ".onion", "alias", "cid1", "AAEC", 0, sig,
+                vw = 480, vh = 270, ac = "adpcm", vc = "mjpeg", sc = P2pProtocol.SC_PROTOCOL), sig
+        )
+        val hello = P2pProtocol.parseHello(bytes)!!
+        assertTrue("sc=1 doit être lu du HELLO", P2pProtocol.supportsScreenShare(hello.sc))
+        assertTrue(bytes.toString(Charsets.UTF_8).contains("\"sc\":\"1\""))
+    }
+
+    @Test
+    fun `v0312 - HELLO d'un pair ancien sans sc - pas de partage unilatéral`() {
+        val sig = "SIGB64"
+        val bytes = P2pProtocol.encodeHello(
+            P2pProtocol.Hello("call", "a".repeat(56) + ".onion", "alias", "cid1", "AAEC", 0, sig,
+                vw = 480, vh = 270, ac = "adpcm", vc = "mjpeg"), sig
+        )
+        val hello = P2pProtocol.parseHello(bytes)!!
+        assertTrue("champ absent = pair ≤ v0.2.59", !P2pProtocol.supportsScreenShare(hello.sc))
+        assertTrue("la clé n'est pas émise pour un pair ancien", !String(bytes).contains("\"sc\""))
+    }
+
+    @Test
+    fun `v0312 - ACCEPT écho sc=1 du téléphone v0260`() {
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "", 0, 320, 240, "adpcm", "mjpeg", "1", "1")
+        val info = P2pProtocol.AcceptPayload.parse(payload.toByteArray())
+        assertTrue("l'écho sc=1 autorise la bascule validée", P2pProtocol.supportsScreenShare(info.sc))
+        assertEquals("1", info.vpr)
+    }
+
+    @Test
+    fun `v0312 - ACCEPT d'un téléphone ancien sans sc - bascule refusée`() {
+        val legacy = "{\"csd\":\"AAEC\",\"vcsd\":\"\",\"vrot\":0,\"vw\":320,\"vh\":240,\"ac\":\"adpcm\",\"vc\":\"mjpeg\",\"vpr\":\"1\"}"
+        val info = P2pProtocol.AcceptPayload.parse(legacy.toByteArray())
+        assertTrue(!P2pProtocol.supportsScreenShare(info.sc))
+    }
+
+    @Test
+    fun `v0312 - trames F_SCREEN distinctes et non collisionnées`() {
+        // Les trois NOUVELLES trames doivent être distinctes de toutes les
+        // existantes (verrou interop : un pair ancien les IGNORE sans erreur).
+        val all = listOf(
+            P2pProtocol.F_HELLO, P2pProtocol.F_FILE, P2pProtocol.F_EVENT,
+            P2pProtocol.F_AUDIO, P2pProtocol.F_VIDEO, P2pProtocol.F_VIDEO_ROT,
+            P2pProtocol.F_CALL_ACCEPT, P2pProtocol.F_CALL_REJECT, P2pProtocol.F_BYE,
+            P2pProtocol.F_ACK, P2pProtocol.F_SCREEN_REQ, P2pProtocol.F_SCREEN_ACCEPT,
+            P2pProtocol.F_SCREEN_STOP
+        )
+        assertEquals("chaque trame a un type unique", all.size, all.distinct().size)
+        assertEquals(0x19, P2pProtocol.F_SCREEN_REQ)
+        assertEquals(0x1A, P2pProtocol.F_SCREEN_ACCEPT)
+        assertEquals(0x1B, P2pProtocol.F_SCREEN_STOP)
+    }
 }
