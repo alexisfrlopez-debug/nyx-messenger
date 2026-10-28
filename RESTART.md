@@ -85,6 +85,67 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    par l'utilisateur, pas à l'ouverture).
 >
 > Livraison attendue : **v0.2.59 Android + v0.3.11 desktop** + logs terrain.
+>    **ÉTAT : TRAITÉ (session 81 — v0.2.59 Android + v0.3.11 desktop :
+>    (1) CARTE D'APPEL FLOTTANTE CallFloatWindow NOUVEAU (bureau) —
+>    TOUJOURS AU PREMIER PLAN pendant tout l'appel, RACCROCHER rouge
+>    cliquable en toutes circonstances (fenêtre en arrière-plan, autres
+>    applis), Alt+F4 = raccrocher, alias + durée vivante + mute + bascule
+>    📹/🖥️, pas de doublon pendant la sonnerie (carte dédiée), fenêtre
+>    principale ramenée une fois au décroché ;
+>    (2) VISIO BIDIRECTIONNELLE : cause racine TÉLÉPHONE — la bascule
+>    H.264→MJPEG et le rattachement d'aperçu UI se coursaient
+>    (« unconfigured Input/Output Surface! » → « CameraDevice was
+>    already closed » → visio coupée d'office des deux sens) ;
+>    CallVideo réécrit à trois gardes : camGen (callbacks des ouvertures
+>    PÉRIMÉES ignorés), relances 400 ms ×2 sur erreurs transitaires,
+>    débounce d'aperçu 250 ms ; caméra PERDUE = émission seule coupée,
+>    RÉCEPTION du pair maintenue (stopSendingOnly + videoSendLost,
+>    miroir micro HS, message overlay « Votre caméra est coupée — vous
+>    recevez toujours la vidéo ») ; bureau : chien de garde 8 s d'une
+>    caméra ffmpeg MUETTE + bascule écran automatique + énumération
+>    dshow robuste (analyse par section ET suffixe « (video) », échec =
+>    stderr ffmpeg journalisé + remède confidentialité Windows) ;
+>    (3) MESSAGES tel→PC : cause racine « HELLO events REFUSÉ :
+>    signature invalide » (export 17:24:03) — le vérificateur
+>    recalculait la chaîne « events » avec le CID VIDE au lieu du COUNT
+>    signé par P2pClient.pushEvents → TOUT dépôt direct P2P d'événements
+>    était refusé depuis toujours (repli ADR-017 structurellement mort) ;
+>    P2pProtocol.helloVerifierString NOUVEAU (extrait des DEUX serveurs,
+>    miroir testé : « call » → cid, « file »/« events » → count) ;
+>    bureau : bulle plateau UNIQUEMENT si fenêtre VISIBLE ET ACTIVE pour
+>    la suppression « conversation ouverte » (suivi de focus +
+>    minimisation), accusés partis DÈS le poll propre (ensureReceiptsSent
+>    après pollOwnReplica), marquage « lu » pendant la conversation
+>    ouverte, attentes JOURNALISÉES (« accusés en attente : N pair(s)… ») ;
+>    (4) ANNULER : exitDialogOpenFlow (MutableStateFlow observé par
+>    Compose — avant : @Volatile non observé, dialogue figé jusqu'au tick
+>    de poll ≤ 15 s) ;
+>    (5) MÉDIA À VUE LIMITÉE : revealMedia (Android) /
+>    revealMediaView (bureau) — octets DÉCHIFFRÉS chargés AVANT la
+>    consommation de la vue, fichier DÉTRUIT à la révélation, AFFICHAGE
+>    depuis la MÉMOIRE jusqu'à la sortie de l'écran (branche « révélé »
+>    AVANT « expiré » — avant : compteur 1→0 fermait l'image
+>    immédiatement), fermeture MANUELLE par le destinataire ;
+>    + fin d'appel JOURNALISÉE Android (miroir bureau) + VERSION desktop
+>    0.3.11 (constante VERSION, selftest) + runtime Java Windows du
+>    bundle bureau RESTAURÉ depuis le zip portable v0.3.10 publié
+>    (empreinte SHA-256 vérifiée ccf05650… — le bac à sable avait perdu
+>    la zone d'assemblage).
+>    QUALITÉ : Android 342 tests ×2 variants (340 + 2 : sélecteur HELLO
+>    « events »/« call »/« file », régression 28/10 verrouillée des deux
+>    côtés) + marqueur dex « câblage v0.2.59 vérifié » + APK std
+>    a9eca693… + test 18dafdcb… ; bureau 236 tests JVM (234 + 2) +
+>    selftest 5/5 + audits stricts PASSED 0/0/1 des deux côtés + zip
+>    301a54b7… + exe 6b9ed08c… (ffmpeg embarqué, smoke installateur
+>    OK — SHA + essentiels + 522 entrées + selftest du jar installé).
+>    Livré : docs/releases/v0.2.59.md + v0.3.11-desktop.md + TestPlan
+>    v0.2.59/v0.3.11 (5+5 items) + releases GitHub v0.2.59 +
+>    v0.3.11-desktop + Drive (archivage v0.2.58/v0.3.10 + jeu courant).
+>    Terrain : installer v0.2.59 sur LE téléphone + v0.3.11 sur le PC →
+>    carte flottante + RACCROCHER toujours visibles pendant l'appel ;
+>    visio des DEUX côtés ; message tel→PC : bulle + ✓/✓✓ chez
+>    l'expéditeur ; média à vue : affichage jusqu'à fermeture manuelle ;
+>    ENVOYER LES LOGS (marqueur v0.2.59 attendu).**
 
 > 🔴 **INSTRUCTIONS SESSION 80 — REÇUES 2026-10-28 ~14:00 (retour terrain
 > v0.2.57/v0.3.9 opérateur Alek : « logs envoyés » — 4ᵉ export téléphone
@@ -482,6 +543,8 @@ Dossier des ADR : `docs/adr/`. Toute évolution d'architecture = nouvel ADR.
 >    côtés) + end() bureau journalise toute fin (plus de BYE invisible).
 >    Livré : releases GitHub v0.3.8-desktop + v0.2.56 + Drive + fiche 22ᵉ
 >    édition (§9.10) + closeout PASS (§9.11).**
+
+> **Pointeur rapide (session 81 — 2026-10-29)** : **CLIENT DESKTOP WINDOWS v0.3.11 VERSION TEST + messagerie **v0.2.59** — CARTE D'APPEL FLOTTANTE + BOUTON RACCROCHER TOUJOURS AU PREMIER PLAN pendant tout l'appel (CallFloatWindow NOUVEAU) + bouton ANNULER du dialogue de fermeture réparé + VISIO tel↔PC ENFIN BIDIRECTIONNELLE (garde de génération caméra) + MESSAGES tel→PC notifiés et accusés (signature HELLO « events » réparée à la racine) + MÉDIA À VUE LIMITÉE à fermeture MANUELLE.** Retour terrain verbatim : « lors d'un appel qui abouti sur pc, je veux la boite de décrochage de l'appel toujours au premier plan, et un bouton pour raccrocher toujours au premier plan jusqu'à la fin de l'appel / visio tel => pc : je n'ai pas eu de video, idem dans l'autre sens / envoi de message tel => pc : pas de notification coté pc, pas d'accusé de réception/lecture coté tel (ok dans l'autre sens) / fermeture de l'appli pc : le bouton annuler ne fait rien / message média éphémère pc => tel : le média s'affiche et se referme de suite, il a été détruit sans que je ne puisse le voir. je veux pouvoir terminer l'affichage moi-même » (4 exports : 2× téléphone v0.2.58 + 2× bureau v0.3.10 28/10 17:29/17:34, reports/logs-s81/). (1) carte flottante : CallFloatWindow — bas à droite, TOUJOURS AU-DESSUS, alias + durée + RACCROCHER rouge cliquable en toutes circonstances jusqu'à la fin de l'appel, Alt+F4 = raccrocher, pas de doublon avec la carte de sonnerie IncomingCallWindow, fenêtre principale ramenée une fois au décroché ; (2) Annuler : exitDialogOpenFlow — un MutableStateFlow OBSERVÉ par Compose (avant : @Volatile non observé, le dialogue ne partait qu'au tick de poll ≤ 15 s) ; (3) visio : CAUSE RACINE tel = la bascule H.264→MJPEG et le rattachement d'aperçu SE COURSAIENT (« unconfigured Input/Output Surface! » puis « CameraDevice was already closed ») → CallVideo réécrit à trois gardes : camGen (les callbacks des ouvertures PÉRIMÉES sont ignorés), relances 400 ms ×2 sur erreurs transitaires, débounce aperçu 250 ms ; caméra perdue = ÉMISSION seule coupée, RÉCEPTION maintenue (stopSendingOnly — miroir micro HS, message « Votre caméra est coupée — vous recevez toujours la vidéo ») ; bureau : chien de garde 8 s d'une caméra MUETTE + bascule écran automatique + énumération dshow robuste (stderr ffmpeg journalisé) ; (4) messages tel→PC : CAUSE RACINE « HELLO events REFUSÉ : signature invalide » (17:24:03) — le vérificateur recalculait la chaîne « events » avec le CID VIDE au lieu du COUNT signé → TOUT dépôt direct P2P refusé depuis toujours (repli ADR-017 mort) ; P2pProtocol.helloVerifierString NOUVEAU extrait et TESTÉ des deux côtés (« call » → cid, « file »/« events » → count) ; bureau : suppression « conversation ouverte » UNIQUEMENT si fenêtre VISIBLE ET ACTIVE (suivi de focus), accusés DÈS le poll propre, marquage lu pendant la conversation ouverte, attentes journalisées ; (5) média à vue : revealMedia/revealMediaView — octets DÉCHIFFRÉS chargés AVANT la consommation de la vue, fichier détruit à la révélation, AFFICHAGE depuis la MÉMOIRE jusqu'à la sortie de l'écran, branche « révélé » AVANT « expiré » (avant : le compteur 1→0 fermait l'image aussitôt), fermeture MANUELLE. QUALITÉ : Android 342 tests ×2 variants (340 + 2 : sélecteur HELLO — régression 28/10 verrouillée) + marqueur dex « câblage v0.2.59 vérifié » + APK std a9eca693… + test 18dafdcb… ; bureau 236 tests JVM (234 + 2) + selftest 5/5 v0.3.11 + audits stricts PASSED 0/0/1 des deux côtés + zip 301a54b7… + exe 6b9ed08c… (runtime Java Windows du bundle restauré depuis le zip v0.3.10 publié, empreinte vérifiée). Livré : docs/releases/v0.2.59.md + v0.3.11-desktop.md + TestPlan v0.2.59/v0.3.11 (5+5 items) + releases GitHub + Drive. Terrain : installer v0.2.59 sur LE téléphone + v0.3.11 sur le PC → appel abouti : carte flottante + RACCROCHER toujours visibles ; visio des DEUX côtés ; message tel→PC : bulle + ✓/✓✓ ; média à vue : reste affiché jusqu'à fermeture manuelle ; ENVOYER LES LOGS (marqueur v0.2.59 attendu).
 
 > **Pointeur rapide (session 80 — 2026-10-28)** : **CLIENT DESKTOP WINDOWS v0.3.10 VERSION TEST + messagerie **v0.2.58** — CAMÉRA DU PC PAR DÉFAUT en visio (ffmpeg embarqué, bascule 📹/🖥️ à chaud) + notifications de messages UNE SEULE FOIS + sonnerie d'appel entrant IMMÉDIATE dès le HELLO + RETOUR D'APPEL audible chez l'appelant + visio pré-tournée (portrait ↔ paysage).** Retour terrain verbatim : « sur pc, notifications incessantes de messages déjà traités / appel vocal tel => pc : la notification est longue à arriver, pas de son coté pc / appel visio pc => tel : le pc fait un partage d'écran plutot que d'envoyer le flux caméra. Je veux par défaut le flux caméra mais la possibilité de partager l'écran / appel visio tel => pc : n'a pas fonctionné / toujours un problème d'orientation de la video et de resolution qui devrait s'adapter à l'orientation / lors d'une tentative d'appel, je veux une sonnerie côté appelant » (4ᵉ export téléphone nyx-logs-v0.2.57-test-20261028-133508.txt). (1) notifications : le même événement livré par plusieurs sources de poll re-notifiait à chaque fois — insertMessage → Boolean + garde 120 s au premier poll d'une cible ; (2) sonnerie immédiate : l'appel entrant est créé DÈS LA CONNEXION MÉDIA authentifiée (l'offre du poll n'est plus qu'une confirmation, poll 15 s, ringer durci volume+repli) — cause racine commune de « pas de son / notification longue » ET « visio tel=>pc n'a pas fonctionné » (le téléphone attendait 60 s une réponse invisible) ; (3) caméra par défaut : ffmpeg.exe embarqué (GPL-3, licence+sources dans ffmpeg/LICENSE-ffmpeg.txt) capture la webcam dshow → MJPEG stdout → MjpegStreamParser ; bascule 📹/🖥️ à chaud ; écran = repli ; build bloqué sans ffmpeg (double barrière installateur) ; (4) visio : trames pré-tournées à l'encodage côté téléphone (Nv21Rot, portrait 240x320 ↔ paysage 320x240 — négociation vpr), le bureau rend par l'aspect de la trame ; (5) retour d'appel : CallRingback (Android) + mode ringback DesktopRinger — bi-ton 425+480 Hz 1,5 s/3,5 s, stop au décroché/refus/timeout. Livré : releases GitHub v0.2.58 (APK std 94de9aa9… + test db4ffafb…, marqueur dex « câblage v0.2.58 vérifié ») + v0.3.10-desktop (zip ccf05650… + exe 7923497d…) + Drive. Terrain : installer v0.2.58 sur LE téléphone + v0.3.10 sur le PC → visio PC→tel : le téléphone voit VOTRE CAMÉRA ; appeler le PC : carte ✓/✕ + SONNERIE immédiates ; tonalité de retour chez l'appelant ; image du téléphone droite selon l'orientation ; ENVOYER LES LOGS (marqueur v0.2.58 attendu).
 
