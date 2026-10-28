@@ -73,10 +73,15 @@ fun CallOverlay() {
         }
     }
 
-    // v0.3.7 — trame vidéo distante : poll du moteur (le JPEG est déjà décodé
-    // par skia — rotation appliquée par graphicsLayer, miroir VideoFit Android).
+    // v0.3.10 — trame vidéo distante : poll du moteur (le JPEG est déjà décodé
+    // par skia). L'ASPECT VIT DANS LA TRAME ELLE-MÊME (JPEG auto-descriptif :
+    // téléphones ≥ v0.2.58 qui PRÉ-TOURNENT à l'encodage — portrait ↔ paysage
+    // suit l'orientation SANS métadonnée) ; la rotation graphicsLayer ne sert
+    // plus QUE pour un pair ancien (≤ v0.2.57, F_VIDEO_ROT).
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
     var frameVersion by remember { mutableStateOf(0L) }
+    var frameW by remember { mutableStateOf(0) }
+    var frameH by remember { mutableStateOf(0) }
     LaunchedEffect(ui.phase, ui.videoEnabled) {
         while (ui.phase == net.nyx.messenger.p2p.DesktopCallManager.Phase.ACTIVE && ui.videoEnabled) {
             val engine = DesktopCallManager.remoteVideo
@@ -84,7 +89,12 @@ fun CallOverlay() {
             val v = engine?.frameVersion ?: 0L
             if (jpeg != null && v != frameVersion) {
                 frameVersion = v
-                frame = runCatching { makeFromEncoded(jpeg).toComposeImageBitmap() }.getOrNull()
+                val decoded = runCatching { makeFromEncoded(jpeg).toComposeImageBitmap() }.getOrNull()
+                if (decoded != null) {
+                    frame = decoded
+                    frameW = decoded.width
+                    frameH = decoded.height
+                }
             }
             delay(150)
         }
@@ -104,13 +114,21 @@ fun CallOverlay() {
             // DISTANTE quand la visio est active (miroir Android : le pair
             // occupe l'écran, l'avatar est pour l'audio seul).
             if (ui.videoEnabled && ui.phase == net.nyx.messenger.p2p.DesktopCallManager.Phase.ACTIVE) {
-                val aspect = if (ui.videoPeerW > 0 && ui.videoPeerH > 0) {
+                // v0.3.10 — ASPECT DE LA TRAME EN DIRECT (JPEG auto-descriptif,
+                // téléphone ≥ v0.2.58) ; repli sur l'aspect annoncé du HELLO/
+                // ACCEPT tant qu'aucune trame n'est arrivée. La rotation ne
+                // s'applique QUE si le pair annonce/emmet une rotation (pair
+                // ≤ v0.2.57 — chemins inchangés).
+                val frameAspect = if (frameW > 0 && frameH > 0) frameW.toFloat() / frameH else 0f
+                val announced = if (ui.videoPeerW > 0 && ui.videoPeerH > 0) {
                     ui.videoPeerW.toFloat() / ui.videoPeerH
                 } else 3f / 4f
+                val rotLegacy = ui.videoPeerRot == 90 || ui.videoPeerRot == 270 || ui.videoPeerRot == 180
+                val boxAspect = if (frameAspect > 0f) frameAspect else announced
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.88f)
-                        .aspectRatio(1f / aspect) // l'aspect annoncé oriente la boîte
+                        .aspectRatio(if (rotLegacy) 1f / boxAspect else boxAspect) // la boîte suit l'aspect réel
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFF000000)),
                     contentAlignment = Alignment.Center,
@@ -122,7 +140,9 @@ fun CallOverlay() {
                             contentDescription = "caméra du pair",
                             modifier = Modifier
                                 .fillMaxSize()
-                                // rotation caméra du pair (métadonnée de présentation)
+                                // rotation caméra du pair — pair ancien UNIQUEMENT
+                                // (≤ v0.2.57 : métadonnée de présentation ; un
+                                // téléphone ≥ v0.2.58 pré-tourne ses JPEG).
                                 .graphicsLayer {
                                     rotationZ = when (ui.videoPeerRot) {
                                         90 -> 90f; 180 -> 180f; 270 -> 270f; else -> 0f
@@ -131,8 +151,8 @@ fun CallOverlay() {
                                     // on réduit pour ne pas déborder de la boîte.
                                     val r = when (ui.videoPeerRot) {
                                         90, 270 -> {
-                                            val boxAspect = aspect
-                                            if (boxAspect > 1f) 1f / boxAspect else boxAspect
+                                            val ba = if (frameAspect > 0f) frameAspect else announced
+                                            if (ba > 1f) 1f / ba else ba
                                         }
                                         else -> 1f
                                     }
@@ -204,31 +224,46 @@ fun CallOverlay() {
                 net.nyx.messenger.p2p.DesktopCallManager.Phase.ACTIVE -> Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
                             onClick = { DesktopCallManager.toggleMute() },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (ui.muted) Color(0x6D4C41) else Color(0x37474F)
                             ),
-                        ) { Text(if (ui.muted) "🔇 Micro coupé" else "🎤 Micro actif", fontSize = 15.sp) }
+                        ) { Text(if (ui.muted) "🔇 Micro coupé" else "🎤 Micro actif", fontSize = 14.sp) }
                         if (ui.videoEnabled) {
+                            // v0.3.10 — BASCULE CAMÉRA ↔ ÉCRAN (demande opérateur :
+                            // « je veux par défaut le flux caméra mais la possibilité
+                            // de partager l'écran »).
+                            Button(
+                                onClick = { DesktopCallManager.toggleVideoSource() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (ui.videoIsScreen) Color(0x5E35B1) else Color(0x37474F)
+                                ),
+                            ) { Text(if (ui.videoIsScreen) "🖥️ Écran" else "📹 Caméra", fontSize = 14.sp) }
                             Button(
                                 onClick = { DesktopCallManager.toggleVideo() },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (ui.videoPaused) Color(0x6D4C41) else Color(0x37474F)
                                 ),
-                            ) { Text(if (ui.videoPaused) "📹 Partage en pause" else "📹 Écran partagé", fontSize = 15.sp) }
+                            ) { Text(if (ui.videoPaused) "⏸ Vidéo en pause" else "⏸ Pause vidéo", fontSize = 14.sp) }
                         }
                         Button(
                             onClick = { DesktopCallManager.hangup() },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xB3261E)),
-                        ) { Text("Raccrocher", fontSize = 15.sp) }
+                        ) { Text("Raccrocher", fontSize = 14.sp) }
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(
                         if (ui.videoEnabled)
-                            "La vidéo passe par Tor (~5 trames/s) : votre ÉCRAN est partagé, " +
-                                "vous voyez la caméra du téléphone. Une latence de 0,5 à 3 s est normale."
+                            if (ui.videoIsScreen)
+                                "La vidéo passe par Tor (~5 trames/s) : votre ÉCRAN est partagé " +
+                                    "— basculez sur 📹 Caméra si besoin ; vous voyez la caméra du téléphone. " +
+                                    "Une latence de 0,5 à 3 s est normale."
+                            else
+                                "La vidéo passe par Tor (~5 trames/s) : votre CAMÉRA est partagée " +
+                                    "(basculez sur 🖥️ Écran pour un partage d'écran) ; vous voyez la caméra " +
+                                    "du téléphone. Une latence de 0,5 à 3 s est normale."
                         else
                             "L'audio passe par Tor — une latence de 0,5 à 3 secondes est normale.",
                         fontSize = 11.sp, color = Color(0x776B5E), textAlign = TextAlign.Center

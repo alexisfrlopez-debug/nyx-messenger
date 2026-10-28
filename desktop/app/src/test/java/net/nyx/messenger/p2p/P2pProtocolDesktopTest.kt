@@ -272,4 +272,36 @@ class P2pProtocolDesktopTest {
         assertNull(VideoRotCodec.decodeFrame(ByteArray(0)))
         assertNull(VideoRotCodec.decodeFrame(byteArrayOf(-1, -2)))
     }
+
+    @Test
+    fun `v0310 - ACCEPT vpr=1 - pré-rotation MJPEG accordée à un téléphone v0258`() {
+        // Terrain 28/10 : « toujours un problème d'orientation de la video et
+        // de resolution qui devrait s'adapter à l'orientation » — le bureau
+        // rend la trame par SON aspect (JPEG auto-descriptif) et ACCORDE la
+        // pré-rotation : le téléphone appelant ≥ v0.2.58 pré-tourne à
+        // l'encodage (portrait 240x320 ↔ paysage 320x240).
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "", 0, 480, 270, "adpcm", "mjpeg", "1")
+        assertTrue(payload.contains("\"vpr\":\"1\""))
+        val info = P2pProtocol.AcceptPayload.parse(payload.toByteArray())
+        assertEquals("1", info.vpr)
+        assertEquals("mjpeg", info.vc)
+        assertEquals("adpcm", info.ac)
+        assertEquals(0, info.vrot)   // la rotation ne voyage PLUS par le JSON
+    }
+
+    @Test
+    fun `v0310 - ACCEPT sans visio - pas de vpr`() {
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "", 0, 0, 0, "adpcm")
+        assertTrue(!payload.contains("vpr"))
+        assertEquals("", P2pProtocol.AcceptPayload.parse(payload.toByteArray()).vpr)
+    }
+
+    @Test
+    fun `v0310 - ACCEPT d'un téléphone ancien sans vpr reste lisible`() {
+        // Un pair ≤ v0.2.57 n'émet jamais vpr : le bureau lit et vide.
+        val legacy = "{\"csd\":\"AAEC\",\"vcsd\":\"\",\"vrot\":270,\"vw\":320,\"vh\":240,\"ac\":\"adpcm\",\"vc\":\"mjpeg\"}"
+        val info = P2pProtocol.AcceptPayload.parse(legacy.toByteArray())
+        assertEquals("", info.vpr)
+        assertEquals(270, info.vrot)   // métadonnée historique : rotation à la vue
+    }
 }

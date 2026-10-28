@@ -43,6 +43,34 @@ object TestPlan {
      * CARTE DÉDIÉE Décrocher/Refuser + micro qui ne tue plus l'appel + visio
      * qui tient (crash caméra corrigé côté téléphone v0.2.57).
      */
+    /**
+     * v0.3.10 — items de validation (miroir de docs/releases/v0.3.10-desktop.md) :
+     * caméra du PC par défaut + bascule écran, notifications de messages à la
+     * racine, sonnerie immédiate au HELLO + retour d'appel.
+     */
+    val ITEMS_V0_3_10 = listOf(
+        Item(
+            "camera-par-defaut",
+            "LA CAMÉRA DU PC EST LA SOURCE PAR DÉFAUT — ITEM DÉCISIF n°1 (NOUVEAU v0.3.10, demande opérateur verbatim : « le pc fait un partage d'écran plutot que d'envoyer le flux caméra. Je veux par défaut le flux caméra mais la possibilité de partager l'écran ») : appel visio DEPUIS le PC (téléphone ≥ v0.2.58) → le téléphone voit VOTRE WEBCAM (pas votre écran) dès l'établissement (journal « CAMÉRA du PC active (…) MJPEG ffmpeg ») ; sur le téléphone, tourner/retourner l'image de la webcam — l'aspect reste cohérent ; bouton « 📹 Caméra » dans l'overlay → bascule À CHAUD vers « 🖥️ Écran » SANS couper l'appel (le téléphone voit alors l'écran), re-bascule pareil ; webcam absente → repli honnête écran (journal « caméra indisponible — repli PARTAGE D'ÉCRAN »)"
+        ),
+        Item(
+            "notifications-une-seule-fois",
+            "LES NOTIFICATIONS DE MESSAGES PARTENT UNE SEULE FOIS — ITEM DÉCISIF n°2 (NOUVEAU v0.3.10, demande verbatim : « sur pc, notifications incessantes de messages déjà traités ») : envoyer PLUSIEURS messages depuis le téléphone → UNE info-bulle plateau par message NOUVEAU, AUCUNE répétition pour un message déjà stocké ; les messages anciens déjà lus ne re-notifient PAS non plus au redémarrage de l'app"
+        ),
+        Item(
+            "sonnerie-immediate-hello",
+            "L'APPEL ENTRANT SONNE IMMÉDIATEMENT — ITEM DÉCISIF n°3 (NOUVEAU v0.3.10, demandes verbatim : « la notification est longue à arriver, pas de son coté pc » + « appel visio tel => pc : n'a pas fonctionné ») : appeler le PC depuis le téléphone (audio ou visio) → la carte ✓/✕ + la SONNERIE apparaissent DÈS LA CONNEXION DU TÉLÉPHONE (journal « appel entrant DÈS LE HELLO (sonnerie immédiate… ») — plus d'attente de 15-30 s ; le SON est audible (bi-ton 440+480 Hz) ; décrocher sous 60 s aboutit : l'appel s'établit"
+        ),
+        Item(
+            "retour-appel-sonne",
+            "LE RETOUR D'APPEL SONNE CHEZ L'APPELANT (NOUVEAU v0.3.10, demande verbatim : « lors d'une tentative d'appel, je veux une sonnerie côté appelant pour indiquer que le tel ou pc appelle ») : appeler le téléphone DEPUIS le PC → tonalité douce 1,5 s/3,5 s pendant que le téléphone sonne, COUPÉE au décroché (journal « retour d'appel bureau DÉMARRÉ » puis « STOPPÉ ») ; refus/timeout la coupent aussi"
+        ),
+        Item(
+            "visio-orientation-pc",
+            "VISIO : L'IMAGE DU TÉLÉPHONE EST DROITE ET SUIT SON ORIENTATION (NOUVEAU v0.3.10, demande verbatim : « toujours un problème d'orientation de la video et de resolution qui devrait s'adapter à l'orientation ») : visio reçue d'un téléphone ≥ v0.2.58 en PORTRAIT → l'image est DROITE, portrait 240x320 (boîte au bon aspect, AUCUN étirement) ; le téléphone passe en PAYSAGE → l'image reste droite et la boîte suit SANS coupure ; avec un téléphone ≤ v0.2.57 l'image reste regardable (rotation historique par F_VIDEO_ROT)"
+        ),
+    )
+
     val ITEMS_V0_3_9 = listOf(
         Item(
             "carte-decrocher-refuser",
@@ -206,7 +234,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

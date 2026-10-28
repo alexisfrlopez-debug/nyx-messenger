@@ -49,6 +49,32 @@ object DesktopPaths {
         return null
     }
 
+    /**
+     * v0.3.10 — Emplacement de ffmpeg.exe (CAMÉRA PAR DÉFAUT en visio,
+     * demande opérateur session 80) : miroir exact de [resolveTorBinary] —
+     * -Dnyx.ffmpeg.bin, puis ffmpeg/ à côté du répertoire de travail (zip
+     * portable), puis ffmpeg/ à côté du jar (installateur). La capture
+     * dshow ne se lance QUE sur Windows ; ailleurs (dev/test) la résolution
+     * rend naturellement null et la visio replie sur l'écran.
+     */
+    fun resolveFfmpeg(): File? {
+        val candidates = ArrayList<File>()
+        // 1. -Dnyx.ffmpeg.bin=... (tests / dev)
+        System.getProperty("nyx.ffmpeg.bin")?.let { candidates.add(File(it)) }
+        val exe = if (isWindows) "ffmpeg.exe" else "ffmpeg"
+        // 2. ffmpeg/ à côté du répertoire de travail (zip portable à plat).
+        candidates.add(File("ffmpeg", exe))
+        // 3. ffmpeg/ à côté du jar (installateur : %LOCALAPPDATA%\NyxMessenger).
+        runCatching {
+            File(DesktopPaths::class.java.protectionDomain.codeSource.location.toURI()).parentFile
+        }.getOrNull()?.let { jarDir ->
+            candidates.add(File(jarDir, "ffmpeg/$exe"))
+            candidates.add(File(jarDir.parentFile, "ffmpeg/$exe"))
+        }
+        for (c in candidates) if (c.isFile) return c
+        return null
+    }
+
     val isWindows: Boolean =
         System.getProperty("os.name").lowercase().contains("windows")
 }

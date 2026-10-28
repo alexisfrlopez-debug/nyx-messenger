@@ -103,6 +103,17 @@ class CallVideo(
     @Volatile var mjpeg = useMjpeg
         private set
 
+    /**
+     * v0.2.58 — MJPEG PRÉ-TOURNÉ (bureau ≥ v0.3.10 : ACCEPT « vpr=1 », ou
+     * appelant bureau — toute version — côté appelé) : la trame est tournée
+     * À L'ENCODE ([Nv21Rot]) — portrait 240x320 ↔ paysage 320x240, la
+     * RÉSOLUTION SUIT l'orientation (terrain 28/10 : « toujours un problème
+     * d'orientation de la video et de resolution qui devrait s'adapter à
+     * l'orientation »). Plus de F_VIDEO_ROT : l'aspect vit dans le JPEG.
+     */
+    @Volatile var mjpegPreRotated = false
+        private set
+
     /** Caméra active (émission en cours). */
     @Volatile var cameraOn = false
         private set
@@ -219,9 +230,12 @@ class CallVideo(
      * v0.2.53 — Envoie la rotation COURANTE au pair (F_VIDEO_ROT). Appelé par
      * CallManager juste après `transmit = true` : garantit la synchronisation
      * même si le téléphone a tourné pendant la sonnerie/la négociation.
+     * v0.2.58 — NO-OP en MJPEG pré-tourné : la trame EST droite (l'aspect vit
+     * dans le JPEG — une métadonnée ferait double-rotation chez le pair).
      */
     fun sendCurrentRotation() {
         if (!transmit || stopped) return
+        if (mjpeg && mjpegPreRotated) return
         runCatching { write(P2pProtocol.F_VIDEO_ROT, VideoRot.encodeFrame(currentRot)) }
     }
 
@@ -271,13 +285,25 @@ class CallVideo(
             }
             openCamera(reader.surface)
             currentRot = computeUprightRotation()
+            // v0.2.58 — PRÉ-ROTATION À L'ENCODE ([Nv21Rot]) : la trame part
+            // DROITE et sa RÉSOLUTION SUIT l'orientation (portrait 240x320 ↔
+            // paysage 320x240 — terrain 28/10 : « toujours un problème
+            // d'orientation de la video et de resolution qui devrait s'adapter
+            // à l'orientation »). L'annonce est permutée, vrot=0 : un bureau
+            // ≥ v0.3.10 (vpr) rend par aspect de trame ; un bureau ≤ v0.3.9
+            // lit vrot=0 + vw/vh permutés — DROIT dans les DEUX cas.
+            mjpegPreRotated = true
+            val outW = if (currentRot == 90 || currentRot == 270) h else w
+            val outH = if (currentRot == 90 || currentRot == 270) w else h
             net.nyx.messenger.diag.DiagLog.i(
                 "nyx-video",
-                "visio MJPEG démarrée (${w}x${h}, YUV→JPEG q$MJPEG_QUALITY) — interop bureau"
+                "visio MJPEG démarrée PRÉ-TOURNÉE (${outW}x${outH} " +
+                    "${if (outW < outH) "portrait" else "paysage"}, YUV→JPEG q$MJPEG_QUALITY — " +
+                    "la résolution suit l'orientation) — interop bureau"
             )
             onLocalRotation(currentRot)
             startRotationTracking()
-            VideoSendInfo(ByteArray(0), currentRot, w, h, camPick?.front ?: true)
+            VideoSendInfo(ByteArray(0), 0, outW, outH, camPick?.front ?: true)
         } catch (e: Exception) {
             android.util.Log.w("nyx-video", "caméra indisponible (MJPEG) — visio audio-only : ${e.message}")
             stopCamera()
@@ -290,10 +316,16 @@ class CallVideo(
      * n'a encore RIEN émis (transmit était faux) — on l'arrête, on ré-utilise
      * la caméra vers l'ImageReader YUV, la réception passe en JPEG. Miroir du
      * switchSendingToAdpcm audio (v0.2.54).
+     *
+     * v0.2.58 — [preRotated] = le bureau a accordé la pré-rotation dans son
+     * ACCEPT (vpr="1", bureau ≥ v0.3.10) : les trames partent DROITES et
+     * suivent l'orientation SANS F_VIDEO_ROT. Un bureau ancien ne l'accorde
+     * pas : comportement historique (métadonnée de rotation) inchangé.
      */
-    fun switchSendingToMjpeg() {
+    fun switchSendingToMjpeg(preRotated: Boolean = false) {
         if (mjpeg || stopped) return
         mjpeg = true
+        mjpegPreRotated = preRotated
         // L'encodeur H.264 et son drain meurent (aucune trame n'est partie —
         // transmit n'a jamais été vrai à ce stade).
         runCatching { encoder?.stop() }
@@ -342,7 +374,8 @@ class CallVideo(
             openCamera(reader.surface)
             net.nyx.messenger.diag.DiagLog.i(
                 "nyx-video",
-                "codec vidéo MJPEG négocié — émission basculée (caméra ré-utilisée, ${w}x${h})"
+                "codec vidéo MJPEG négocié — émission basculée (caméra ré-utilisée, ${w}x${h}" +
+                    (if (preRotated) ", PRÉ-TOURNÉE vpr — la résolution suivra l'orientation" else "") + ")"
             )
         } catch (e: Exception) {
             android.util.Log.w("nyx-video", "bascule MJPEG impossible : ${e.message} — visio coupée côté émission")
@@ -382,15 +415,25 @@ class CallVideo(
         return nv21
     }
 
-    /** NV21 → JPEG (null si compression impossible). */
+    /** NV21 → JPEG (null si compression impossible). v0.2.58 — PRÉ-ROTATION
+     *  quand le mode MJPEG pré-tourné est actif ([mjpegPreRotated]) : la
+     *  trame part droite, sa résolution suit l'orientation (portrait ↔ paysage). */
     private fun compressJpeg(img: Image): ByteArray? {
-        val nv21 = yuv420ToNv21(img)
+        var nv21 = yuv420ToNv21(img)
+        var w = img.width
+        var h = img.height
+        if (mjpegPreRotated) {
+            val (rotated, dims) = Nv21Rot.rotateIfNeeded(nv21, w, h, currentRot)
+            nv21 = rotated
+            w = dims[0]
+            h = dims[1]
+        }
         // YuvImage(strides=null : calcule depuis les dimensions).
         val yuv = android.graphics.YuvImage(
-            nv21, android.graphics.ImageFormat.NV21, img.width, img.height, null
+            nv21, android.graphics.ImageFormat.NV21, w, h, null
         )
         val out = java.io.ByteArrayOutputStream(16 * 1024)
-        if (!yuv.compressToJpeg(android.graphics.Rect(0, 0, img.width, img.height), MJPEG_QUALITY, out)) {
+        if (!yuv.compressToJpeg(android.graphics.Rect(0, 0, w, h), MJPEG_QUALITY, out)) {
             return null
         }
         return out.toByteArray()
@@ -422,10 +465,14 @@ class CallVideo(
             net.nyx.messenger.diag.DiagLog.i(
                 "nyx-video",
                 "orientation suivie : ${old}° → ${newRot}° (écran tourné)" +
-                    (if (transmit) " — F_VIDEO_ROT au pair, matrice de présentation changée" else "")
+                    (if (mjpeg && mjpegPreRotated) " — PRÉ-ROTATION : la prochaine trame suivra (JPEG auto-descriptif, pas de F_VIDEO_ROT)"
+                     else if (transmit) " — F_VIDEO_ROT au pair, matrice de présentation changée" else "")
             )
             onLocalRotation(newRot)
-            if (transmit && !stopped) {
+            // v0.2.58 — en MJPEG PRÉ-TOURNÉ, la rotation est DANS la trame
+            // suivante (compressJpeg lit [currentRot]) : aucune métadonnée
+            // à émettre (elle ferait double-rotation chez le pair).
+            if (!(mjpeg && mjpegPreRotated) && transmit && !stopped) {
                 runCatching { write(P2pProtocol.F_VIDEO_ROT, VideoRot.encodeFrame(newRot)) }
             }
         }

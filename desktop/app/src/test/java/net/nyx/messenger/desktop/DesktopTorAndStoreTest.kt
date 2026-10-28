@@ -58,6 +58,23 @@ class DesktopStoreTest {
     }
 
     @Test
+    fun `v0310 - insertMessage rend true SEULEMENT au premier insert`() {
+        // Terrain 28/10 : « sur pc, notifications incessantes de messages déjà
+        // traités » — le même événement livré par plusieurs sources de poll
+        // (réplica propre + flotte) repassait par la bulle plateau alors que
+        // le magasin dédupliquait déjà : le chemin notification doit pouvoir
+        // distinguer NOUVEAU de DÉJÀ PRÉSENT.
+        System.setProperty("nyx.data.dir", tmp.newFolder().absolutePath)
+        DesktopPaths.ensure()
+        val s = DesktopStore(); s.ensureLoaded()
+        val m = DesktopStore.Msg("dedup1", "peer.onion", false, "re-notifié ?", 1L)
+        assertTrue(s.insertMessage(m))    // 1ʳᵉ fois : NOUVEAU → notifier
+        assertTrue(!s.insertMessage(m))   // 2ᵉ fois : DÉJÀ LÀ → NE PAS notifier
+        assertTrue(!s.insertMessage(m))   // 3ᵉ fois (flotte) : idem
+        assertEquals(1, s.messagesWith("peer.onion").size)  // jamais doublé dans le magasin
+    }
+
+    @Test
     fun `seq_state - persistance par auteur`() {
         System.setProperty("nyx.data.dir", tmp.newFolder().absolutePath)
         DesktopPaths.ensure()

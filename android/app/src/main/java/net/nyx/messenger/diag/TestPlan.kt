@@ -535,6 +535,14 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_58 = listOf(
+        Item("retour-appel-audible", "TONALITÉ DE RETOUR D'APPEL CHEZ L'APPELANT — ITEM DÉCISIF n°1 (NOUVEAU v0.2.58, demande opérateur verbatim 28/10 : « lors d'une tentative d'appel, je veux une sonnerie côté appelant pour indiquer que le tel ou pc appelle ») : appeler le PC (audio ou visio) → TONALITÉ bi-ton douce (1,5 s son / 3,5 s pause) pendant TOUTE la sonnerie du PC, COUPÉE À L'INSTANT où l'on décroche (journal « retour d'appel DÉMARRÉ » à l'appel et « retour d'appel STOPPÉ » au décroché) ; idem quand le PC appelle le téléphone (miroir bureau v0.3.10) ; refus/timeout/raccroché coupent aussi la tonalité"),
+        Item("visio-orientation-resolution", "VISIO : L'ORIENTATION ET LA RÉSOLUTION SUIVENT LE TÉLÉPHONE — ITEM DÉCISIF n°2 (NOUVEAU v0.2.58, demande verbatim : « toujours un problème d'orientation de la video et de resolution qui devrait s'adapter à l'orientation ») : visio vers un PC en v0.3.10 → tenir le téléphone en PORTRAIT : l'image sur le PC est DROITE en 240x320 (journal « visio MJPEG démarrée PRÉ-TOURNÉE (240x320 portrait) ») ; TOURNER le téléphone en paysage : l'image reste DROITE et passe en 320x240 SANS coupure (journal « orientation suivie » puis trames à l'aspect paysage) ; AUCUN étirement, AUCUNE bande noire"),
+        Item("notifications-propres", "PAS DE RE-NOTIFICATION : (miroir bureau v0.3.10, demande « sur pc, notifications incessantes de messages déjà traités » — côté téléphone : aucun symptôme attendu) : envoyer/recevoir des messages → UNE notification par message nouveau, AUCUNE bulle répétée pour un message déjà lu"),
+        Item("regressions-appels", "Régressions appels : audio tel↔PC et tel↔tel, visio tel↔tel (H.264 inchangé), décrochage verrouillé (session 78/79 conservés), sonnerie entrante stoppée au décroché"),
+        Item("build-propre-v58", "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.58 vérifié : RETOUR D'APPEL audible chez l'appelant » (chaîne complète du marqueur — cf. notes de release)"),
+    )
+
     val ITEMS_V0_2_57 = listOf(
         Item("visio-verrouille-tient", "LA VISIO TIENT QUAND ON DÉCROCHE VERROUILLÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.57, preuve 3ᵉ export téléphone 28/10 11:49:59 : décroché visio DEPUIS LA NOTIFICATION, téléphone verrouillé → « CameraDevice was already closed » jeté par onConfigured sur le thread nyx-cam → FATAL EXCEPTION, process tué 0,6 s après le début de la visio) : appel visio ENTRANT → décrocher DEPUIS LA NOTIFICATION écran verrouillé → l'activité d'appel s'ouvre SUR le verrou (alias + durée) et l'appel RESTE ACTIF (audio + visio), AUCUN « FATAL EXCEPTION » dans l'export ; si la caméra est fermée par le système l'appel CONTINUE EN AUDIO (journal « visio coupée — l'appel CONTINUE en audio : … »), JAMAIS de crash"),
         Item("visio-decroche-notification", "LE BOUTON VISIO DE LA NOTIFICATION OUVRE L'ACTIVITÉ VERROUILLÉE (NOUVEAU v0.2.57, cause racine : le receiver silencieux décrochait SANS premier plan — Android ferme la caméra d'une appli en arrière-plan) : appel visio entrant, téléphone verrouillé → bouton Décrocher de la notification → l'ACTIVITÉ d'appel s'affiche immédiatement sur le verrou (journal « décroché DEPUIS LA NOTIFICATION (visio — activité verrouillée au premier plan, caméra autorisée) ») ; le bouton « Continuer dans l'application » y ramène après déverrouillage ; les appels AUDIO gardent le décroché SANS OUVRIR l'app (session 78 inchangée)"),
@@ -662,7 +670,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

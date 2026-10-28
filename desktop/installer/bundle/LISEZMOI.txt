@@ -1,24 +1,76 @@
 Nyx — Messagerie anonyme, chiffree de bout en bout, entierement sur Tor
 ========================================================================
-Version desktop Windows v0.3.7 VERSION TEST (VISIO AVEC LE TELEPHONE +
-accuses de reception durcis — portage ADR-019 du client Android ; valide
-terrain : messagerie et appels audio Windows <-> Android operationnels)
+Version desktop Windows v0.3.10 VERSION TEST (CAMERA DU PC EN VISIO +
+notifications de messages a la racine + sonnerie/retour d'appel —
+portage ADR-019 du client Android ; messagerie, appels audio et visio
+Windows <-> Android operationnels)
 
-NOUVEAUTE v0.3.7 — VISIO PC <-> TELEPHONE (codec MJPEG)
--------------------------------------------------------
-  Le bouton 📹 lance un APPEL VISIO anonyme (direct onion-to-onion, ADR-015) :
-  le PC PARTAGE SON ECRAN et affiche la CAMERA du telephone.
-   - CODEC VIDEO : le telephone encode en H.264 materiel, indecodable sur
-     PC — les DEUX applications negocient desormais un codec logiciel commun
-     MJPEG (JPEG complet par trame, ~5 trames/s : une trame perdue ne
-     corrompt rien, le flux se gere si le circuit ralentit).
-   - TELEPHONE >= v0.2.55 REQUIS pour la visio (mise a jour par le canal
-     test, automatique) : avec un telephone plus ancien l'appel BASCULE en
-     AUDIO proprement (message honnete, jamais d'appel rate).
-   - Telephone <-> telephone : H.264 materiel INCHANGE (aucune regression).
-   - En visio : bouton 📹 = « Partage en pause » (votre ecran ne part plus,
-     la camera du pair continue) ; la rotation du telephone est suivie.
-   - Latence 0,5 a 3 secondes : le prix de l'anonymat (ADR-015), normal.
+NOUVEAUTE v0.3.10 — LA CAMERA DU PC, PAR DEFAUT EN VISIO
+---------------------------------------------------------
+  Votre retour : « le pc fait un partage d'ecran plutot que d'envoyer le flux
+  camera. Je veux par defaut le flux camera mais la possibilite de partager
+  l'ecran ». DESORMAIS :
+   - le bouton 📹 lance la visio avec VOTRE WEBCAM (capturee par l'ffmpeg
+     embarque, ffmpeg\ffmpeg.exe — webcam dshow) ;
+   - BOUTON DE BASCULE dans l'overlay d'appel : « 📹 Camera » <-> « 🖥️ Ecran »
+     (a chaud, sans couper l'appel) — le pair suit automatiquement ;
+   - si aucune webcam n'est trouvee, repli honnete sur l'ECRAN (message dans
+     les journaux) ; l'antivirus peut isoler ffmpeg.exe : dans ce cas ajoutez
+     le dossier Nyx aux exclusions puis reinstallez (cf. LICENSE-ffmpeg.txt
+     pour la licence et les sources du binaire).
+
+NOUVEAUTE v0.3.10 — NOTIFICATIONS DE MESSAGES A LA RACINE
+----------------------------------------------------------
+  Votre retour : « sur pc, notifications incessantes de messages deja
+  traites ». Cause racine corrigee : le meme evenement arrive par PLUSIEURS
+  sources de poll (votre replique + la flotte) et la bulle plateau repartait
+  a CHAQUE livraison alors que le message etait deja stocke. Desormais la
+  bulle ne part QUE pour un message VRAIMENT nouveau.
+
+NOUVEAUTE v0.3.10 — SONNERIE D'APPEL IMMEDIATE + RETOUR D'APPEL
+---------------------------------------------------------------
+  Votre retour : « appel vocal tel => pc : la notification est longue a
+  arriver, pas de son coté pc » et « lors d'une tentative d'appel, je veux
+  une sonnerie cote appelant ». Desormais :
+   - un appel entrant SONNE ET S'AFFICHE DES LA CONNEXION DIRECTE du
+     telephone (carte ✓ Decrocher / ✕ Refuser + sonnerie bi-ton, volume
+     releve, repli de format sonore) — plus d'attente du poll (15 s) ;
+   - QUAND VOUS APPELEZ : tonalite de RETOUR D'APPEL chez vous (bi-ton doux
+     1,5 s / 3,5 s) pendant que le telephone sonne, coupee a l'instant ou
+     on decroche/refuse/raccroche — des DEUX cotes (PC appelant comme
+     telephone appelant) ;
+   - l'ecran de verrouillage WINDOWS ne peut toujours pas afficher d'UI
+     d'app tierce (restriction OS) : la SONNERIE est le signal pendant le
+     verrouillage, la carte est la au deverrouillage.
+
+NOUVEAUTE v0.3.10 — VISIO : ORIENTATION ET RESOLUTION ADAPTEES
+---------------------------------------------------------------
+  Votre retour : « toujours un probleme d'orientation de la video et de
+  resolution qui devrait s'adapter a l'orientation ». Avec un telephone en
+  v0.2.58 : les trames partent DROITES et PRE-TOURNEES (portrait 240x320
+  <-> paysage 320x240) — la resolution SUIT l'orientation du telephone en
+  direct, sans etirement ni bande noire. METTEZ LE TELEPHONE EN v0.2.58
+  (l'app se met a jour seule, sinon GitHub > Releases).
+
+NOUVEAUTE v0.3.9 (rappel) — CARTE D'APPEL ENTRANTE
+---------------------------------------------------
+  Une carte dediee SANS barre de titre, toujours au-dessus, s'ouvre a CHAQUE
+  appel entrant : deux icones GEANTES ✓ Decrocher (vert) / ✕ Refuser
+  (rouge). Alt+F4 = refuser. Elle se referme seule a la fin de la sonnerie.
+
+NOUVEAUTE v0.3.8 (rappel) — DECROCHER/REFUSER APPLICATION VERROUILLEE
+-----------------------------------------------------------------------
+  L'overlay d'appel reste visible AU-DESSUS du verrou de l'application ;
+  la fenetre principale se ramene au premier plan pendant la sonnerie.
+  Micro/haut-parleurs en panne ne tuent JAMAIS un appel (reception maintenue).
+
+NOUVEAUTE v0.3.7 (rappel) — VISIO PC <-> TELEPHONE (codec MJPEG)
+-----------------------------------------------------------------
+  Le bouton 📹 lance un APPEL VISIO anonyme (direct onion-to-onion, ADR-015).
+  CODEC : MJPEG negocie avec le telephone (>= v0.2.55) — JPEG complet par
+  trame, ~5 trames/s, une trame perdue ne corrompt rien. Telephone <->
+  telephone : H.264 materiel INCHANGE. Latence 0,5 a 3 s : le prix de
+  l'anonymat, normal.
 
 NOUVEAUTE v0.3.7 — ACCUSES DE RECEPTION DURCIS
 ----------------------------------------------
@@ -178,6 +230,10 @@ CONTENU
   nyx.ico .............. icone (raccourcis bureau / menu demarrer)
   runtime\ ............. Java 21 (Temurin, Windows x64) — aucun prerequis
   tor\ ................. Tor 15.0.26 (expert bundle officiel) — embarque
+  ffmpeg\ .............. ffmpeg.exe (gyan.dev 7.1, GPL-3, sous-processus
+                         independant — CAMERA du PC en visio ; voir
+                         ffmpeg\LICENSE-ffmpeg.txt ; supprimable sans
+                         casser l'application)
 
 DEMARRAGE
 ---------

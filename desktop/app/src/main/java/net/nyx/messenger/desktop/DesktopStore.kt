@@ -229,11 +229,19 @@ class DesktopStore {
         ensureLoadedLocked(); messages.firstOrNull { it.id == id }
     }
 
-    fun insertMessage(m: Msg) = synchronized(lock) {
+    /**
+     * v0.3.10 — RENVOIE true SEULEMENT si la ligne est VRAIMENT NOUVELLE : le
+     * MÊME événement arrive par PLUSIEURS sources de poll (réplica propre +
+     * flotte) et le chemin notification [onIncomingMessage] doit distinguer
+     * « nouveau » de « déjà en magasin » (terrain 28/10 14:00 : « sur pc,
+     * notifications incessantes de messages déjà traités »).
+     */
+    fun insertMessage(m: Msg): Boolean = synchronized(lock) {
         ensureLoadedLocked()
-        if (messages.any { it.id == m.id }) return
+        if (messages.any { it.id == m.id }) return false
         messages.add(m)
         persistMessagesLocked()
+        return true
     }
 
     fun updateMessage(id: String, mutate: (Msg) -> Unit) = synchronized(lock) {

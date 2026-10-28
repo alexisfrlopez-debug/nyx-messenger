@@ -147,6 +147,11 @@ object CallManager {
         val cid = CallSignal.newCid()
         _ui.value = CallUi(Phase.OUTGOING, peer, alias, cid,
             message = "sonnerie…", videoEnabled = withVideo, phaseChangedAt = nowMs())
+        // v0.2.58 — RETOUR D'APPEL AUDIBLE chez l'appelant (terrain 28/10 :
+        // « lors d'une tentative d'appel, je veux une sonnerie côté appelant
+        // pour indiquer que le tel ou pc appelle ») : bi-ton doux pendant que
+        // le pair sonne, stop déterministe au décroché/refus/timeout.
+        net.nyx.messenger.notify.CallRingback.start()
         scope.launch {
             // v0.2.26 : TOUTE exception dans le cycle sortant finit désormais
             // par end() — avant, une IOException tuait la coroutine SANS
@@ -390,7 +395,10 @@ object CallManager {
                     // AUDIO — l'appel TIENT (miroir bureau).
                     if (_ui.value.videoEnabled && accept.vc == P2pProtocol.VC_MJPEG) {
                         runCatching {
-                            video?.switchSendingToMjpeg()
+                            // v0.2.58 — pré-rotation accordée par un bureau
+                            // ≥ v0.3.10 (ACCEPT vpr) : les trames partent
+                            // droites et suivent l'orientation.
+                            video?.switchSendingToMjpeg(accept.vpr == P2pProtocol.VPR_PREROTATED)
                             video?.startReceiving(ByteArray(0))
                             video?.transmit = true
                             video?.sendCurrentRotation()
@@ -399,7 +407,8 @@ object CallManager {
                             videoPeerRot = accept.vrot, videoPeerW = accept.vw, videoPeerH = accept.vh)
                         net.nyx.messenger.diag.DiagLog.i(
                             "nyx-video",
-                            "visio MJPEG ACTIVE — interop bureau (écran du pair ${accept.vw}x${accept.vh})"
+                            "visio MJPEG ACTIVE — interop bureau (écran du pair ${accept.vw}x${accept.vh}" +
+                                (if (accept.vpr == P2pProtocol.VPR_PREROTATED) ", pré-rotation vpr — la résolution suit l'orientation" else "") + ")"
                         )
                     } else if (_ui.value.videoEnabled && accept.videoCsd.isNotEmpty()) {
                         runCatching {
@@ -430,6 +439,9 @@ object CallManager {
                         }
                     }
                     _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "", phaseChangedAt = nowMs())
+                    // v0.2.58 — le retour d'appel s'arrête AVANT l'audio (le
+                    // décroché est effectif — plus de tonalité par-dessus la voix).
+                    net.nyx.messenger.notify.CallRingback.stop()
                     net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…)")
                 }
                 P2pProtocol.F_CALL_REJECT -> end("refusé")
@@ -838,7 +850,7 @@ object CallManager {
                 net.nyx.messenger.diag.DiagLog.i(
                     "nyx-video",
                     if (chosenMjpeg)
-                        "visio MJPEG ACTIVE côté appelé — interop bureau (rotation locale ${myVRot}°, écran pair ${c.hello.vw}x${c.hello.vh})"
+                        "visio MJPEG ACTIVE côté appelé — interop bureau (PRÉ-TOURNÉE ${myVW}x${myVH} ${if (myVW < myVH) "portrait" else "paysage"} — la résolution suit l'orientation, écran pair ${c.hello.vw}x${c.hello.vh})"
                     else
                         "visio ACTIVE côté appelé (rotation locale ${myVRot}°, pair ${c.hello.vrot}°)"
                 )
@@ -1010,6 +1022,9 @@ object CallManager {
         }
         val peer = _ui.value.peer
         net.nyx.messenger.notify.CallRinger.stop()
+        // v0.2.58 — toute fin d'appel coupe AUSSI le retour d'appel (refus,
+        // timeout, erreur, raccroché — filet identique à la sonnerie).
+        net.nyx.messenger.notify.CallRingback.stop()
         net.nyx.messenger.notify.ContactNotifier.cancelCall(peer)
         val wasActive = _ui.value.phase == Phase.ACTIVE
         _ui.value = _ui.value.copy(phase = Phase.ENDED, message = reason, muted = false, speaker = false,

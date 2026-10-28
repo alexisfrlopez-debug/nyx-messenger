@@ -72,6 +72,16 @@ object P2pProtocol {
     const val VC_H264 = "h264"
     const val VC_MJPEG = "mjpeg"
 
+    /**
+     * v0.3.10 — MJPEG PRÉ-TOURNÉ accordé par l'APPELÉ (bureau ≥ v0.3.10) :
+     * valeur du champ ACCEPT « vpr ». Un téléphone appelant ≥ v0.2.58 qui
+     * lit "1" pré-tourne ses trames à l'encodage (portrait 240x320 ↔ paysage
+     * 320x240 — l'aspect vit dans le JPEG lui-même) et n'émet PLUS de
+     * F_VIDEO_ROT. Un pair plus ancien ignore la clé : comportement
+     * historique inchangé. Miroir Android v0.2.58.
+     */
+    const val VPR_PREROTATED = "1"
+
     /** v0.3.7 — le champ vc de l'appelant annonce-t-il le MJPEG ? */
     fun supportsMjpeg(vc: String): Boolean =
         vc.split(',').map { it.trim() }.filter { it.isNotEmpty() }.contains(VC_MJPEG)
@@ -204,6 +214,10 @@ object P2pProtocol {
      * v0.2.53 — résultat du [AcceptPayload.parse] : csd audio + csd vidéo +
      * présentation vidéo de l'APPELÉ (0/0/0 chez un pair ≤ v0.2.52).
      * v0.3.6 : + [ac] — codec annoncé par l'appelé ("" = AAC).
+     * v0.3.10 : + [vpr] — l'appelé bureau accepte le MJPEG PRÉ-TOURNÉ
+     * ("1" : un téléphone appelant ≥ v0.2.58 pré-tourne ses trames à
+     * l'encodage — portrait 240x320 ↔ paysage 320x240 — et n'émet PLUS de
+     * métadonnée de rotation ; "" = comportement historique ≤ v0.2.57).
      */
     data class AcceptInfo(
         val audioCsd: String,
@@ -215,6 +229,8 @@ object P2pProtocol {
         // v0.3.7 — codec vidéo CHOISI par l'appelé ("mjpeg" seulement quand
         // le mjpeg est choisi ; "" = H.264, format historique inchangé).
         val vc: String = "",
+        // v0.3.10 — MJPEG pré-tourné accepté (miroir Android v0.2.58).
+        val vpr: String = "",
     )
 
     /**
@@ -233,14 +249,16 @@ object P2pProtocol {
             vrot: Int = 0, vw: Int = 0, vh: Int = 0,
             ac: String = "",
             vc: String = "",
+            vpr: String = "",
         ): String {
-            if (videoCsdB64.isEmpty() && ac.isEmpty() && vc.isEmpty()) return audioCsdB64 // format historique
+            if (videoCsdB64.isEmpty() && ac.isEmpty() && vc.isEmpty() && vpr.isEmpty()) return audioCsdB64 // format historique
             fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
             val acField = if (ac.isNotEmpty()) ",\"ac\":\"${esc(ac)}\"" else ""
             val vcField = if (vc.isNotEmpty()) ",\"vc\":\"${esc(vc)}\"" else ""
+            val vprField = if (vpr.isNotEmpty()) ",\"vpr\":\"${esc(vpr)}\"" else ""
             return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"" +
                 ",\"vrot\":${vrot.coerceIn(0, 359)},\"vw\":${vw.coerceIn(0, 4096)}" +
-                ",\"vh\":${vh.coerceIn(0, 4096)}$acField$vcField}"
+                ",\"vh\":${vh.coerceIn(0, 4096)}$acField$vcField$vprField}"
         }
 
         /** Infos d'acceptation — tolère l'ancien format brut ET le JSON v0.2.20. */
@@ -256,6 +274,7 @@ object P2pProtocol {
                     MiniJson.num(s, "vh")?.toInt() ?: 0,
                     MiniJson.str(s, "ac") ?: "",
                     MiniJson.str(s, "vc") ?: "",
+                    MiniJson.str(s, "vpr") ?: "",
                 )
             }
             return AcceptInfo(s, "")

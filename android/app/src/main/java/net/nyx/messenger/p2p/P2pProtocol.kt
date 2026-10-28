@@ -55,6 +55,16 @@ object P2pProtocol {
     const val VC_H264 = "h264"
     const val VC_MJPEG = "mjpeg"
 
+    /**
+     * v0.2.58 — MJPEG PRÉ-TOURNÉ accordé par l'APPELÉ (bureau ≥ v0.3.10) :
+     * valeur du champ ACCEPT « vpr ». Un téléphone appelant qui lit "1"
+     * PRÉ-TOURNE ses trames à l'encodage (portrait 240x320 ↔ paysage 320x240 —
+     * l'aspect vit dans le JPEG lui-même, la résolution SUIT l'orientation)
+     * et n'émet PLUS de F_VIDEO_ROT. Un pair plus ancien ignore la clé :
+     * comportement historique inchangé. Miroir desktop v0.3.10.
+     */
+    const val VPR_PREROTATED = "1"
+
     /** v0.2.55 — le champ vc de l'appelant annonce-t-il le MJPEG ? */
     fun supportsMjpeg(vc: String): Boolean =
         vc.split(',').map { it.trim() }.filter { it.isNotEmpty() }.contains(VC_MJPEG)
@@ -216,6 +226,9 @@ object P2pProtocol {
         // le MJPEG est choisi — interop visio PC↔téléphone ; "" / absent =
         // H.264, téléphone↔téléphone inchangé).
         val vc: String = "",
+        // v0.2.58 — MJPEG PRÉ-TOURNÉ accordé par l'appelé ("1" = bureau
+        // ≥ v0.3.10 qui rend la trame par SON aspect ; "" = historique).
+        val vpr: String = "",
     )
 
     /**
@@ -255,7 +268,9 @@ object P2pProtocol {
                     MiniJson.num(s, "vw")?.toInt() ?: 0,
                     MiniJson.num(s, "vh")?.toInt() ?: 0,
                     MiniJson.str(s, "ac") ?: "",
-                    MiniJson.str(s, "vc") ?: ""
+                    MiniJson.str(s, "vc") ?: "",
+                    // v0.2.58 — pré-rotation MJPEG accordée par un bureau ≥ v0.3.10
+                    MiniJson.str(s, "vpr") ?: ""
                 )
             }
             return AcceptInfo(s, "")

@@ -96,6 +96,18 @@ cp desktop/installer/bundle/LISEZMOI.txt "$BUNDLE/LISEZMOI.txt"
 cp desktop/installer/bundle/nyx.ico "$BUNDLE/nyx.ico"
 [ -f "$BUNDLE/nyx-messenger.bat" ] && [ -f "$BUNDLE/LISEZMOI.txt" ] && [ -f "$BUNDLE/nyx.ico" ] \
   || { echo "${RED}✗ bat/LISEZMOI/ico absents du bundle${NC}"; exit 1; }
+# v0.3.10 — CAMÉRA DU PC PAR DÉFAUT : ffmpeg.exe EMBARQUÉ (demande opérateur
+# session 80 : « je veux par défaut le flux caméra mais la possibilité de
+# partager l'écran »). Le binaire (gyan.dev 7.1, GPL-3, sous-processus
+# indépendant — voir ffmpeg/LICENSE-ffmpeg.txt) est pré-posé dans la zone
+# d'assemblage (binaire HORS git, règle §9.4) : son absence BLOQUE la
+# livraison — un zip sans ffmpeg replierait silencieusement sur l'écran,
+# exactement ce dont l'opérateur s'est plaint.
+[ -f "$BUNDLE/ffmpeg/ffmpeg.exe" ] \
+  || { echo "${RED}✗ ffmpeg/ffmpeg.exe ABSENT du bundle — caméra impossible (restaurer le binaire dans $BUNDLE/ffmpeg/, cf. ffmpeg/LICENSE-ffmpeg.txt)${NC}"; exit 1; }
+[ -f "$BUNDLE/ffmpeg/LICENSE-ffmpeg.txt" ] \
+  || { echo "${RED}✗ ffmpeg/LICENSE-ffmpeg.txt absent (obligation GPL §4 — sources et licence)${NC}"; exit 1; }
+echo "${GRN}  ✓ ffmpeg embarqué ($(du -h "$BUNDLE/ffmpeg/ffmpeg.exe" | cut -f1) — CAMÉRA par défaut en visio)${NC}"
 # v0.3.3 — GeoIP de l'expert bundle (torrc : GeoIPFile/GeoIPv6File best-effort
 # par DesktopTor ; sandbox Linux : pas de tor binaire local → absence tolérée
 # SEULEMENT hors Windows, sinon l'alerte bloque : les livrables Windows les
@@ -144,6 +156,10 @@ grep -q "fichiers essentiels vérifiés" "$SMOKE/install.log" \
   || { cat "$SMOKE/install.log"; echo "${RED}✗ fichiers essentiels non vérifiés${NC}"; exit 1; }
 [ -f "$DEST/nyx-messenger/nyx.ico" ] \
   || { echo "${RED}✗ icône nyx.ico absente du payload installé${NC}"; exit 1; }
+# v0.3.10 — caméra du PC par défaut : ffmpeg DOIT être installé (l'installateur
+# le vérifie aussi comme fichier essentiel — double barrière).
+[ -f "$DEST/nyx-messenger/ffmpeg/ffmpeg.exe" ] \
+  || { echo "${RED}✗ ffmpeg/ffmpeg.exe absent du payload installé — caméra impossible${NC}"; exit 1; }
 grep -q "raccourci desktop" "$SMOKE/install.log" \
   && echo "${YLW}  (info) raccourcis tentés sous Linux — chemin résolu par l'API shell Windows au vrai install${NC}" \
   || true

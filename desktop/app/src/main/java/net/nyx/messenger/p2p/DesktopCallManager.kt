@@ -62,10 +62,13 @@ object DesktopCallManager {
         val message: String = "",
         val phaseChangedAt: Long = 0L,
         // v0.3.7 — VISIO MJPEG (interop téléphone ≥ v0.2.55) : négociée aux
-        // DEUX côtés (HELLO.vc/ACCEPT.vc = "mjpeg"). Le bureau partage son
-        // ÉCRAN (Robot) et affiche la caméra du téléphone.
+        // DEUX côtés (HELLO.vc/ACCEPT.vc = "mjpeg").
+        // v0.3.10 — CAMÉRA DU PC PAR DÉFAUT (demande opérateur : « je veux
+        // par défaut le flux caméra mais la possibilité de partager l'écran »)
+        // + bascule à chaud ; [videoIsScreen] pilote le libellé du bouton.
         val videoEnabled: Boolean = false,
-        val videoPaused: Boolean = false,   // partage en pause (réception continue)
+        val videoPaused: Boolean = false,   // émission en pause (réception continue)
+        val videoIsScreen: Boolean = false, // v0.3.10 : source = ÉCRAN (sinon CAMÉRA)
         val videoPeerRot: Int = 0,          // rotation caméra du pair (F_VIDEO_ROT)
         val videoPeerW: Int = 0,            // taille d'encodage du pair (aspect)
         val videoPeerH: Int = 0,
@@ -82,6 +85,9 @@ object DesktopCallManager {
     /** Injecté par ServiceLocator. */
     @Volatile private var repo: DesktopRepository? = null
 
+    /** v0.3.10 — Injecté par ServiceLocator : alias local d'un pair (magasin). */
+    @Volatile var aliasOf: ((onion: String) -> String?)? = null
+
     /** Connexion média en cours (appelant OU appelé après remise par P2pServer). */
     private var conn: P2pCallConnection? = null
     private var audio: DesktopCallAudio? = null
@@ -92,6 +98,10 @@ object DesktopCallManager {
     /** Offre entrante en attente (signalisation arrivée avant le média). */
     private var pendingOffer: CallSignal? = null
     private var acceptedCid: String? = null
+
+    /** v0.3.10 — cids récemment REFUSÉS (garde : l'offre journal arrive APRÈS
+     * le refus de la carte → ne doit pas re-sonner). */
+    private val rejectedCids = HashMap<String, Long>()
 
     fun init(repoRef: DesktopRepository) {
         repo = repoRef
@@ -140,6 +150,11 @@ object DesktopCallManager {
         val cid = CallSignal.newCid()
         _ui.value = CallUi(Phase.OUTGOING, peer, alias, cid,
             message = "sonnerie…", videoEnabled = withVideo, phaseChangedAt = nowMs())
+        // v0.3.10 — RETOUR D'APPEL AUDIBLE chez l'appelant (terrain 28/10 :
+        // « lors d'une tentative d'appel, je veux une sonnerie côté appelant
+        // pour indiquer que le tel ou pc appelle ») : bi-ton doux pendant que
+        // le pair sonne, stop déterministe au décroché/refus/timeout.
+        net.nyx.messenger.notify.DesktopRinger.startRingback()
         scope.launch {
             // v0.2.26 miroir : TOUTE exception dans le cycle sortant finit par
             // end() — une IOException qui tuait la coroutine sans nettoyage
@@ -215,6 +230,7 @@ object DesktopCallManager {
             // indisponible (sans écran) → AUDIO-ONLY sans erreur (miroir
             // Android : jamais un appel raté pour la visio).
             var vW = 0; var vH = 0
+            var vSrcScreen = false
             if (_ui.value.videoEnabled) {
                 val vEngine = DesktopCallVideo({ t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
                 val vSend = runCatching { vEngine.startSending() }.getOrNull()
@@ -223,11 +239,16 @@ object DesktopCallManager {
                     audioEngine.videoSink = { bytes -> vEngine.feedVideo(bytes) }
                     audioEngine.rotSink = { p -> onPeerRotation(p) }
                     vW = vSend.w; vH = vSend.h
-                    DesktopLog.i("nyx-video", "visio MJPEG annoncée dans le HELLO (${vW}x${vH}, vc=mjpeg)")
+                    vSrcScreen = vSend.source == DesktopCallVideo.Source.SCREEN
+                    DesktopLog.i(
+                        "nyx-video",
+                        "visio MJPEG annoncée dans le HELLO (${vW}x${vH}, vc=mjpeg, " +
+                            "source ${if (vSrcScreen) "ÉCRAN (repli)" else "CAMÉRA"})"
+                    )
                 } else {
                     vEngine.stop()
                     _ui.value = _ui.value.copy(videoEnabled = false)
-                    DesktopLog.w("nyx-video", "capture d'écran indisponible — appel visio dégradé en audio")
+                    DesktopLog.w("nyx-video", "aucune source vidéo (caméra ni écran) — appel visio dégradé en audio")
                 }
             }
             val me = DesktopP2pClient.me
@@ -286,15 +307,21 @@ object DesktopCallManager {
                     // v0.3.7 — VISIO : l'appelé a répondu vc="mjpeg" (téléphone
                     // ≥ v0.2.55) → les DEUX sens partent. Sinon (vc absent, pair
                     // ≤ v0.2.54) : dégradation honnête en AUDIO — l'appel TIENT.
+                    // v0.3.10 — un téléphone ≥ v0.2.58 répond vrot=0 + vw/vh
+                    // PRÉ-TOURNÉS (portrait ↔ paysage) : le rendu vit dans la
+                    // trame elle-même, plus de rotation à la vue.
                     val vEngine = video
                     if (_ui.value.videoEnabled && accept.vc == P2pProtocol.VC_MJPEG && vEngine != null) {
                         vEngine.setPeerPresentation(accept.vw, accept.vh)
                         vEngine.transmit = true
                         _ui.value = _ui.value.copy(
+                            videoIsScreen = vSrcScreen,
                             videoPeerRot = accept.vrot, videoPeerW = accept.vw, videoPeerH = accept.vh)
                         DesktopLog.i(
                             "nyx-video",
-                            "visio MJPEG ACTIVE (rotation pair ${accept.vrot}°, ${accept.vw}x${accept.vh})"
+                            "visio MJPEG ACTIVE (pair ${accept.vw}x${accept.vh}" +
+                                (if (accept.vrot != 0) ", rotation ${accept.vrot}° (pair ancien)" else ", pré-tournée") +
+                                ", source locale ${if (vSrcScreen) "ÉCRAN" else "CAMÉRA"})"
                         )
                     } else if (_ui.value.videoEnabled) {
                         runCatching { vEngine?.stop() }
@@ -308,6 +335,9 @@ object DesktopCallManager {
                     }
                     audioEngine.startReceiving(P2pProtocol.AC_ADPCM)
                     audioEngine.transmit = true // acceptation explicite → l'audio part
+                    // v0.3.10 — le retour d'appel s'arrête AVANT l'audio (le
+                    // décroché est effectif — plus de tonalité par-dessus la voix).
+                    net.nyx.messenger.notify.DesktopRinger.stop()
                     _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "", phaseChangedAt = nowMs())
                     DesktopLog.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…, codec adpcm${if (_ui.value.videoEnabled) ", visio mjpeg" else ""})")
                 }
@@ -338,6 +368,24 @@ object DesktopCallManager {
                 // Anti-rejeu souple : une offre trop vieille est un appel manqué.
                 if (signal.ts in 1 until now - CallSignal.OFFER_TTL_S) {
                     r.addCallInfo(author, false, "Appel manqué")
+                    return
+                }
+                // v0.3.10 — OFFRE D'UN APPEL DÉJÀ CONNU : la connexion média +
+                // HELLO authentifié sont arrivés AVANT le poll (la sonnerie a
+                // déjà démarré DÈS le HELLO — fix « notification longue à
+                // arriver » terrain 28/10) → l'offre ne fait que confirmer.
+                if (_ui.value.phase != Phase.IDLE && _ui.value.cid == signal.cid) {
+                    DesktopLog.i(
+                        "nyx-call",
+                        "offre journal en confirmation (déjà en ${_ui.value.phase} depuis le HELLO — cid ${signal.cid.take(8)}…)"
+                    )
+                    return
+                }
+                // v0.3.10 — offre d'un appel REFUSÉ il y a < 120 s (le refus de
+                // la carte a précédé le poll) : silence, pas de re-sonnerie.
+                val rejectedAt = synchronized(rejectedCids) { rejectedCids[signal.cid] }
+                if (rejectedAt != null && nowMs() - rejectedAt < 120_000L) {
+                    DesktopLog.i("nyx-call", "offre d'un appel déjà refusé (cid ${signal.cid.take(8)}…) — ignorée")
                     return
                 }
                 if (_ui.value.phase != Phase.IDLE) {
@@ -443,6 +491,16 @@ object DesktopCallManager {
         val rejConn = conn
         pendingOffer = null
         acceptedCid = null
+        // v0.3.10 — memo du refus (garde anti re-sonnerie : l'offre journal
+        // peut arriver APRÈS le refus — fix notifications terrain 28/10).
+        synchronized(rejectedCids) {
+            rejectedCids[state.cid] = nowMs()
+            val it = rejectedCids.entries.iterator()
+            while (it.hasNext()) {
+                val e = it.next()
+                if (nowMs() - e.value > 300_000L) it.remove()
+            }
+        }
         // v0.3.8 — la sonnerie s'arrête ICI (miroir acceptIncoming).
         net.nyx.messenger.notify.DesktopRinger.stop()
         // v0.2.52 miroir — LA FIN EST IMMÉDIATE : rejet socket (tampon TCP
@@ -461,6 +519,15 @@ object DesktopCallManager {
      * l'utilisateur a déjà accepté → finalise immédiatement ; si l'offre
      * n'est pas encore traitée (course journal/poll) → la connexion est
      * GARDÉE en attente au lieu d'un refus net ; sinon refus net.
+     *
+     * v0.3.10 — SONNERIE DÈS LE HELLO AUTHENTIFIÉ (terrain 28/10 14:00 :
+     * « appel vocal tel => pc : la notification est longue à arriver, pas de
+     * son coté pc » + « appel visio tel => pc : n'a pas fonctionné ») : la
+     * connexion média du téléphone arrive AVANT son offre de journal (poll
+     * ≤ 15-30 s) et porte DÉJÀ tout (identité vérifiée, cid, alias, codecs,
+     * intention visio). Un appel entrant ne s'affiche PLUS à l'offre du poll
+     * mais À L'INSTANT du HELLO — la carte ✓/✕ + la sonnerie partent tout
+     * de suite, l'offre qui suit n'est qu'une confirmation.
      */
     fun onIncomingConnection(connection: P2pCallConnection) {
         scope.launch {
@@ -469,16 +536,35 @@ object DesktopCallManager {
                 val wanted = state.phase == Phase.INCOMING && state.cid == connection.hello.cid
                 val alreadyAccepted = state.phase == Phase.WAIT && acceptedCid == connection.hello.cid
                 if (state.phase == Phase.IDLE) {
-                    // L'offre n'est pas encore arrivée (poll ≤ 30 s) : garder.
+                    // v0.3.10 — AVANT : la connexion était PARKÉE en attendant
+                    // l'offre du poll (jusqu'à 30 s de sonnerie perdue) ; le
+                    // téléphone, lui, n'attend que 60 s sa réponse. Désormais :
+                    // appel entrant IMMÉDIAT depuis le HELLO (authentifié par
+                    // le serveur P2P : signature + contact accepté).
                     val cid = connection.hello.cid
-                    waited[cid] = connection
-                    DesktopLog.i("nyx-call", "média AVANT l'offre — connexion gardée (cid ${cid.take(8)}…)")
+                    val label = connection.hello.alias.ifBlank {
+                        aliasOf?.invoke(connection.hello.onion) ?: connection.hello.onion.take(10) + "…"
+                    }
+                    conn = connection
+                    _ui.value = CallUi(
+                        Phase.INCOMING, connection.hello.onion, label, cid,
+                        videoEnabled = P2pProtocol.supportsMjpeg(connection.hello.vc),
+                        message = "appel entrant…", phaseChangedAt = nowMs()
+                    )
+                    DesktopLog.i(
+                        "nyx-call",
+                        "appel entrant DÈS LE HELLO (sonnerie immédiate — offre journal en confirmation, cid ${cid.take(8)}…, " +
+                            "codec ${connection.hello.ac.ifEmpty { "aac" }}, visio ${if (P2pProtocol.supportsMjpeg(connection.hello.vc)) "oui" else "non"})"
+                    )
+                    net.nyx.messenger.notify.DesktopNotifier.incomingCall(connection.hello.onion, label)
+                    net.nyx.messenger.notify.DesktopRinger.start()
+                    // Garde-fou identique au chemin offre : jamais de sonnerie
+                    // à l'infini (pair qui a raccroché avant l'offre).
                     scope.launch {
-                        delay(WAITED_TTL_MS)
-                        val orphan = synchronized(this@DesktopCallManager) { waited.remove(cid) }
-                        if (orphan != null) {
-                            runCatching { orphan.send(P2pProtocol.F_CALL_REJECT) }
-                            runCatching { orphan.close() }
+                        delay(120_000)
+                        if (_ui.value.phase == Phase.INCOMING && _ui.value.cid == cid) {
+                            repo?.addCallInfo(connection.hello.onion, false, "Appel manqué")
+                            end("appel manqué")
                         }
                     }
                     return@launch
@@ -559,19 +645,28 @@ object DesktopCallManager {
         // ABSENT = pair ≤ v0.2.54). Le bureau ne fait QUE le MJPEG : visio si
         // le MJPEG y figure, sinon AUDIO (le vcsd H.264 éventuel est ignoré —
         // pas de décodeur JVM, pas de faux espoir).
+        // v0.3.10 — la source du bureau est la CAMÉRA PAR DÉFAUT (demande
+        // opérateur : « je veux par défaut le flux caméra mais la possibilité
+        // de partager l'écran »), l'écran reste le repli.
         val callerWantsVideo = P2pProtocol.supportsMjpeg(c.hello.vc)
         var vW = 0; var vH = 0
         var vEngine: DesktopCallVideo? = null
+        var vSendSource = DesktopCallVideo.Source.CAMERA
         if (callerWantsVideo) {
             val engine = DesktopCallVideo({ t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
             val vSend = runCatching { engine.startSending() }.getOrNull()
             if (vSend != null) {
                 vEngine = engine
                 vW = vSend.w; vH = vSend.h
-                DesktopLog.i("nyx-video", "visio MJPEG choisie (appelant ${c.hello.onion.take(16)}…, ${vW}x${vH})")
+                vSendSource = vSend.source
+                DesktopLog.i(
+                    "nyx-video",
+                    "visio MJPEG choisie (appelant ${c.hello.onion.take(16)}…, ${vW}x${vH}, " +
+                        "source ${if (vSend.source == DesktopCallVideo.Source.SCREEN) "ÉCRAN (repli)" else "CAMÉRA"})"
+                )
             } else {
                 engine.stop()
-                DesktopLog.w("nyx-video", "capture d'écran indisponible — réponse AUDIO seule")
+                DesktopLog.w("nyx-video", "aucune source vidéo (caméra ni écran) — réponse AUDIO seule")
             }
         }
         val engine = DesktopCallAudio(c.input, { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
@@ -591,9 +686,16 @@ object DesktopCallManager {
             // sinon → format/téléphone↔téléphone inchangés).
             // v0.3.7 — vc="mjpeg" SEULEMENT si la visio est établie (un appelant
             // téléphone↔téléphone ne le voit jamais — champ absent = H.264).
+            // v0.3.10 — vpr="1" : le bureau rend la trame par SON PROPRE aspect
+            // (JPEG auto-descriptif) — un appelant téléphone ≥ v0.2.58 y
+            // PRÉ-TOURNE son flux à l'encodage (portrait ↔ paysage — terrain
+            // 28/10 : « toujours un problème d'orientation de la video et de
+            // resolution qui devrait s'adapter à l'orientation »). Un appelant
+            // ≤ v0.2.57 ignore la clé et garde le comportement historique.
             c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(
                 myCsdB64, "", 0, vW, vH, P2pProtocol.AC_ADPCM,
-                if (vEngine != null) P2pProtocol.VC_MJPEG else ""
+                if (vEngine != null) P2pProtocol.VC_MJPEG else "",
+                if (vEngine != null) P2pProtocol.VPR_PREROTATED else ""
             ).toByteArray(Charsets.UTF_8))
         }.getOrElse { e ->
             DesktopLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
@@ -608,10 +710,17 @@ object DesktopCallManager {
             vEngine.transmit = true // l'appelé a accepté explicitement
             _ui.value = _ui.value.copy(
                 videoEnabled = true,
-                videoPeerRot = c.hello.vrot, videoPeerW = c.hello.vw, videoPeerH = c.hello.vh)
+                videoIsScreen = vSendSource == DesktopCallVideo.Source.SCREEN,
+                // v0.3.10 — rotation PAIR IGNORÉE en MJPEG vpr : les trames
+                // pré-tournées du téléphone ≥ v0.2.58 sont droites telles
+                // quelles ; un appelant ≤ v0.2.57 ré-émet sa rotation par
+                // F_VIDEO_ROT (onPeerRotation la ré-applique alors).
+                videoPeerRot = 0, videoPeerW = c.hello.vw, videoPeerH = c.hello.vh)
             DesktopLog.i(
                 "nyx-video",
-                "visio MJPEG ACTIVE côté appelé (pair ${c.hello.vw}x${c.hello.vh}, rotation ${c.hello.vrot}°)"
+                "visio MJPEG ACTIVE côté appelé (pair ${c.hello.vw}x${c.hello.vh}, " +
+                    "source ${if (vSendSource == DesktopCallVideo.Source.SCREEN) "ÉCRAN" else "CAMÉRA"}, " +
+                    "pré-rotation vpr accordée — aspect par trame)"
             )
         }
         engine.startReceiving(P2pProtocol.AC_ADPCM)
@@ -633,7 +742,7 @@ object DesktopCallManager {
     }
 
     /**
-     * v0.3.7 — pause/relance du PARTAGE d'écran (bouton 📹 de l'overlay) :
+     * v0.3.7 — pause/relance du PARTAGE (bouton 📹 de l'overlay) :
      * coupe l'ÉMISSION (plus aucune trame ne part — silence vidéo, miroir du
      * mute audio), la réception de la caméra du pair CONTINUE.
      */
@@ -643,6 +752,19 @@ object DesktopCallManager {
         val p = !state.videoPaused
         video?.paused = p
         _ui.value = state.copy(videoPaused = p)
+    }
+
+    /**
+     * v0.3.10 — BASCULE CAMÉRA ↔ ÉCRAN (demande opérateur verbatim : « je
+     * veux par défaut le flux caméra mais la possibilité de partager
+     * l'écran ») : le moteur vidéo change de source À CHAUD, le pair suit
+     * (chaque trame JPEG porte son propre aspect).
+     */
+    fun toggleVideoSource() {
+        val state = _ui.value
+        if (!state.videoEnabled) return
+        val newSource = video?.switchSource() ?: return
+        _ui.value = state.copy(videoIsScreen = newSource == DesktopCallVideo.Source.SCREEN)
     }
 
     /**

@@ -394,12 +394,20 @@ class DesktopRepository(
         var inserted = 0
         for (addr in targets) {
             val key = "fleet:$addr"
+            // v0.3.10 — PREMIER POLL d'une cible : garde temporelle (miroir du
+            // floor du réplica propre) — une cible qui entre dans la liste
+            // démarre à curseur 0 et REJOUERAIT l'historique : sans garde, chaque
+            // message déjà traité repassait par [onIncomingMessage] (terrain
+            // 28/10 : « notifications incessantes de messages déjà traités »).
+            val hadCursor = store.hasCursor(key)
             val cursor = store.cursor(key)
             val relay = relayFor(addr)
             val res = relay.inbox(me, cursor, limit = 100)
             res.fold(
                 onSuccess = { resp ->
+                    val floor = if (hadCursor) 0L else System.currentTimeMillis() / 1000 - 120
                     for (ev in resp.events) {
+                        if (ev.ts < floor) continue
                         if (ingestInboxEvent(ev, priv) == Ingest.NEW) inserted++
                     }
                     if (resp.cursor > cursor) store.setCursor(key, resp.cursor)
@@ -466,13 +474,23 @@ class DesktopRepository(
         if (ev.ttl > 0 && System.currentTimeMillis() / 1000 >= ev.ts + ev.ttl) return Ingest.REJECTED
 
         val id = eventIdOf(canonical)
-        store.insertMessage(
+        // v0.3.10 — NOTIFIER SEULEMENT SI VRAIMENT NOUVEAU : le même événement
+        // livré par plusieurs sources (réplica propre + flotte) ré-exécutait
+        // [onIncomingMessage] à chaque fois alors que le magasin dédupliquait
+        // déjà la ligne (terrain 28/10 : notifications répétées de messages
+        // déjà traités).
+        val fresh = store.insertMessage(
             DesktopStore.Msg(
                 id = id, peer = author, outgoing = false, text = plain, ts = ev.ts,
                 state = DesktopStore.STATE_RECEIVED, rcptPending = 1,
                 expireAt = if (ev.ttl > 0) System.currentTimeMillis() + ev.ttl * 1000 else 0L
             )
         )
+        if (!fresh) {
+            // Déjà en magasin (double livraison flotte/réplica) : la bulle
+            // plateau ne repart PAS — l' accusé, lui, est déjà couvert.
+            return Ingest.APPLIED
+        }
         if (store.contact(author) == null) {
             store.upsertContact(
                 DesktopStore.Contact(

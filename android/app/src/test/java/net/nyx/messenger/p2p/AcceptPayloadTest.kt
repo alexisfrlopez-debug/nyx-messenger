@@ -265,4 +265,40 @@ class AcceptPayloadTest {
             "\"cid\":\"0123456789abcdef\",\"alias\":\"tel\",\"ts\":1770000000,\"ac\":\"aac,adpcm\"}")
         assertEquals("", old!!.vc)
     }
+
+    @Test
+    fun `v0258 - ACCEPT vpr=1 du bureau - pré-rotation MJPEG accordée`() {
+        // Terrain 28/10 : « toujours un problème d'orientation de la video et
+        // de resolution qui devrait s'adapter à l'orientation » — le bureau
+        // ≥ v0.3.10 répond vpr="1" : le téléphone appelant pré-tourne ses
+        // trames à l'encodage (portrait 240x320 ↔ paysage 320x240).
+        // SEUL LE BUREAU émet vpr : le JSON est forgé tel qu'un bureau v0.3.10
+        // l'écrit (miroir de son AcceptPayload.encode à 8 paramètres).
+        val payload = "{\"csd\":\"AAEC\",\"vcsd\":\"\",\"vrot\":0,\"vw\":480,\"vh\":270," +
+            "\"ac\":\"adpcm\",\"vc\":\"mjpeg\",\"vpr\":\"1\"}"
+        val info = P2pProtocol.AcceptPayload.parse(payload.toByteArray())
+        assertEquals("1", info.vpr)
+        assertEquals("mjpeg", info.vc)
+        assertEquals("adpcm", info.ac)
+    }
+
+    @Test
+    fun `v0258 - ACCEPT sans vpr (bureau ancien) - comportement historique`() {
+        // Un bureau ≤ v0.3.9 n'accorde PAS la pré-rotation : champ absent →
+        // le téléphone garde la métadonnée de rotation (F_VIDEO_ROT).
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "", 0, 480, 270, "adpcm", "mjpeg")
+        assertTrue(!payload.contains("vpr"))
+        val info = P2pProtocol.AcceptPayload.parse(payload.toByteArray())
+        assertEquals("", info.vpr)
+    }
+
+    @Test
+    fun `v0258 - le téléphone n'émet JAMAIS vpr - octet pour octet inchangé`() {
+        // L'ENCODE Android n'a pas de paramètre vpr : le JSON produit par un
+        // téléphone ≥ v0.2.58 est IDENTIQUE à celui d'un v0.2.55 (interop).
+        val legacy = P2pProtocol.AcceptPayload.encode("AAEC", "AAAAMUcC", 90, 320, 240, "aac", "")
+        assertTrue(!legacy.contains("vpr"))
+        val mjpeg = P2pProtocol.AcceptPayload.encode("AAEC", "", 0, 240, 320, "adpcm", "mjpeg")
+        assertTrue(!mjpeg.contains("vpr"))
+    }
 }

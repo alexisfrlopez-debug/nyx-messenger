@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.9"
+    const val VERSION = "0.3.10"
 
     /** v0.3.4 — mode de session (miroir SessionMode Android v0.2.18) :
      * PANIC = session LEURRE (données vides dans un répertoire séparé,
@@ -187,6 +187,11 @@ object ServiceLocator {
         }
         net.nyx.messenger.p2p.DesktopP2pServer.callSink = { conn ->
             net.nyx.messenger.p2p.DesktopCallManager.onIncomingConnection(conn)
+        }
+        // v0.3.10 — résolution d'alias pour la sonnerie immédiate sur HELLO
+        // (la carte d'appel affiche l'alias du magasin, miroir chemin offre).
+        net.nyx.messenger.p2p.DesktopCallManager.aliasOf = { onion ->
+            store.contact(onion)?.alias
         }
         net.nyx.messenger.p2p.DesktopP2pServer.start()
         net.nyx.messenger.p2p.DesktopP2pClient.signer = { canonical ->
@@ -425,7 +430,11 @@ object ServiceLocator {
         val gen = loopGeneration
         scope.launch {
             while (isActive && gen == loopGeneration) {
-                delay(30_000L)
+                // v0.3.10 — 15 s (miroir Android ≤ 15 s) : l'offre d'appel
+                // arrivait jusqu'à 30 s après le dépôt (terrain 28/10 : le PC
+                // « n'a jamais vu la notification ») ; la sonnerie démarre
+                // désormais DÈS le HELLO média, l'offre confirme en ≤ 15 s.
+                delay(15_000L)
                 runCatching { repository.pollInbox() }
                     .onSuccess { n -> if (n > 0) _lastPollNew.value = n }
                 runCatching { repository.ensureContactNotified() }

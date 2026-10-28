@@ -159,3 +159,17 @@ android/app/src/main/java/net/nyx/messenger/p2p/VideoRot.kt:portage-miroir
 # dont les appels s'effondreraient de nouveau au décroché).
 android/app/src/test/java/net/nyx/messenger/p2p/ReadCallAnswerTest.kt:portage-miroir
 desktop/app/src/test/java/net/nyx/messenger/p2p/ReadCallAnswerDesktopTest.kt:portage-miroir
+
+# v0.2.58 / v0.3.10 (session 80) — TONALITÉ DE RETOUR D'APPEL chez l'appelant
+# (demande opérateur verbatim : « lors d'une tentative d'appel, je veux une
+# sonnerie côté appelant pour indiquer que le tel ou pc appelle ») :
+# CallRingback (Android) est le MIROIR du mode ringback de DesktopRinger
+# (bureau) — même bi-ton 425+480 Hz, même cadence 1,5 s/3,5 s, même boucle
+# possédée à morceaux de 100 ms et stop déterministe < 150 ms, même
+# génération en mémoire (enveloppe 10 ms). La duplication du générateur
+# dualtone et des writeChunks est la GARANTIE que l'appelant entende la MÊME
+# tonalité quel que soit le bout (miroir des conventions CallRinger ↔
+# DesktopRinger v0.2.52/v0.3.8 — l'audit historique exemptait déjà la paire
+# de sonnerie par identité de conception).
+android/app/src/main/java/net/nyx/messenger/notify/CallRingback.kt:portage-miroir
+desktop/app/src/main/java/net/nyx/messenger/notify/DesktopRinger.kt:portage-miroir

@@ -13,6 +13,12 @@ if not exist "%DIR%tor\tor.exe" (
   pause
   exit /b 1
 )
+rem v0.3.10 — camera du PC en visio (ffmpeg embarque). ABSENT : repli
+rem honnete sur le partage d'ecran (l'app reste pleinement fonctionnelle).
+if not exist "%DIR%ffmpeg\ffmpeg.exe" (
+  echo [Nyx] attention : ffmpeg.exe introuvable — la visio utilisera le
+  echo partage d'ecran au lieu de la camera du PC. Reinstallez pour la camera.
+)
 cd /d "%DIR%"
 rem v0.3.2 — SANS argument : javaw (subsystem GUI) → AUCUNE fenetre console
 rem qui traine derriere l'application ; le journal applicatif reste
