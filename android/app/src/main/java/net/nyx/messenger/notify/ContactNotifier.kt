@@ -50,6 +50,9 @@ object ContactNotifier {
     private const val CHANNEL_CALLS_LEGACY = "nyx_calls"
     const val ACTION_ACCEPT = "net.nyx.messenger.notify.ACCEPT"
     const val ACTION_DECLINE = "net.nyx.messenger.notify.DECLINE"
+    // v0.2.56 — actions d'appel sur la notification verrouillée (session 78).
+    const val ACTION_CALL_ANSWER = "net.nyx.messenger.notify.CALL_ANSWER"
+    const val ACTION_CALL_DECLINE = "net.nyx.messenger.notify.CALL_DECLINE"
     const val EXTRA_ONION = "onion"
     const val EXTRA_ALIAS = "alias"
 
@@ -97,6 +100,39 @@ object ContactNotifier {
                 this.action = action
                 putExtra(EXTRA_ONION, onion)
                 putExtra(EXTRA_ALIAS, alias)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    /** v0.2.56 — PendingIntent d'action D'APPEL ([CallActionReceiver]). */
+    private fun callActionIntent(ctx: Context, action: String, onion: String): PendingIntent =
+        PendingIntent.getBroadcast(
+            ctx,
+            (action + onion).hashCode(),
+            Intent(ctx, CallActionReceiver::class.java).apply {
+                this.action = action
+                putExtra(EXTRA_ONION, onion)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    /**
+     * v0.2.56 — INTENT PLEIN ÉCRAN ([CallLockActivity]) : le système lance
+     * l'activité d'appel directement SUR L'ÉCRAN VERROUILLÉ (écran allumé,
+     * au-dessus du keyguard) — c'est le mécanisme officiel des applications
+     * téléphoniques. Android 14+ peut rétrograder l'alarme plein écran en
+     * notification heads-up si l'utilisateur l'a refusée dans les réglages
+     * (Paramètres → Applications → Nyx → Notifications → Alertes plein écran) :
+     * les boutons d'action restent alors le moyen de décrocher verrouillé.
+     */
+    private fun fullScreenCallIntent(ctx: Context, onion: String, alias: String): PendingIntent =
+        PendingIntent.getActivity(
+            ctx,
+            ("callfs" + onion).hashCode(),
+            Intent(ctx, net.nyx.messenger.ui.call.CallLockActivity::class.java).apply {
+                putExtra(EXTRA_ONION, onion)
+                putExtra(EXTRA_ALIAS, alias)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -154,6 +190,12 @@ object ContactNotifier {
     /**
      * v0.2.18 — Appel entrant (ADR-015) : notification prioritaire pendant la
      * sonnerie — un appui ouvre l'app (l'écran d'appel est composé globalement).
+     *
+     * v0.2.56 — DÉCROCHER VERROUILLÉ (session 78) : INTENT PLEIN ÉCRAN vers
+     * [CallLockActivity] (affichée sur le keyguard par le système) + boutons
+     * Décrocher/Refuser DIRECTEMENT sur la notification — les trois gestes
+     * fonctionnent sans rien déverrouiller. La notification est ongoing
+     * pendant la sonnerie (pas d'effacement accidentel du seul signal).
      */
     fun incomingCall(onion: String, alias: String) {
         val ctx = NotifyCore.appContext ?: return
@@ -165,7 +207,17 @@ object ContactNotifier {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setContentIntent(contentIntent(ctx, onion))
+            .setFullScreenIntent(fullScreenCallIntent(ctx, onion, alias), true)
+            .setOngoing(true)
             .setAutoCancel(true)
+            .addAction(
+                android.R.drawable.ic_menu_call, ctx.getString(R.string.call_answer),
+                callActionIntent(ctx, ACTION_CALL_ANSWER, onion)
+            )
+            .addAction(
+                android.R.drawable.ic_delete, ctx.getString(R.string.call_decline),
+                callActionIntent(ctx, ACTION_CALL_DECLINE, onion)
+            )
             .build()
         NotifyCore.notify((onion + "call").hashCode(), n)
     }

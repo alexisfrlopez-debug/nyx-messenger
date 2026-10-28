@@ -222,9 +222,12 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
   #    jour automatique (canal test + standard) — exigée par Android 8+ ; sa
   #    présence est légitimée par l'allowlist de l'audit (audit-allowlist.txt,
   #    justification complète) ; aucune installation sans confirmation user.
+  #    USE_FULL_SCREEN_INTENT (v0.2.56) : intent plein écran de l'appel entrant
+  #    — le système affiche CallLockActivity SUR le keyguard (décrocher/refuser
+  #    écran verrouillé, session 78) ; légitimée par l'allowlist de l'audit.
   BADGE=$("$BT/aapt2" dump badging "$APK_SRC")
   BAD_PERMS=$(echo "$BADGE" | rg "uses-permission" \
-    | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT|RECORD_AUDIO|CAMERA|REQUEST_INSTALL_PACKAGES" \
+    | rg -v "INTERNET|ACCESS_NETWORK_STATE|FOREGROUND_SERVICE|FOREGROUND_SERVICE_DATA_SYNC|POST_NOTIFICATIONS|USE_BIOMETRIC|USE_FINGERPRINT|RECORD_AUDIO|CAMERA|REQUEST_INSTALL_PACKAGES|USE_FULL_SCREEN_INTENT" \
     | rg -v "net\.nyx\.messenger(\.test)?\.[A-Z_]+" || true)
   [ -z "$BAD_PERMS" ] && check "Permissions minimales (liste fermée)" 0 \
                      || check "Permissions non autorisées" 1 "$BAD_PERMS"

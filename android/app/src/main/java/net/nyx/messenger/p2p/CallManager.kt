@@ -354,8 +354,12 @@ object CallManager {
             }
             // 3. Attendre la réponse (60 s — l'appelé sonne et accepte pendant
             //    ce temps ; la fenêtre totale reste sous le watchdog appelé).
+            //    v0.2.56 — LECTURE EN BOUCLE : un appelé ≤ v0.2.55 expédie sa
+            //    trame de rotation AVANT son F_CALL_ACCEPT (cause racine terrain
+            //    28/10 : l'appel s'effondrait à l'instant du décroché) — la boucle
+            //    route ces trames précoces au lieu de les prendre pour un échec.
             runCatching { socket.soTimeout = 60_000 }
-            val answer = runCatching { P2pProtocol.read(c.input) }.getOrNull()
+            val answer = P2pProtocol.readCallAnswer(c.input, 60_000) { p -> onPeerRotation(p) }
             when (answer?.type) {
                 P2pProtocol.F_CALL_ACCEPT -> {
                     // v0.2.20 : payload JSON {csd, vcsd} (ou b64 brut v0.2.19) ;
@@ -817,8 +821,10 @@ object CallManager {
                         if (chosenMjpeg) ByteArray(0)
                         else java.util.Base64.getDecoder().decode(c.hello.vcsd)
                     )
-                    vEngine.transmit = true
-                    vEngine.sendCurrentRotation()
+                    // v0.2.56 — NI transmit NI rotation ICI : le F_CALL_ACCEPT
+                    // part AVANT TOUTE trame média (la rotation qui précédait
+                    // l'ACCEPT en v0.2.53-0.2.55 faisait traiter l'appel comme
+                    // « pas de réponse » par tout appelant à lecture unique).
                 }
                 net.nyx.messenger.diag.DiagLog.i(
                     "nyx-video",
@@ -852,6 +858,13 @@ object CallManager {
         // v0.2.54 — réception : le codec de L'APPELANT (bureau = ADPCM).
         runCatching { engine.startReceiving(peerCsd, if (chosenAdpcm) P2pProtocol.AC_ADPCM else "") }
         engine.transmit = true // l'appelé a accepté explicitement
+        // v0.2.56 — l'ÉMISSION (et la resynchronisation de rotation) ne part
+        // qu'APRÈS le F_CALL_ACCEPT : le pair à lecture unique voit TOUJOURS
+        // l'ACCEPT en premier (interop avec v0.2.53-0.3.7).
+        if (video != null) {
+            video?.transmit = true
+            video?.sendCurrentRotation()
+        }
         _ui.value = _ui.value.copy(
             phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "",
             videoEnabled = myVCsdB64.isNotEmpty() || chosenMjpeg, phaseChangedAt = nowMs()

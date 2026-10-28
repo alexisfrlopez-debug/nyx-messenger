@@ -535,6 +535,13 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_56 = listOf(
+        Item("decroche-verrouille", "DÉCROCHER/REFUSER ÉCRAN VERROUILLÉ — ITEM DÉCISIF n°1 (NOUVEAU v0.2.56, demande opérateur 28/10 session 78 : « pouvoir décrocher ou rejeter un appel quand le téléphone est verrouillé sans devoir tout déverrouiller (tel/ordi, application ...) ») : téléphone ÉCRIN VERROUILLÉ + app verrouillée → appel entrant → l'écran S'ALLUME sur l'écran d'appel Nyx (alias + Décrocher/Refuser — intent plein écran) ; les boutons de la NOTIFICATION fonctionnent AUSSI sans déverrouiller ; décrocher → l'appel s'établit (audio) sans RIEN déverrouiller ; refuser → l'appel se termine ; l'overlay d'appel est visible AU-DESSUS du verrou de l'app (jamais de contenu de message — alias seul)"),
+        Item("visio-tient-decroche", "LA VISIO PC↔TÉLÉPHONE TIENT APRÈS LE DÉCROCHÉ — ITEM DÉCISIF n°2 (NOUVEAU v0.2.56, preuve 5ᵉ export bureau 28/10 07:19 : le téléphone acceptait à 07:19:13 mais l'appel s'effondrait — trame de rotation AVANT le F_CALL_ACCEPT lue comme « pas de réponse » + process tué par l'ANR AudioRecord 4 s plus tard) : appel visio depuis OU vers le PC → au décroché l'appel RESTE ACTIF des deux côtés (« appel actif » chez le bureau, journal « appel actif avec … (côté appelé) »), l'émission ADPCM démarre (« émission ADPCM active (micro démarré, blocs 20 ms) » — plus AUCUN « Error -38 » dans le logcat), la caméra et l'écran partagé coulent"),
+        Item("latence-audio-pc", "LATENCE AUDIO TÉLÉPHONE↔PC RÉDUITE (NOUVEAU v0.2.56, demande 28/10 : « les appels audio tel-pc ont un delay trop long ») : appel audio avec le PC → la conversation est FLUIDE (réponse quasi immédiate, plus de retard perceptible de une demi-seconde) ; après une rafale Tor le retard est RATTRAPÉ (« anti-arriéré : N bloc(s) sauté(s) pour rejoindre le direct ») au lieu de s'accumuler"),
+        Item("build-propre-v56", "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.56 vérifié : permissions caméra+micro+notification demandées ensemble au premier démarrage, APPEL DÉCROCHABLE/REFUSABLE ÉCRAN ET APP VERROUILLÉS » (chaîne complète du marqueur — cf. notes de release)"),
+    )
+
     val ITEMS_V0_2_55 = listOf(
         Item("visio-pc-mjpeg", "VISIO AVEC LE PC — ITEM DÉCISIF n°1 (NOUVEAU v0.2.55, demande opérateur 28/10 : « appels visio ne fonctionnent pas entre pc et tel » — le bureau ne peut NI encoder NI décoder le H.264 MediaCodec en pur Java) : appel visio depuis OU vers le PC (bureau ≥ v0.3.7) → la CAMÉRA du téléphone s'affiche sur l'écran du PC ET l'ÉCRAN du PC s'affiche sur le téléphone, ~5 trames/s (JPEG logiciel négocié « mjpeg » — journal « visio MJPEG ACTIVE — interop bureau » / « codec vidéo MJPEG négocié — émission basculée ») ; l'appel AUDIO continue de fonctionner ; un téléphone ≤ v0.2.54 en face → le PC refuse proprement la visio, l'appel reste AUDIO"),
         Item("visio-tel-tel-inchange", "TÉLÉPHONE↔TÉLÉPHONE H.264 INCHANGÉ — ITEM DÉCISIF n°2 (interop : le champ « vc » du HELLO/ACCEPT est ABSENT entre téléphones — format v0.2.20 octet pour octet) : visio entre DEUX v0.2.55 → image H.264 comme avant, rotation suivie, AUCUNE régression"),
@@ -648,7 +655,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

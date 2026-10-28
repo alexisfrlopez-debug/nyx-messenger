@@ -171,10 +171,25 @@ class CallAudio(
                 rec.startRecording()
                 val pcm = ByteArray(PCM_FRAME)
                 val bufferInfo = MediaCodec.BufferInfo()
+                // v0.2.56 — garde anti-tourbillon (classe de bug ANR v0.2.55) :
+                // une lecture en erreur ne fait PLUS tourner la boucle à vide.
+                var emptyReads = 0
                 // v0.2.54 — aacSending : bascule ADPCM demandée (switchSendingToAdpcm)
                 while (!stopped && aacSending) {
                     val n = rec.read(pcm, 0, pcm.size)
-                    if (n <= 0) continue
+                    if (n <= 0) {
+                        if (++emptyReads >= 50) {
+                            net.nyx.messenger.diag.DiagLog.w(
+                                "nyx-call",
+                                "micro : $emptyReads lectures vides — émission coupée, " +
+                                    "réception conservée (l'appel continue)"
+                            )
+                            break
+                        }
+                        Thread.sleep(20)
+                        continue
+                    }
+                    emptyReads = 0
                     if (muted) continue // pas de trame émise = silence chez le pair
                     var inIdx = enc.dequeueInputBuffer(10_000)
                     if (inIdx >= 0) {
@@ -185,6 +200,8 @@ class CallAudio(
                     }
                     drainEncoder(enc, bufferInfo)
                 }
+            } catch (e: InterruptedException) {
+                // arrêt propre — pas de onFatal
             } catch (e: Exception) {
                 if (!stopped) onFatal("micro : ${e.message}")
             }
@@ -218,11 +235,36 @@ class CallAudio(
         net.nyx.messenger.diag.DiagLog.i("nyx-call", "émission basculée sur le codec ADPCM (interop bureau)")
     }
 
-    /** v0.2.54 — boucle d'émission ADPCM (miroir bureau — blocs fermes 20 ms). */
+    /**
+     * v0.2.54 — boucle d'émission ADPCM (miroir bureau — blocs fermes 20 ms).
+     *
+     * v0.2.56 — CAUSE RACINE DU CRASH TERRAIN 28/10 07:19 (2ᵉ export téléphone,
+     * Blackview) : `rec.startRecording()` N'ÉTAIT JAMAIS APPELÉ sur ce chemin
+     * (seul le chemin AAC le faisait) → tout `read` rendait l'erreur -38
+     * (ERROR_INVALID_OPERATION — enregistrement non démarré) → la boucle
+     * `continue` SANS TEMPORISATION tournait à ~112 000 erreurs/s (16 431
+     * lignes « Error -38 » en 147 ms dans le logcat) → CPU saturé + ANR →
+     * process tué 4 s après l'activation de la visio. Le correctif : (1)
+     * startRecording() AVANT toute lecture (avec vérification d'état honnête) ;
+     * (2) garde anti-tourbillon — N lectures vides → pause 20 ms + coupure de
+     * l'émission après 50 (l'appel CONTINUE en réception, miroir v0.2.48 du
+     * micro refusé : jamais d'appel tué pour un micro HS).
+     */
     private fun startAdpcmEncoder(rec: AudioRecord) {
         val t = Thread({
             try {
+                runCatching { rec.startRecording() }   // ← JAMAIS APPELÉ en v0.2.54-0.2.55 : cause racine ANR
+                if (rec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                    net.nyx.messenger.diag.DiagLog.w(
+                        "nyx-call",
+                        "micro ADPCM non démarré (state=${rec.recordingState}) — émission muette, " +
+                            "réception conservée (l'appel continue)"
+                    )
+                    return@Thread
+                }
+                net.nyx.messenger.diag.DiagLog.i("nyx-call", "émission ADPCM active (micro démarré, blocs 20 ms)")
                 val pcm = ByteArray(Adpcm.PCM_BLOCK)
+                var emptyReads = 0
                 while (!stopped && useAdpcm) {
                     var n = 0
                     while (n < pcm.size && !stopped) {
@@ -230,10 +272,26 @@ class CallAudio(
                         if (r <= 0) break
                         n += r
                     }
-                    if (n < pcm.size) continue
+                    if (n < pcm.size) {
+                        // v0.2.56 — plus JAMAIS de boucle serrée sur une lecture
+                        // en erreur : pause de 20 ms, coupure après 50 échecs.
+                        if (++emptyReads >= 50) {
+                            net.nyx.messenger.diag.DiagLog.w(
+                                "nyx-call",
+                                "micro (adpcm) : $emptyReads lectures vides — émission coupée, " +
+                                    "réception conservée (l'appel continue)"
+                            )
+                            break
+                        }
+                        Thread.sleep(20)
+                        continue
+                    }
+                    emptyReads = 0
                     if (muted || !transmit) continue
                     write(P2pProtocol.F_AUDIO, Adpcm.encodeBlock(pcm))
                 }
+            } catch (e: InterruptedException) {
+                // arrêt propre — pas de onFatal
             } catch (e: Exception) {
                 if (!stopped) onFatal("micro (adpcm) : ${e.message}")
             }
@@ -285,6 +343,13 @@ class CallAudio(
         val minBuf = AudioTrack.getMinBufferSize(
             SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
+        // v0.2.56 — LATENCE (retour terrain session 78 : « les appels audio
+        // tel-pc ont un delay trop long ») : le chemin ADPCM (interop bureau)
+        // utilise un tampon MINIMAL (~128 ms au lieu de 512 ms : 16 Ko à
+        // 32 Ko/s = une demi-seconde d'arriéré audible) ; le chemin AAC
+        // (téléphone↔téléphone) est INCHANGÉ (qualité supérieure assumée).
+        val lowLatency = peerAc == P2pProtocol.AC_ADPCM
+        val trackBuf = if (lowLatency) maxOf(minBuf, 4096) else maxOf(minBuf, 8192) * 2
         val at = AudioTrack(
             android.media.AudioAttributes.Builder()
                 .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -295,7 +360,7 @@ class CallAudio(
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                 .build(),
-            maxOf(minBuf, 8192) * 2,
+            trackBuf,
             AudioTrack.MODE_STREAM,
             AudioManager.AUDIO_SESSION_ID_GENERATE
         )
@@ -307,7 +372,20 @@ class CallAudio(
             // blocs fermes sont décodés en logiciel (miroir bureau) et servis
             // directement au AudioTrack. Une trame de taille inattendue est
             // IGNORÉE (aucune dérive d'état — résilience Tor).
+            //
+            // v0.2.56 — ANTI-ARRIÉRÉ (retour terrain session 78 : délai tel-PC
+            // trop long) : la mise en service du canal peut laisser DES SECONDES
+            // d'audio en file (TCP + tampon). Chaque bloc écrit est comparé à
+            // l'HORLOGE RÉELLE depuis la mise en route : si nous avons écrit plus
+            // de 150 ms d'avance sur le temps écoulé, c'est de l'arriéré — le
+            // bloc est SAUTÉ (20 ms de rattrapage par bloc, sans trou audible :
+            // on rejoint le direct). Les rafales Tor en cours d'appel sont
+            // résorbées par le même mécanisme.
             val trackAdpcm = track
+            val startNs = System.nanoTime()
+            var framesWritten = 0L
+            var skippedBlocks = 0
+            var lastSkipLog = 0L
             val t = Thread({
                 try {
                     while (!stopped) {
@@ -315,8 +393,24 @@ class CallAudio(
                         when (frame.type) {
                             P2pProtocol.F_AUDIO -> {
                                 if (frame.payload.size == Adpcm.ADPCM_BLOCK && trackAdpcm != null) {
+                                    val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
+                                    val expectedFrames = elapsedMs * SAMPLE_RATE / 1000L
+                                    if (framesWritten > expectedFrames + 2_400) {  // 150 ms d'avance = arriéré
+                                        skippedBlocks++
+                                        val now = System.currentTimeMillis()
+                                        if (now - lastSkipLog > 5_000) {
+                                            lastSkipLog = now
+                                            net.nyx.messenger.diag.DiagLog.i(
+                                                "nyx-call",
+                                                "anti-arriéré : $skippedBlocks bloc(s) sauté(s) pour rejoindre " +
+                                                    "le direct (latence)"
+                                            )
+                                        }
+                                        continue
+                                    }
                                     val pcm = Adpcm.decodeBlock(frame.payload)
                                     trackAdpcm.write(pcm, 0, pcm.size)
+                                    framesWritten += pcm.size / 2L
                                 }
                             }
                             P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)

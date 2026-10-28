@@ -1,0 +1,2 @@
+6ec402f322637b8b27bf69e20912d0a5a188d3af784227ce6db453dbe8843e4e  nyx-messenger-windows-v0.3.8.zip
+5634379a08fab8dbe4604052e37abbb8d774e0910142f860150870ffc6b63dee  nyx-messenger-windows-v0.3.8-installer.exe

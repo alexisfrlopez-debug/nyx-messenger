@@ -38,6 +38,30 @@ object TestPlan {
      * partagé, la caméra du téléphone s'affiche) + durcissement des accusés
      * (dérive d'id au resync + double émission en course).
      */
+    /**
+     * v0.3.8 — items de validation (miroir de docs/releases/v0.3.8-desktop.md) :
+     * SONNERIE bureau + décrochage verrouillé + visio qui tient au décroché +
+     * latence audio réduite.
+     */
+    val ITEMS_V0_3_8 = listOf(
+        Item(
+            "sonnerie-bureau",
+            "SONNERIE AUDIBLE AU BUREAU (NOUVEAU v0.3.8, session 78 : le bureau était MUET — l'appel visio entrant du 28/10 07:17 n'a jamais été remarqué, 0 acceptation en 54 s) : appel depuis le téléphone (fenêtre Nyx réduite ou cachée dans le plateau) → la SONNERIE bi-ton se fait ENTENDRE + la fenêtre se ramène au premier plan TOUJOURS AU-DESSUS ; journal « sonnerie bureau DÉMARRÉE » ; au décroché/refus « sonnerie bureau STOPPÉE »"
+        ),
+        Item(
+            "decroche-app-verrouillee",
+            "DÉCROCHER/REFUSER APP VERROUILLÉE (NOUVEAU v0.3.8, session 78 : « sans devoir tout déverrouiller (tel/ordi, application ...) ») : mot de passe app posé → appel entrant → l'OVERLAY d'appel (Accepter/Refuser) apparaît AU-DESSUS de l'écran de verrou ; décrocher → l'appel s'établit SANS saisir le mot de passe (alias seul visible, jamais de contenu de message) ; NB honnête : l'écran de verrouillage WINDOWS lui-même ne peut pas afficher d'UI tierce (restriction OS) — la sonnerie est le signal, la fenêtre est là au déverrouillage"
+        ),
+        Item(
+            "visio-tient-decroche",
+            "VISIO PC↔TÉLÉPHONE QUI TIENT AU DÉCROCHÉ (NOUVEAU v0.3.8, preuve 5ᵉ export : le téléphone acceptait mais la trame de rotation qui précédait l'ACCEPT était lue comme « pas de réponse » → BYE silencieux) : appel visio depuis OU vers un téléphone ≥ v0.2.56 → au décroché l'appel RESTE ACTIF (« appel actif avec … (codec adpcm, visio mjpeg) » — plus d'effondrement muet, toute fin est journalisée « appel terminé »)"
+        ),
+        Item(
+            "latence-audio",
+            "LATENCE AUDIO RÉDUITE (NOUVEAU v0.3.8, session 78 : « les appels audio tel-pc ont un delay trop long ») : appel audio avec le téléphone → réponse quasi immédiate (tampon 128 ms au lieu de 256 ms) ; après une rafale Tor le retard est RATTRAPÉ (« anti-arriéré : N bloc(s) sauté(s) pour rejoindre le direct »)"
+        ),
+    )
+
     val ITEMS_V0_3_7 = listOf(
         Item(
             "visio-pc-vers-tel",
@@ -162,7 +186,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

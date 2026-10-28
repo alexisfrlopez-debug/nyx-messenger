@@ -442,4 +442,13 @@
     <string name="blocked_hint">Un contact bloqué ne peut ni vous écrire ni vous appeler (ses messages et appels sont détruits à l\'arrivée, sans qu\'il en soit informé). Débloquer rétablit l\'échange tel qu\'avant le blocage.</string>
     <string name="blocked_since">bloqué le %1$s</string>
     <string name="delete_conversation_text">Supprimer la conversation de « %1$s » de cet appareil ? Seuls les messages et fichiers locaux disparaissent — le contact lui-même est conservé.</string>
+    <!-- v0.2.56 — décrocher/refuser depuis l'écran verrouillé (session 78) -->
+    <string name="call_answer">Décrocher</string>
+    <string name="call_decline">Refuser</string>
+    <string name="call_incoming_lock">Appel entrant — %1$s</string>
+    <string name="call_active_lock">Appel en cours</string>
+    <string name="call_connecting">connexion…</string>
+    <string name="call_video_lock_hint">Visio active — déverrouillez l\u2019appareil pour voir l\u2019image</string>
+    <!-- NB : Raccrocher/Micro/Haut-parleur réutilisent call_hangup/call_mute/
+         call_speaker définies plus haut (v0.2.18) — pas de doublon de ressource. -->
 </resources>

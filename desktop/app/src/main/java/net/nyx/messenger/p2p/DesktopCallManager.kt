@@ -259,8 +259,13 @@ object DesktopCallManager {
             }
             // 3. Attendre la réponse (60 s — l'appelé sonne et accepte pendant
             //    ce temps ; la fenêtre totale reste sous le watchdog global).
+            //    v0.3.8 — LECTURE EN BOUCLE (miroir Android v0.2.56) : un appelé
+            //    ≤ v0.2.55 expédie sa trame de rotation AVANT son F_CALL_ACCEPT
+            //    (cause racine terrain 28/10 : l'appel visio s'effondrait à
+            //    l'instant du décroché) — la boucle route ces trames précoces
+            //    au lieu de les prendre pour un échec.
             runCatching { socket.soTimeout = 60_000 }
-            val answer = runCatching { P2pProtocol.read(c.input) }.getOrNull()
+            val answer = P2pProtocol.readCallAnswer(c.input, 60_000) { p -> onPeerRotation(p) }
             when (answer?.type) {
                 P2pProtocol.F_CALL_ACCEPT -> {
                     val accept = P2pProtocol.AcceptPayload.parse(answer.payload)
@@ -358,6 +363,9 @@ object DesktopCallManager {
                     videoEnabled = P2pProtocol.supportsMjpeg(signal.vc),
                     message = "appel entrant…", phaseChangedAt = nowMs())
                 net.nyx.messenger.notify.DesktopNotifier.incomingCall(author, label)
+                // v0.3.8 — SONNERIE AUDIBLE (session 78 : le bureau était MUET,
+                // l'appel visio entrant du 28/10 07:17 n'a jamais été remarqué).
+                net.nyx.messenger.notify.DesktopRinger.start()
                 // v0.2.20 miroir : la CONNEXION média a pu arriver AVANT l'offre
                 // (course journal/poll) : l'adopter si gardée.
                 adoptWaitedConnection(signal.cid)
@@ -400,6 +408,7 @@ object DesktopCallManager {
             "acceptation utilisateur (cid ${state.cid.take(8)}… — média " +
                 "${if (conn != null) "déjà connecté" else "pas encore arrivé"})"
         )
+        net.nyx.messenger.notify.DesktopRinger.stop()
         net.nyx.messenger.notify.DesktopNotifier.cancelCall(state.peer)
         _ui.value = state.copy(phase = Phase.WAIT, message = "connexion…", phaseChangedAt = nowMs())
         // Si la connexion P2P est déjà là (HELLO reçu avant l'appui) —
@@ -434,6 +443,8 @@ object DesktopCallManager {
         val rejConn = conn
         pendingOffer = null
         acceptedCid = null
+        // v0.3.8 — la sonnerie s'arrête ICI (miroir acceptIncoming).
+        net.nyx.messenger.notify.DesktopRinger.stop()
         // v0.2.52 miroir — LA FIN EST IMMÉDIATE : rejet socket (tampon TCP
         // local, instantané) → end() → le rejet journal best-effort APRÈS.
         scope.launch {
@@ -672,6 +683,14 @@ object DesktopCallManager {
 
     /** Termine et nettoie ; l'overlay affiche [reason] 3 s puis revient à IDLE. */
     private fun end(reason: String) {
+        // v0.3.8 — TRACE DE FIN (terrain 28/10 : end() ne journalisait RIEN —
+        // l'effondrement silencieux de l'appel visio au décroché était
+        // invisible dans l'export ; toute fin est désormais noire sur blanc).
+        DesktopLog.i(
+            "nyx-call",
+            "appel terminé (${_ui.value.phase}) — $reason (cid ${_ui.value.cid.take(8)}…, pair ${_ui.value.peer.take(16)}…)"
+        )
+        net.nyx.messenger.notify.DesktopRinger.stop()
         runCatching { audio?.stop() }
         runCatching { video?.stop() }
         runCatching { conn?.close() }

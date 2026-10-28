@@ -142,6 +142,28 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
         }
     }
 
+    // v0.3.8 — SONNERIE ENTRANTE : la fenêtre se RAMÈNE AU PREMIER PLAN et se
+    // pose TOUJOURS AU-DESSUS pendant la sonnerie (session 78 : « pouvoir
+    // décrocher ou rejeter un appel quand l'ordinateur est verrouillé sans
+    // devoir tout déverrouiller »). NB : l'écran de verrouillage WINDOWS
+    // lui-même ne peut pas afficher d'UI d'app tierce (restriction OS) — la
+    // SONNERIE est le signal pendant le verrouillage système, la fenêtre
+    // d'appel est là dès le déverrouillage ; le verrou de L'APP est couvert
+    // par l'overlay ci-dessous.
+    val callUi by net.nyx.messenger.p2p.DesktopCallManager.ui.collectAsState()
+    LaunchedEffect(callUi.phase) {
+        val f = window as? Frame ?: return@LaunchedEffect
+        if (callUi.phase == net.nyx.messenger.p2p.DesktopCallManager.Phase.INCOMING) {
+            f.isAlwaysOnTop = true
+            f.isVisible = true
+            // dé-minimisation (préserve l'état maximisé) : retire le bit ICONIFIED
+            f.extendedState = f.extendedState and java.awt.Frame.ICONIFIED.inv()
+            f.toFront()
+        } else if (f.isAlwaysOnTop) {
+            f.isAlwaysOnTop = false
+        }
+    }
+
     // Verrou au démarrage (miroir AppLock : armé si le coffre existe).
     LaunchedEffect(identityVersion) {
         if (hasIdentity.value && DesktopVault.anySet()) ServiceLocator.lock()
@@ -176,6 +198,11 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
             // DESTRUCTION : tout est déjà effacé — l'app se referme (miroir killProcess).
             onQuit()
         })
+        // v0.3.8 — L'OVERLAY D'APPEL RESTE VISIBLE AU-DESSUS DU VERROU DE L'APP
+        // (demande session 78) : décrocher/refuser agissent directement sur
+        // DesktopCallManager SANS déverrouiller l'app ; seul l'alias de
+        // l'appelant est visible — jamais de contenu de message.
+        net.nyx.messenger.ui.CallOverlay()
         return
     }
 

@@ -120,14 +120,20 @@ fun NyxNavHost(
             }
         }
 
-        // v0.2.18 — CALQUE D'APPEL : au-dessus de la navigation (sonnerie,
-        // conversation, fin) — un appel en cours est visible DEPUIS N'IMPORTE
-        // QUEL écran ; le verrou reste au-dessus (verrouillé = pas d'appel vu).
-        CallOverlay()
-
-        // Calque de verrou : dessiné en dernier = au-dessus de tout le contenu,
-        // opaque (fond système) — la navigation reste composée SOUS le verrou.
+        // Calque de verrou : opaque (fond système) — la navigation reste
+        // composée SOUS le verrou.
         if (locked) LockScreen()
+
+        // v0.2.56 — L'OVERLAY D'APPEL EST AU-DESSUS DU VERROU DE L'APP
+        // (demande opérateur session 78 : « décrocher ou rejeter un appel
+        // quand le téléphone est verrouillé sans devoir tout déverrouiller
+        // (tel/ordi, application…) »). Décision de sécurité explicite : seul
+        // l'ALIAS de l'appelant et l'état de l'appel sont visibles — jamais
+        // de contenu de message ; décrocher/refuser agissent directement sur
+        // CallManager SANS déverrouiller. Le verrouillage SYSTÈME reste
+        // couvert par CallLockActivity (intent plein écran de la notification).
+        // CallOverlay se met de lui-même en retrait quand la phase est IDLE.
+        CallOverlay()
 
         // v0.2.26 — CRÉATION FORCÉE DES MOTS DE PASSE : dès qu'une identité
         // existe sans mot de passe NORMAL (retour terrain : « le mot de passe

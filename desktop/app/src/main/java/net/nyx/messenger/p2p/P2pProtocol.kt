@@ -265,4 +265,31 @@ object P2pProtocol {
     /** Chaîne signée du HELLO — miroir exact chez le vérificateur. */
     fun helloSignedString(kind: String, onion: String, selector: String): String =
         "nyx-p2p|$kind|$onion|$selector"
+
+    /**
+     * v0.3.8 — LECTURE DE LA RÉPONSE D'APPEL (miroir Android v0.2.56).
+     *
+     * CAUSE RACINE TERRAIN 28/10 (5ᵉ export bureau) : un appelé ≤ v0.2.55
+     * expédiait une trame F_VIDEO_ROT AVANT son F_CALL_ACCEPT — et ce
+     * gestionnaire lisait UNE SEULE trame : la rotation était prise pour
+     * « pas de réponse » → BYE silencieux → l'appel visio PC↔téléphone
+     * s'effondrait à l'INSTANT du décroché (le téléphone avait accepté à
+     * 07:19:13, le bureau n'a JAMAIS affiché « appel actif »).
+     *
+     * La boucle lit jusqu'à la VRAIE réponse en ROUTANT les trames précoces
+     * (rotation → présentation UI ; audio/vidéo → ignorées). Null = EOF
+     * (pas de réponse) ; [deadlineMs] borne contre un pair qui spamerait.
+     */
+    fun readCallAnswer(input: java.io.InputStream, deadlineMs: Long, onRotation: (ByteArray) -> Unit): Frame? {
+        val deadline = System.currentTimeMillis() + deadlineMs
+        while (System.currentTimeMillis() < deadline) {
+            val f = runCatching { read(input) }.getOrNull() ?: return null
+            when (f.type) {
+                F_CALL_ACCEPT, F_CALL_REJECT, F_BYE -> return f
+                F_VIDEO_ROT -> onRotation(f.payload)   // pair ≤ v0.2.55 : AVANT l'ACCEPT
+                else -> {}                              // F_AUDIO/F_VIDEO précoces : ignorés
+            }
+        }
+        return null
+    }
 }

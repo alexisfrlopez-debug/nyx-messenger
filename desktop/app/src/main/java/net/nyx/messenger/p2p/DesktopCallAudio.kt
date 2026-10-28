@@ -117,7 +117,10 @@ class DesktopCallAudio(
         val speakerLine = try {
             val info = DataLine.Info(SourceDataLine::class.java, format)
             val line = AudioSystem.getLine(info) as SourceDataLine
-            line.open(format, maxOf(Adpcm.PCM_BLOCK * 8, 8192))
+            // v0.3.8 — LATENCE (session 78 : « les appels audio tel-pc ont un
+            // delay trop long ») : 4 Ko (128 ms) au lieu de 8 Ko (256 ms) — le
+            // chemin interop ADPCM est un appel TÉLÉPHONIQUE, pas une lecture.
+            line.open(format, maxOf(Adpcm.PCM_BLOCK * 2, 4_096))
             line.start()
             line
         } catch (e: Exception) {
@@ -125,6 +128,16 @@ class DesktopCallAudio(
             null
         }
         speaker = speakerLine
+        // v0.3.8 — ANTI-ARRIÉRÉ (miroir Android v0.2.56) : la mise en service
+        // du canal peut laisser DES SECONDES d'audio en file (TCP + tampon).
+        // Chaque bloc écrit est comparé à l'HORLOGE RÉELLE : plus de 150 ms
+        // d'avance sur le temps écoulé = arriéré → bloc SAUTÉ (20 ms de
+        // rattrapage par bloc — on rejoint le direct, les rafales Tor en cours
+        // d'appel sont résorbées pareil, sans trou audible).
+        val startNs = System.nanoTime()
+        var bytesWritten = 0L
+        var skippedBlocks = 0
+        var lastSkipLog = 0L
         val t = Thread({
             try {
                 while (!stopped) {
@@ -134,7 +147,23 @@ class DesktopCallAudio(
                             // Blocs ADPCM fermes — une trame cassée est
                             // ignorée (aucune dérive d'état, miroir résilience).
                             if (frame.payload.size == Adpcm.ADPCM_BLOCK) {
-                                speakerLine?.write(Adpcm.decodeBlock(frame.payload), 0, Adpcm.PCM_BLOCK)
+                                val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
+                                val expectedBytes = elapsedMs * SAMPLE_RATE * 2 / 1000L
+                                if (bytesWritten > expectedBytes + 4_800) {  // 150 ms d'avance = arriéré
+                                    skippedBlocks++
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastSkipLog > 5_000) {
+                                        lastSkipLog = now
+                                        DesktopLog.i(
+                                            "nyx-call",
+                                            "anti-arriéré : $skippedBlocks bloc(s) sauté(s) pour rejoindre le direct (latence)"
+                                        )
+                                    }
+                                    continue
+                                }
+                                val pcm = Adpcm.decodeBlock(frame.payload)
+                                speakerLine?.write(pcm, 0, pcm.size)
+                                bytesWritten += pcm.size
                             } else {
                                 DesktopLog.w(
                                     "nyx-call",

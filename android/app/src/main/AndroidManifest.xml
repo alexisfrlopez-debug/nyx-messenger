@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Réseau : tout le trafic passe par le Tor EMBARQUÉ de l'app (ADR-007). -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -14,6 +15,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v0.2.56 — décrocher verrouillé (session 78) : l'intent plein écran de la
+         notification d'appel lance CallLockActivity SUR le keyguard (mécanisme
+         officiel des apps téléphoniques ; Android 14+ : rétrogradable par
+         réglage utilisateur — les boutons d'action restent le repli). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- v0.2.17 : notes vocales (MediaRecorder → pièce jointe audio). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- v0.2.20 : visio — capture caméra pour l'encodeur H.264 du canal direct. -->
@@ -75,6 +81,23 @@
         <receiver
             android:name=".notify.ContactActionReceiver"
             android:exported="false" />
+        <!-- v0.2.56 — actions Décrocher/Refuser de la notification d'APPEL
+             (fonctionnent écran verrouillé — session 78). -->
+        <receiver
+            android:name=".notify.CallActionReceiver"
+            android:exported="false" />
+        <!-- v0.2.56 — activité d'appel AU-DESSUS DU VERROUILLAGE SYSTÈME : lancée
+             par l'intent plein écran de la notification (écran allumé). Ne montre
+             JAMAIS de contenu de message (alias + durée seulement) ; se ferme seule
+             à la fin de l'appel ; le verrou biométrique de l'app reste armé dessous. -->
+        <activity
+            android:name=".ui.call.CallLockActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.Nyx"
+            tools:targetApi="27" />
             <!-- v0.2.20 — mise à jour automatique : l'APK téléchargé (cache) est
              remis à l'installateur système via ce FileProvider (read-only). -->
         <provider

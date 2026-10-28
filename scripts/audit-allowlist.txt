@@ -35,6 +35,19 @@ android/app/src/main/AndroidManifest.xml:android.permission.CAMERA
 # vérifiée par la version + l'asset attendu du canal.
 android/app/src/main/AndroidManifest.xml:android.permission.REQUEST_INSTALL_PACKAGES
 
+# v0.2.56 (session 78) — décrocher/refuser un appel ÉCRAN VERROUILLÉ (demande
+# opérateur verbatim : « pouvoir décrocher ou rejeter un appel quand le
+# téléphone est verrouillé sans devoir tout déverrouiller ») :
+# USE_FULL_SCREEN_INTENT est le mécanisme OFFICIEL des applications
+# téléphoniques — le système y affiche CallLockActivity directement SUR le
+# keyguard (écran allumé : alias de l'appelant + Décrocher/Refuser, JAMAIS de
+# contenu de message). La permission ne sert QUE l'appel entrant ; Android 14+
+# la rétrograde en notification heads-up si l'utilisateur la refuse dans les
+# réglages (les boutons d'action de la notification restent le repli). Aucune
+# donnée ne quitte l'appareil — l'activité n'affiche que l'alias déjà visible
+# sur la notification.
+android/app/src/main/AndroidManifest.xml:android.permission.USE_FULL_SCREEN_INTENT
+
 # v0.2.34 — TorControlClientTest (nouveaux tests régression ADD_ONION Detach) :
 # méthodes @Before/@After invoquées par JUnit4 via annotations, jamais par
 # appel direct — l'analyseur DEAD-KT ne voit pas les annotations.
@@ -133,3 +146,16 @@ desktop/app/src/main/java/net/nyx/messenger/ui/ChatFormat.kt:portage-miroir
 desktop/app/src/main/java/net/nyx/messenger/p2p/DesktopCallVideo.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/p2p/CallVideo.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/p2p/VideoRot.kt:portage-miroir
+
+# v0.2.56 / v0.3.8 (session 78) — tests miroirs « lecture de la réponse
+# d'appel en boucle » (cause racine terrain 28/10 : trame F_VIDEO_ROT expédiée
+# AVANT le F_CALL_ACCEPT par un appelé ≤ v0.2.55, lue comme « pas de réponse »
+# → BYE silencieux au décroché) : ReadCallAnswerTest (Android) et
+# ReadCallAnswerDesktopTest (desktop) verrouillent LE MÊME comportement des
+# DEUX côtés du protocole — mêmes vecteurs (rotation AVANT accept, trames
+# précoces ignorées, deadline bornée), miroir volontaire à la convention
+# session 76/77 : la duplication est la garantie que l'appelant téléphone ET
+# bureau routent les trames précoces à l'identique (une divergence = un côté
+# dont les appels s'effondreraient de nouveau au décroché).
+android/app/src/test/java/net/nyx/messenger/p2p/ReadCallAnswerTest.kt:portage-miroir
+desktop/app/src/test/java/net/nyx/messenger/p2p/ReadCallAnswerDesktopTest.kt:portage-miroir

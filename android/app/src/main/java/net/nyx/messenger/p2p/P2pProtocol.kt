@@ -265,4 +265,32 @@ object P2pProtocol {
     /** Chaîne signée du HELLO — miroir exact chez le vérificateur. */
     fun helloSignedString(kind: String, onion: String, selector: String): String =
         "nyx-p2p|$kind|$onion|$selector"
+
+    /**
+     * v0.2.56 — LECTURE DE LA RÉPONSE D'APPEL (côté appelant, après le HELLO).
+     *
+     * CAUSE RACINE TERRAIN 28/10 (5ᵉ export bureau) : l'appelé ≤ v0.2.55
+     * pouvait expédier une trame F_VIDEO_ROT (resynchronisation de rotation)
+     * AVANT son F_CALL_ACCEPT — et l'appelant lisait UNE SEULE trame : une
+     * trame qui n'est pas ACCEPT/REJECT était traitée en « pas de réponse »
+     * → BYE silencieux → l'appel s'effondrait à l'INSTANT du décroché.
+     *
+     * La boucle ci-dessous lit jusqu'à la VRAIE réponse, en ROUTANT les
+     * trames précoces (rotation → présentation UI ; audio/vidéo → ignorées :
+     * aucun pipeline n'est encore monté, quelques blocs de 20 ms perdus à
+     * la mise en service sont inaudibles). [deadlineMs] borne la boucle contre
+     * un pair qui spammerait des trames. Null = EOF/timeout (pas de réponse).
+     */
+    fun readCallAnswer(input: InputStream, deadlineMs: Long, onRotation: (ByteArray) -> Unit): Frame? {
+        val deadline = System.currentTimeMillis() + deadlineMs
+        while (System.currentTimeMillis() < deadline) {
+            val f = runCatching { read(input) }.getOrNull() ?: return null
+            when (f.type) {
+                F_CALL_ACCEPT, F_CALL_REJECT, F_BYE -> return f
+                F_VIDEO_ROT -> onRotation(f.payload)   // pair ≤ v0.2.55 : AVANT l'ACCEPT
+                else -> {}                              // F_AUDIO/F_VIDEO précoces : ignorés
+            }
+        }
+        return null
+    }
 }
