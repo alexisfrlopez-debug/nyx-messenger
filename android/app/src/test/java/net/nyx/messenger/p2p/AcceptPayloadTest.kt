@@ -180,4 +180,89 @@ class AcceptPayloadTest {
             "\"cid\":\"0123456789abcdef\",\"alias\":\"tel\",\"ts\":1770000000}")
         assertEquals("", old!!.ac)
     }
+
+    // ---------- v0.2.55 — codecs VIDÉO (interop visio PC↔téléphone) ----------
+
+    @Test
+    fun `v0255 - supportsMjpeg - listes annoncees par les pairs`() {
+        assertTrue(P2pProtocol.supportsMjpeg("h264,mjpeg"))
+        assertTrue(P2pProtocol.supportsMjpeg("mjpeg"))          // le bureau
+        assertTrue(!P2pProtocol.supportsMjpeg(""))               // ≤ v0.2.54
+        assertTrue(!P2pProtocol.supportsMjpeg("h264"))
+        assertTrue(P2pProtocol.supportsMjpeg("h264, mjpeg"))     // espace toléré
+    }
+
+    @Test
+    fun `v0255 - HELLO du bureau (mjpeg seul, vcsd vide) se parse`() {
+        // C'est L'APPELANT bureau : vw/vh portent l'aspect de son écran.
+        val hello = P2pProtocol.Hello("call",
+            "kxcwahchrto32cp3annifd5ndflgw4z4qalnhtprehrjoqy6774qklid.onion",
+            "pc", "cid1234567890abcd", "AAQI", 0, "sig==",
+            vcsd = "", vrot = 0, vw = 480, vh = 270,
+            ac = "adpcm", vc = "mjpeg")
+        val parsed = P2pProtocol.parseHello(P2pProtocol.encodeHello(hello, "sig=="))
+        assertEquals("mjpeg", parsed!!.vc)
+        assertEquals("", parsed.vcsd)
+        assertEquals(480, parsed.vw)
+        assertEquals(270, parsed.vh)
+        // Choix CALLE : MJPEG seulement si l'appelant ne SAIT PAS le H.264.
+        val codecs = parsed.vc.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        assertTrue(codecs.contains(P2pProtocol.VC_MJPEG))
+        assertTrue(!codecs.contains(P2pProtocol.VC_H264))
+    }
+
+    @Test
+    fun `v0255 - HELLO du téléphone (h264,mjpeg) se parse — l'appelé bureau choisit le MJPEG`() {
+        val hello = P2pProtocol.Hello("call",
+            "kxcwahchrto32cp3annifd5ndflgw4z4qalnhtprehrjoqy6774qklid.onion",
+            "tel", "cid1234567890abcd", "AAQI", 0, "sig==",
+            vcsd = "aGVsbG8=", vrot = 90, vw = 320, vh = 240,
+            ac = "aac,adpcm", vc = "h264,mjpeg")
+        val parsed = P2pProtocol.parseHello(P2pProtocol.encodeHello(hello, "sig=="))
+        assertEquals("h264,mjpeg", parsed!!.vc)
+        assertTrue(P2pProtocol.supportsMjpeg(parsed.vc))
+        assertEquals("aGVsbG8=", parsed.vcsd) // téléphone↔téléphone : H.264 intact
+    }
+
+    @Test
+    fun `v0255 - HELLO d'un pair ≤ v0254 (sans vc) se parse, vc vide`() {
+        val oldHello = "{\"v\":1,\"t\":\"call\",\"onion\":\"kxcwahchrto32cp3annifd5ndflgw4z4qalnhtprehrjoqy6774qklid.onion\"," +
+            "\"alias\":\"tel\",\"cid\":\"cid1234567890abcd\",\"csd\":\"AAQI\",\"count\":0," +
+            "\"vcsd\":\"aGVsbG8=\",\"vrot\":90,\"vw\":320,\"vh\":240,\"ac\":\"aac,adpcm\",\"sig\":\"sig==\"}"
+        assertEquals("", P2pProtocol.parseHello(oldHello.toByteArray())!!.vc)
+    }
+
+    @Test
+    fun `v0255 - ACCEPT avec codec video mjpeg (choix du bureau appelé)`() {
+        val payload = P2pProtocol.AcceptPayload.encode("AAQI", "", 0, 480, 270, "adpcm", "mjpeg")
+        assertTrue(payload.startsWith("{"))
+        val info = P2pProtocol.AcceptPayload.parse(payload.toByteArray())
+        assertEquals("mjpeg", info.vc)
+        assertEquals("adpcm", info.ac)
+        assertEquals("", info.videoCsd)   // MJPEG : aucun csd à transporter
+        assertEquals(480, info.vw)        // aspect d'écran du bureau
+        assertEquals(270, info.vh)
+    }
+
+    @Test
+    fun `v0255 - ACCEPT sans codec video (téléphone↔téléphone) reste inchangé`() {
+        // Le champ vc est ABSENT du JSON téléphone↔téléphone — format v0.2.20
+        // OCTET POUR OCTET (un appelant v0.2.54 lit le JSON sans le voir).
+        val payload = P2pProtocol.AcceptPayload.encode("AAEC", "AAAAMUcC", 90, 320, 240)
+        assertTrue(payload.startsWith("{"))
+        assertTrue(!payload.contains("\"vc\""))
+        assertEquals("", P2pProtocol.AcceptPayload.parse(payload.toByteArray()).vc)
+    }
+
+    @Test
+    fun `v0255 - offre de signalisation avec intention visio se parse`() {
+        val sig = CallSignal(CallSignal.OP_OFFER, "0123456789abcdef0123456789abcdef", "tel", 1770000000L,
+            "", "aac,adpcm", "h264,mjpeg")
+        val parsed = CallSignal.parse(sig.encode())
+        assertEquals("h264,mjpeg", parsed!!.vc)
+        // Un ancien format (sans vc) reste lisible — clé ignorée.
+        val old = CallSignal.parse("{\"v\":1,\"kind\":\"call\",\"op\":\"offer\"," +
+            "\"cid\":\"0123456789abcdef\",\"alias\":\"tel\",\"ts\":1770000000,\"ac\":\"aac,adpcm\"}")
+        assertEquals("", old!!.vc)
+    }
 }

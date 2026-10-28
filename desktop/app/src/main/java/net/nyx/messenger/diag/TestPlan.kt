@@ -33,10 +33,40 @@ object TestPlan {
     data class Item(val id: String, val label: String)
 
     /**
-     * v0.3.6 — items de validation (miroir de docs/releases/v0.3.6-desktop.md) :
-     * accusés de réception Corrigés à la racine (read-qui-ne-partait-jamais +
-     * retry + guérison du backlog) et APPELS AUDIO bureau↔téléphone (ADPCM
-     * négocié, téléphone ≥ v0.2.54 requis).
+     * v0.3.7 — items de validation (miroir de docs/releases/v0.3.7-desktop.md) :
+     * VISIO MJPEG bureau↔téléphone (téléphone ≥ v0.2.55 — l'écran du PC est
+     * partagé, la caméra du téléphone s'affiche) + durcissement des accusés
+     * (dérive d'id au resync + double émission en course).
+     */
+    val ITEMS_V0_3_7 = listOf(
+        Item(
+            "visio-pc-vers-tel",
+            "Visio PC→téléphone (téléphone ≥ v0.2.55) : bouton 📹 → sonnerie → décroché → l'écran du PC est PARTAGÉ (bouton « 📹 Écran partagé ») et la caméra du téléphone s'affiche dans la fenêtre (~5 trames/s, latence normale)"
+        ),
+        Item(
+            "visio-tel-vers-pc",
+            "Visio téléphone→PC : bouton visio du téléphone → la fenêtre Nyx sonne « visio » → Accepter → écran partagé + caméra du téléphone dans les DEUX sens (journal « visio MJPEG ACTIVE — interop bureau » côté téléphone)"
+        ),
+        Item(
+            "visio-pause",
+            "En visio : bouton 📹 → « Partage en pause » (plus aucune trame ne part, la caméra du pair CONTINUE) → re-clic → reprise"
+        ),
+        Item(
+            "visio-ancien-tel",
+            "Visio avec un téléphone ≤ v0.2.54 : l'appel passe en AUDIO avec le message honnête dans les journaux (« vc absent — visio indisponible ») — jamais d'appel raté"
+        ),
+        Item(
+            "accuses-unique",
+            "Accusés UNIQUES : dans l'export de logs, « ✓ accusé « read » déposé » n'apparaît PLUS en double à 1 ms d'intervalle (verrou anti-course v0.3.7)"
+        ),
+        Item(
+            "accuses-id-realigne",
+            "Message ayant subi un resync (log « id local re-aligné sur le dépôt resync ») → le pair reçoit l'accusé pour le BON id → ✓✓ s'affiche"
+        ),
+    )
+
+    /**
+     * v0.3.6 — items (accusés corrigés + appels audio interop téléphone ≥ v0.2.54).
      */
     val ITEMS_V0_3_6 = listOf(
         Item(
@@ -132,7 +162,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

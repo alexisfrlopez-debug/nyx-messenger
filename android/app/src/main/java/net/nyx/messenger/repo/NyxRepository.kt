@@ -556,9 +556,23 @@ class NyxRepository(
                 }
             }
             postSigned(relay, me, signed, canonical, priv, failedAddr = depositAddr).fold(
-                onSuccess = {
-                    messageDao.updateState(id, STATE_SENT)
-                    android.util.Log.i("nyx-send", "   ✓ déposé (seq=$seq)")
+                onSuccess = { final ->
+                    // v0.2.55 — RE-ALIGNEMENT D'ID (miroir desktop v0.3.7, retour
+                    // terrain session 77) : au resync de séquence le dépôt part
+                    // avec un seq CORRIGÉ (nouveau canonical → nouvel id) ; la
+                    // ligne locale doit suivre SINON l'accusé du pair pointe
+                    // dans le vide (bulle « ✓ » à vie).
+                    val finalId = if (final.seq == seq) id else {
+                        val finalCanonical = MessageCipher.canonical(
+                            final.type, final.author, final.seq, final.ts, final.ttl, final.to ?: "", final.body
+                        )
+                        val fid = eventIdOf(finalCanonical)
+                        messageDao.rekeyMessage(id, fid)
+                        android.util.Log.i("nyx-send", "   id local re-aligné sur le dépôt resync (${id.take(8)}… → ${fid.take(8)}…)")
+                        fid
+                    }
+                    messageDao.updateState(finalId, STATE_SENT)
+                    android.util.Log.i("nyx-send", "   ✓ déposé (seq=${final.seq})")
                     Unit
                 },
                 onFailure = { e ->
@@ -629,11 +643,14 @@ class NyxRepository(
          *  PAIR si la cible est sa boîte) ; null = ancien comportement
          *  (réplica actif). */
         failedAddr: String? = null,
-    ): Result<Unit> {
+    ): Result<WireEvent> {
+        // v0.2.55 — renvoie l'événement DÉFINITIF (seq corrigé au resync) :
+        // l'appelant re-aligne l'id local (miroir desktop v0.3.7 — la dérive
+        // d'id tuait l'accusé du pair : le canonical contient le seq).
         val first = relay.postEvent(ev)
-        if (first.isSuccess) return first
-        val msg = first.exceptionOrNull()?.message ?: return first
-        if (msg.contains("HTTP 409")) return Result.success(Unit) // idempotent
+        if (first.isSuccess) return Result.success(ev)
+        val msg = first.exceptionOrNull()?.message ?: return Result.failure(first.exceptionOrNull()!!)
+        if (msg.contains("HTTP 409")) return Result.success(ev) // idempotent
         // v0.2.52 — extraction partagée avec la voie LIEN (SeqResync, testée
         // JVM) — comportement identique à l'ancienne regex inline.
         val expected = SeqResync.expectedFrom(msg)
@@ -644,9 +661,11 @@ class NyxRepository(
         ?: run {
             val failed = failedAddr ?: activeReplica
             if (failed != null) {
-                linkDepositFallback(failed, ev, priv)?.let { return it }
+                linkDepositFallback(failed, ev, priv)?.let {
+                    return if (it.isSuccess) Result.success(ev) else Result.failure(it.exceptionOrNull()!!)
+                }
             }
-            return first
+            return Result.failure(first.exceptionOrNull()!!)
         }
         seqMutex.withLock { seqStateDao.upsert(SeqStateEntity(author, expected)) }
         val retried = ev.copy(seq = expected)
@@ -654,13 +673,15 @@ class NyxRepository(
             retried.type, retried.author, retried.seq, retried.ts, retried.ttl, retried.to ?: "", retried.body
         )
         val retry = relay.postEvent(retried.copy(sig = cipher.signEvent(canonical2, priv)))
-        if (retry.isSuccess) return retry
+        if (retry.isSuccess) return Result.success(retried)
         // v0.2.46 — le re-dépôt recadré échoue aussi par réseau → même repli.
         val failed = failedAddr ?: activeReplica
         if (failed != null) {
-            linkDepositFallback(failed, retried, priv)?.let { return it }
+            linkDepositFallback(failed, retried, priv)?.let {
+                return if (it.isSuccess) Result.success(retried) else Result.failure(it.exceptionOrNull()!!)
+            }
         }
-        return retry
+        return Result.failure(retry.exceptionOrNull()!!)
     }
 
     /* ---------------- réception ---------------- */
@@ -1412,6 +1433,7 @@ class NyxRepository(
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                Unit // v0.2.55 : postSigned renvoie l'événement final (id re-aligné par l'appelant)
         }
     }
 
@@ -1568,6 +1590,7 @@ class NyxRepository(
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
                 postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                Unit // v0.2.55 : postSigned renvoie l'événement final (id re-aligné par l'appelant)
             }
         }
 
@@ -1696,6 +1719,7 @@ class NyxRepository(
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
                 postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                Unit // v0.2.55 : postSigned renvoie l'événement final (id re-aligné par l'appelant)
             }
         }
 
@@ -2141,6 +2165,7 @@ class NyxRepository(
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                Unit // v0.2.55 : postSigned renvoie l'événement final (id re-aligné par l'appelant)
         }
     }
 
@@ -2152,7 +2177,21 @@ class NyxRepository(
      * pair archivé — même verrou que l'envoi de messages).
      */
     suspend fun ensureReceiptsSent(): Unit = withContext(Dispatchers.IO) {
-        if (replicas.isEmpty()) return@withContext
+        // v0.2.55 — VERROU ANTI-DOUBLE-ÉMISSION (miroir desktop v0.3.7, retour
+        // terrain session 77 : le PC déposait le même accusé DEUX FOIS — le poll
+        // de fin de cycle et le markConversationRead « flush immédiat » lisaient
+        // les MÊMES ids en parallèle ; le pair voyait double). Le verrou
+        // SÉRIALISE : le second attend, relit l'état — ne reste que le VRAI neuf.
+        rcptMutex.withLock {
+            ensureReceiptsSentLocked()
+        }
+    }
+
+    /** v0.2.55 — verrou d'émission des accusés (un seul cycle à la fois). */
+    private val rcptMutex = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun ensureReceiptsSentLocked() {
+        if (replicas.isEmpty()) return
         for (peer in messageDao.peersWithPendingReceipts()) {
             if (contactDao.get(peer)?.status != ContactStatus.ACCEPTED) continue
             // « read » d'abord — il couvre le « delivered » (impliqué côté
@@ -2502,6 +2541,7 @@ class NyxRepository(
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
                 postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                Unit // v0.2.55 : postSigned renvoie l'événement final (id re-aligné par l'appelant)
                 // La demande est acceptée par le réplica : on peut purger l'état
                 // local (le pair l'appliquera à son prochain poll — l'événement
                 // est dans son journal, re-déposer serait un doublon).
@@ -2601,6 +2641,7 @@ class NyxRepository(
                 )
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
                 postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+                Unit // v0.2.55 : postSigned renvoie l'événement final (id re-aligné par l'appelant)
             }
         }
 

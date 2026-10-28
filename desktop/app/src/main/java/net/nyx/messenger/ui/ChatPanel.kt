@@ -168,7 +168,9 @@ fun ChatPanel(
             // v0.3.6 — APPEL AUDIO DIRECT (ADR-015, miroir Android) : sonnerie
             // via le journal chiffré puis média onion-to-onion ; codec ADPCM
             // négocié (le téléphone doit être ≥ v0.2.54 — message explicite sinon).
-            // Visio : téléphones entre eux (H.264 MediaCodec) — audio seul au PC.
+            // v0.3.7 — APPEL VISIO MJPEG : l'écran du PC est partagé, la caméra
+            // du téléphone s'affiche (téléphone ≥ v0.2.55 — dégradation audio
+            // honnête sinon).
             TextButton(onClick = {
                 if (contact?.status == net.nyx.messenger.desktop.DesktopStore.ContactStatus.ACCEPTED) {
                     net.nyx.messenger.p2p.DesktopCallManager.call(peer, contact.alias)
@@ -176,7 +178,13 @@ fun ChatPanel(
                     error = "L'appel exige une invitation acceptée des deux côtés."
                 }
             }) { Text("📞") }
-            TextButton(onClick = { error = "La visio reste entre téléphones (H.264) — les appels PC sont audio." }) { Text("📹") }
+            TextButton(onClick = {
+                if (contact?.status == net.nyx.messenger.desktop.DesktopStore.ContactStatus.ACCEPTED) {
+                    net.nyx.messenger.p2p.DesktopCallManager.call(peer, contact.alias, withVideo = true)
+                } else {
+                    error = "La visio exige une invitation acceptée des deux côtés."
+                }
+            }) { Text("📹") }
             TextButton(onClick = { onOpenProfile(peer) }) { Text("👤") }
             TextButton(onClick = { onClose() }) { Text("✕") }
         }

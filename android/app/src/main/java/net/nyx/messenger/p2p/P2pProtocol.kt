@@ -46,6 +46,19 @@ object P2pProtocol {
     const val AC_AAC = "aac"
     const val AC_ADPCM = "adpcm"
 
+    // v0.2.55 — codecs vidéo négociés (interop visio PC↔téléphone), même
+    // mécanique que « ac » : HELLO.vc = liste SUPPORTÉE par l'appelant
+    // (« h264,mjpeg » téléphone ; « mjpeg » seul bureau ; ABSENT = H.264 seul
+    // ≤ v0.2.54), ACCEPT.vc = codec CHOISI par l'appelé (« mjpeg » seulement
+    // quand le MJPEG est choisi — téléphone↔téléphone reste OCTET POUR OCTET
+    // le format v0.2.20 : champ absent).
+    const val VC_H264 = "h264"
+    const val VC_MJPEG = "mjpeg"
+
+    /** v0.2.55 — le champ vc de l'appelant annonce-t-il le MJPEG ? */
+    fun supportsMjpeg(vc: String): Boolean =
+        vc.split(',').map { it.trim() }.filter { it.isNotEmpty() }.contains(VC_MJPEG)
+
     data class Frame(val type: Int, val payload: ByteArray)
 
     fun write(out: OutputStream, type: Int, payload: ByteArray = ByteArray(0)) {
@@ -121,6 +134,11 @@ object P2pProtocol {
         // l'interop appels PC↔téléphone). L'APPELÉ choisit et répond dans
         // AcceptPayload.ac.
         val ac: String = "",
+        // v0.2.55 — CODECS VIDÉO SUPPORTÉS PAR L'APPELANT (liste « h264,mjpeg »
+        // téléphone ; « mjpeg » seul bureau ; ABSENT = H.264 seul ≤ v0.2.54 —
+        // l'interop visio PC↔téléphone). L'APPELÉ choisit et répond dans
+        // AcceptPayload.vc. Un pair ancien ignore la clé (MiniJson par clé).
+        val vc: String = "",
     )
 
     fun encodeHello(h: Hello, sigB64: String): ByteArray {
@@ -138,10 +156,21 @@ object P2pProtocol {
             sb.append(",\"vrot\":").append(h.vrot.coerceIn(0, 359))
                 .append(",\"vw\":").append(h.vw.coerceIn(0, 4096))
                 .append(",\"vh\":").append(h.vh.coerceIn(0, 4096))
+        } else if (h.vc.isNotEmpty()) {
+            // v0.2.55 — présentation aussi en MJPEG (vcsd vide mais vw/vh
+            // porteurs de l'aspect d'écran du bureau — un pair ancien ignore
+            // ces clés connues).
+            sb.append(",\"vrot\":").append(h.vrot.coerceIn(0, 359))
+                .append(",\"vw\":").append(h.vw.coerceIn(0, 4096))
+                .append(",\"vh\":").append(h.vh.coerceIn(0, 4096))
         }
         // v0.2.54 — codecs audio supportés (un pair ≤ v0.2.53 ignore la clé).
         if (h.ac.isNotEmpty()) {
             sb.append(",\"ac\":\"").append(esc(h.ac)).append('"')
+        }
+        // v0.2.55 — codecs vidéo supportés (un pair ≤ v0.2.54 ignore la clé).
+        if (h.vc.isNotEmpty()) {
+            sb.append(",\"vc\":\"").append(esc(h.vc)).append('"')
         }
         sb.append(",\"sig\":\"").append(esc(sigB64)).append("\"}")
         return sb.toString().toByteArray(Charsets.UTF_8)
@@ -163,7 +192,9 @@ object P2pProtocol {
             MiniJson.num(s, "vw")?.toInt() ?: 0,
             MiniJson.num(s, "vh")?.toInt() ?: 0,
             // v0.2.54 — codecs audio (absent = AAC seul, pair ≤ v0.2.53)
-            MiniJson.str(s, "ac") ?: ""
+            MiniJson.str(s, "ac") ?: "",
+            // v0.2.55 — codecs vidéo (absent = H.264 seul, pair ≤ v0.2.54)
+            MiniJson.str(s, "vc") ?: ""
         )
     }
 
@@ -181,6 +212,10 @@ object P2pProtocol {
         // v0.2.54 — codec CHOISI par l'appelé ("" / absent = AAC ; "adpcm" =
         // interop appels PC↔téléphone — le bureau ne fait QUE l'ADPCM).
         val ac: String = "",
+        // v0.2.55 — codec vidéo CHOISI par l'appelé ("mjpeg" seulement quand
+        // le MJPEG est choisi — interop visio PC↔téléphone ; "" / absent =
+        // H.264, téléphone↔téléphone inchangé).
+        val vc: String = "",
     )
 
     /**
@@ -194,15 +229,18 @@ object P2pProtocol {
             audioCsdB64: String, videoCsdB64: String,
             vrot: Int = 0, vw: Int = 0, vh: Int = 0,
             ac: String = "",
+            vc: String = "",
         ): String {
             // v0.2.54 — ac vide ET pas de vidéo → format historique (un
             // appelant v0.2.19 lit le b64 brut) ; sinon JSON (v0.2.20+).
-            if (videoCsdB64.isEmpty() && ac.isEmpty()) return audioCsdB64
+            // v0.2.55 — idem avec vc (le MJPEG passe forcément en JSON).
+            if (videoCsdB64.isEmpty() && ac.isEmpty() && vc.isEmpty()) return audioCsdB64
             fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
             return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"" +
                 ",\"vrot\":${vrot.coerceIn(0, 359)},\"vw\":${vw.coerceIn(0, 4096)}" +
                 ",\"vh\":${vh.coerceIn(0, 4096)}" +
-                (if (ac.isEmpty()) "" else ",\"ac\":\"${esc(ac)}\"") + "}"
+                (if (ac.isEmpty()) "" else ",\"ac\":\"${esc(ac)}\"") +
+                (if (vc.isEmpty()) "" else ",\"vc\":\"${esc(vc)}\"") + "}"
         }
 
         /** Infos d'acceptation — tolère l'ancien format brut ET le JSON v0.2.20. */
@@ -216,7 +254,8 @@ object P2pProtocol {
                     MiniJson.num(s, "vrot")?.toInt() ?: 0,
                     MiniJson.num(s, "vw")?.toInt() ?: 0,
                     MiniJson.num(s, "vh")?.toInt() ?: 0,
-                    MiniJson.str(s, "ac") ?: ""
+                    MiniJson.str(s, "ac") ?: "",
+                    MiniJson.str(s, "vc") ?: ""
                 )
             }
             return AcceptInfo(s, "")

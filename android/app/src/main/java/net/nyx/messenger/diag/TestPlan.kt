@@ -535,6 +535,14 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    val ITEMS_V0_2_55 = listOf(
+        Item("visio-pc-mjpeg", "VISIO AVEC LE PC — ITEM DÉCISIF n°1 (NOUVEAU v0.2.55, demande opérateur 28/10 : « appels visio ne fonctionnent pas entre pc et tel » — le bureau ne peut NI encoder NI décoder le H.264 MediaCodec en pur Java) : appel visio depuis OU vers le PC (bureau ≥ v0.3.7) → la CAMÉRA du téléphone s'affiche sur l'écran du PC ET l'ÉCRAN du PC s'affiche sur le téléphone, ~5 trames/s (JPEG logiciel négocié « mjpeg » — journal « visio MJPEG ACTIVE — interop bureau » / « codec vidéo MJPEG négocié — émission basculée ») ; l'appel AUDIO continue de fonctionner ; un téléphone ≤ v0.2.54 en face → le PC refuse proprement la visio, l'appel reste AUDIO"),
+        Item("visio-tel-tel-inchange", "TÉLÉPHONE↔TÉLÉPHONE H.264 INCHANGÉ — ITEM DÉCISIF n°2 (interop : le champ « vc » du HELLO/ACCEPT est ABSENT entre téléphones — format v0.2.20 octet pour octet) : visio entre DEUX v0.2.55 → image H.264 comme avant, rotation suivie, AUCUNE régression"),
+        Item("accuses-unique", "ACCUSÉS SANS DOUBLE ÉMISSION (NOUVEAU v0.2.55, preuve 4ᵉ export : l'accusé « read » partait DEUX FOIS à 1 ms d'intervalle — le pair voyait double) : dans l'export, chaque « ✓ accusé « read » déposé » apparaît UNE SEULE fois même en ouvrant la conversation pendant un cycle de poll"),
+        Item("accuses-id-realigne", "ID RE-ALIGNÉ AU RESYNC (NOUVEAU v0.2.55, miroir desktop v0.3.7 : après un « 400 → re-signé, rejoué », l'événement déposé porte un NOUVEL id — la ligne locale garde l'ancien et l'accusé du PC pointait dans le vide) : un message parti avec resync (log « id local re-aligné sur le dépôt resync ») → le ✓✓ du PC ARRIVE sous la bulle"),
+        Item("build-propre", "BUILD PROPRE PREUVE PAR MARQUEUR : l'export de CHAQUE téléphone contient « câblage v0.2.55 vérifié : permissions caméra+micro+notification demandées ensemble au premier démarrage, orientation vidéo suivie (rotation capteur→écran » (chaîne complète du marqueur — cf. notes de release)"),
+    )
+
     val ITEMS_V0_2_53 = listOf(
         Item("permission-precoce", "LES PERMISSIONS SONT DEMANDÉES AU PREMIER DÉMARRAGE — ITEM DÉCISIF n°1 (NOUVEAU v0.2.53, demande opérateur 25/10 08:41 : « l'appel video n'a fonctionné qu'à partir du moment où je l'ai lancé du Xiaomi et que j'ai eu la demande d'autorisation d'utiliser la caméra. il faudrait que les demandes d'autorisation soient faites dès l'installation de l'application » — cause racine : Xiaomi « permission caméra absente — visio audio-only » à 08:39:59 pendant l'appel visio ENTRANT du Blackview, la permission caméra n'était demandée qu'au clic visio côté APPELANT, JAMAIS au démarrage ni côté appelé) : au PREMIER lancement (ou après mise à jour si pas encore accordées), UNE SEULE boîte système demande caméra + micro (+ notification) — l'export montre « permissions demandées au premier démarrage : … » puis au démarrage suivant « permissions de démarrage déjà toutes accordées (notif, caméra, micro) » ; une visio reçue ou émise MARCHE DÈS LA PREMIÈRE utilisation, sans dégradation audio-only"),
         Item("orientation-suivie", "LA VIDÉO EST DROITE ET SUIT LE TÉLÉPHONE — ITEM DÉCISIF n°2 (NOUVEAU v0.2.53, demande opérateur 25/10 : « l'image video a une orientation d'écran figée, il faudrait qu'elle suive l'orientation du téléphone (et que la résolution s'adapte en conséquence) » — l'image partait en orientation CAPTEUR, couchée à 90° sur un téléphone en portrait, et ne suivait jamais l'écran : aucune lecture de SENSOR_ORIENTATION, décodeur à rotation-degrees = 0) : appel visio entre les DEUX v0.2.53 → l'image distante est DROITE (plus couchée) dans TOUTES les orientations ; tourner le téléphone en cours d'appel → l'image QUE VOIT LE PAIR suit (portrait ↔ paysage, résolution affichée adaptée 240×320 ↔ 320×240) SANS AUCUNE COUPURE (matrice de présentation, le flux H.264 ne change pas) ; l'aperçu local est droit et en MIROIR naturel (caméra front) ; les exports montrent « orientation initiale X° (capteur Y° …) — suit désormais le téléphone » puis à chaque rotation « orientation suivie : X° → Y° (écran tourné) — F_VIDEO_ROT au pair » chez celui qui tourne et « orientation du pair suivie : Y° » chez l'autre"),
@@ -640,7 +648,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.6"
+    const val VERSION = "0.3.7"
 
     /** v0.3.4 — mode de session (miroir SessionMode Android v0.2.18) :
      * PANIC = session LEURRE (données vides dans un répertoire séparé,

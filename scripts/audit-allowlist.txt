@@ -121,3 +121,15 @@ desktop/app/src/main/java/net/nyx/messenger/diag/DriveUploader.kt:portage-miroir
 # mêmes formats des DEUX côtés = garantie d'affichage identique
 # téléphone↔PC ; une divergence involontaire serait un défaut visuel.
 desktop/app/src/main/java/net/nyx/messenger/ui/ChatFormat.kt:portage-miroir
+
+# v0.3.7 (session 77) — portage miroir « visio MJPEG interop » : DesktopCallVideo.kt
+# (desktop) porte le moteur vidéo MJPEG miroir de CallVideo.kt (Android) —
+# mode ImageReader YUV→NV21→JPEG, constantes de qualité/cadence partagées,
+# décodage F_VIDEO_ROT identique à VideoRot.decodeFrame (format ASCII
+# « 0/90/180/270 »). Même convention que session 76 : la duplication est la
+# GARANTIE d'interop PC↔téléphone (même protocole filier, mêmes invariants) ;
+# les vecteurs de test JVM couvrent les DEUX côtés (P2pProtocolDesktopTest /
+# AcceptPayloadTest + VideoRotCodec tests miroirs).
+desktop/app/src/main/java/net/nyx/messenger/p2p/DesktopCallVideo.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/CallVideo.kt:portage-miroir
+android/app/src/main/java/net/nyx/messenger/p2p/VideoRot.kt:portage-miroir

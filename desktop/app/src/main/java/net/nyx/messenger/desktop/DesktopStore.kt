@@ -242,6 +242,25 @@ class DesktopStore {
         if (i >= 0) { mutate(messages[i]); persistMessagesLocked() }
     }
 
+    /**
+     * v0.3.7 — DÉRIVE D'ID TUEE À LA RACINE (retour terrain session 77) :
+     * quand un dépôt subit un resync de séquence (400 → réessai avec le seq
+     * attendu par le journal), l'événement DÉPOSÉ porte un NOUVEL id
+     * (canonical contient le seq) alors que la ligne locale gardait l'ancien —
+     * l'accusé du pair référençait alors un id introuvable et la bulle restait
+     * « ✓ Envoyé » à vie. Renomme la ligne locale vers l'id réellement déposé.
+     */
+    fun rekeyMessage(oldId: String, newId: String) = synchronized(lock) {
+        if (oldId == newId) return
+        ensureLoadedLocked()
+        val i = messages.indexOfFirst { it.id == oldId }
+        if (i >= 0 && messages.none { it.id == newId }) {
+            messages[i] = messages[i].copy(id = newId)
+            persistMessagesLocked()
+            DesktopLog.i("nyx-send", "   id local re-aligné sur le dépôt resync (${oldId.take(8)}… → ${newId.take(8)}…)")
+        }
+    }
+
     fun messagesByIds(ids: List<String>): List<Msg> = synchronized(lock) {
         ensureLoadedLocked()
         val set = ids.toHashSet()

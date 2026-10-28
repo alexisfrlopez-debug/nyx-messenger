@@ -26,13 +26,19 @@ data class CallSignal(
     // "adpcm" branche son codec logiciel ADPCM ; un ancien l'ignore (il
     // décoderait du silence — voir P2pProtocol.Hello.ac).
     val ac: String = "",
+    // v0.3.7 — INTENTION VISIO DE L'OFFRE (cosmétique : l'écran d'appel
+    // entrant affiche « visio » AVANT le HELLO ; le choix réel se fait au
+    // HELLO.vc/ACCEPT.vc). "mjpeg" bureau ; "h264,mjpeg" téléphone ≥ v0.2.55 ;
+    // absent = audio (pair ancien : clé ignorée).
+    val vc: String = "",
 ) {
     fun encode(): String {
         fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
         val relayField = if (relay.isNotEmpty()) ",\"relay\":\"${esc(relay)}\"" else ""
         val acField = if (ac.isNotEmpty()) ",\"ac\":\"${esc(ac)}\"" else ""
+        val vcField = if (vc.isNotEmpty()) ",\"vc\":\"${esc(vc)}\"" else ""
         return "{\"v\":1,\"kind\":\"call\",\"op\":\"${esc(op)}\",\"cid\":\"${esc(cid)}\"," +
-            "\"alias\":\"${esc(alias)}\",\"ts\":$ts$relayField$acField}"
+            "\"alias\":\"${esc(alias)}\",\"ts\":$ts$relayField$acField$vcField}"
     }
 
     companion object {
@@ -56,7 +62,8 @@ data class CallSignal(
             val ts = MiniJson.num(plain, "ts") ?: 0L
             val relay = MiniJson.str(plain, "relay") ?: ""
             val ac = MiniJson.str(plain, "ac") ?: ""
-            return CallSignal(op, cid, alias, ts, relay, ac)
+            val vc = MiniJson.str(plain, "vc") ?: ""
+            return CallSignal(op, cid, alias, ts, relay, ac, vc)
         }
 
         fun newCid(): String {

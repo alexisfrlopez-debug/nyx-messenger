@@ -118,9 +118,22 @@ class DesktopRepository(
                     )
                 )
                 postSigned(relay, me, signed, canonical, priv).fold(
-                    onSuccess = {
-                        store.updateMessage(id) { it.state = DesktopStore.STATE_SENT }
-                        DesktopLog.i("nyx-send", "   ✓ déposé (seq=$seq)")
+                    onSuccess = { final ->
+                        // v0.3.7 — re-alignment d'id : au resync de séquence le
+                        // dépôt part avec un seq CORRIGÉ (nouveau canonical →
+                        // nouvel id) ; la ligne locale doit suivre SINON l'accusé
+                        // du pair pointe dans le vide (bulle « ✓ » à vie —
+                        // cause racine « toujours problème d'accusés »).
+                        val finalId = if (final.seq == seq) id else {
+                            val finalCanonical = MessageCipher.canonical(
+                                final.type, final.author, final.seq, final.ts, final.ttl, final.to ?: "", final.body
+                            )
+                            val fid = eventIdOf(finalCanonical)
+                            store.rekeyMessage(id, fid)
+                            fid
+                        }
+                        store.updateMessage(finalId) { it.state = DesktopStore.STATE_SENT }
+                        DesktopLog.i("nyx-send", "   ✓ déposé (seq=${final.seq})")
                     },
                     onFailure = { e ->
                         store.updateMessage(id) { it.state = DesktopStore.STATE_FAILED }
@@ -268,6 +281,7 @@ class DesktopRepository(
                 val signed = ev.copy(sig = cipher.signEvent(canonical, priv))
                 val depositAddr = depositTargetFor(peerLower) ?: error("aucun réplica configuré")
                 postSigned(relayFor(depositAddr), me, signed, canonical, priv).getOrThrow()
+            Unit
             }
         }
 
@@ -300,18 +314,22 @@ class DesktopRepository(
         ev: WireEvent,
         canonical: String,
         priv: ByteArray,
-    ): Result<Unit> {
+    ): Result<WireEvent> {
         val first = relay.postEvent(ev)
-        if (first.isSuccess) return first
-        val msg = first.exceptionOrNull()?.message ?: return first
-        if (msg.contains("HTTP 409")) return Result.success(Unit) // idempotent
-        val expected = SeqResync.expectedFrom(msg) ?: return first
+        if (first.isSuccess) return Result.success(ev)
+        val msg = first.exceptionOrNull()?.message ?: return Result.failure(first.exceptionOrNull()!!)
+        if (msg.contains("HTTP 409")) return Result.success(ev) // idempotent
+        val expected = SeqResync.expectedFrom(msg) ?: return Result.failure(first.exceptionOrNull()!!)
         seqMutex.withLock { store.upsertSeq(author, expected) }
         val retried = ev.copy(seq = expected)
         val canonical2 = MessageCipher.canonical(
             retried.type, retried.author, retried.seq, retried.ts, retried.ttl, retried.to ?: "", retried.body
         )
-        return relay.postEvent(retried.copy(sig = cipher.signEvent(canonical2, priv)))
+        // v0.3.7 — on rend l'événement DÉFINITIF (seq corrigé) : l'appelant
+        // re-aligne l'id local (la dérive d'id tuait l'accusé du pair — le
+        // canonical contient le seq, donc l'id CHANGE au resync).
+        val retry = relay.postEvent(retried.copy(sig = cipher.signEvent(canonical2, priv)))
+        return if (retry.isSuccess) Result.success(retried) else Result.failure(retry.exceptionOrNull()!!)
     }
 
     private suspend fun nextSeqFor(author: String): Long = seqMutex.withLock {
@@ -679,6 +697,7 @@ class DesktopRepository(
                 val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
                 val depositAddr = depositTargetFor(p.peer) ?: error("aucun réplica configuré")
                 postSigned(relayFor(depositAddr), me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            Unit
                 store.removeDelPending(p.peer)
                 DesktopLog.i("nyx-send", "✓ suppression « pour tous » déposée (${p.ids.size} msg → ${p.peer.take(16)}…)")
             }
@@ -755,6 +774,22 @@ class DesktopRepository(
      * recommence tant qu'un accusé reste en attente.
      */
     suspend fun ensureReceiptsSent() {
+        // v0.3.7 — VERROU ANTI-DOUBLE-ÉMISSION (retour terrain session 77, 4ᵉ
+        // export : « ✓ accusé « read » déposé … (4 msg) » DEUX FOIS à 1 ms
+        // d'intervalle) : le poll de fin de cycle ET le markConversationRead
+        // « flush immédiat » lisaient les MÊMES ids en attente en parallèle et
+        // déposaient chacun (deux événements, deux seq brûlés — le pair voit
+        // double). Le verrou SÉRIALISE : le second attend, relit l'état — les
+        // ids déjà déposés sont partis, il ne reste que le VRAI nouveau.
+        rcptMutex.withLock {
+            ensureReceiptsSentLocked()
+        }
+    }
+
+    /** v0.3.7 — verrou d'émission des accusés (un seul cycle à la fois). */
+    private val rcptMutex = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun ensureReceiptsSentLocked() {
         if (replicas.isEmpty()) return
         val me = identity.onionAddress ?: return
         val priv = runCatching { identity.secretKey() }.getOrNull() ?: return
@@ -826,6 +861,7 @@ class DesktopRepository(
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             val depositAddr = depositTargetFor(peer) ?: error("aucun réplica configuré")
             postSigned(relayFor(depositAddr), me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            Unit
         }
     }
 
@@ -901,6 +937,7 @@ class DesktopRepository(
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            Unit
         }
     }
 
@@ -920,6 +957,7 @@ class DesktopRepository(
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            Unit
         }
     }
 
@@ -989,6 +1027,7 @@ class DesktopRepository(
             )
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            Unit
             identity.setAlias(norm)
         }
     }
@@ -1043,6 +1082,7 @@ class DesktopRepository(
             val canonical = MessageCipher.canonical(ev.type, ev.author, ev.seq, ev.ts, ev.ttl, ev.to ?: "", ev.body)
             val relay = relayFor(activeOrFirstReplica() ?: error("aucun réplica configuré"))
             postSigned(relay, me, ev.copy(sig = cipher.signEvent(canonical, priv)), canonical, priv).getOrThrow()
+            Unit
         }
     }
 

@@ -1,38 +1,53 @@
 Nyx — Messagerie anonyme, chiffree de bout en bout, entierement sur Tor
 ========================================================================
-Version desktop Windows v0.3.6 VERSION TEST (ACCUSES DE RECEPTION repares
-a la racine + APPELS AUDIO avec le telephone — portage ADR-019 du client
-Android ; valide terrain : la messagerie Windows <-> Android est confirmee
-operationnelle par les journaux v0.3.4-v0.3.5)
+Version desktop Windows v0.3.7 VERSION TEST (VISIO AVEC LE TELEPHONE +
+accuses de reception durcis — portage ADR-019 du client Android ; valide
+terrain : messagerie et appels audio Windows <-> Android operationnels)
 
-NOUVEAUTE v0.3.6 — APPELS AUDIO AVEC LE TELEPHONE
----------------------------------------------------
-  Le bouton 📞 du conversation lance enfin un APPEL AUDIO anonyme (direct
-  onion-to-onion, ADR-015) : sonnerie via le journal chiffre, puis audio
-  temps reel sur le port media 47471 de l'onion du pair. Une fenetre
-  d'appel plein ecran gere sonnerie entrante (Accepter/Refuser), duree
-  vivante, Micro (mute) et Raccroche.
-   - CODEC : le telephone encode en AAC materiel, inexistant sur PC — les
-     DEUX applications embarquent desormais un codec logiciel commun ADPCM
-     (16 kHz, ~8 Ko/s par sens, blocs autonomes de 20 ms : une trame perdue
-     ne corrompt rien). TELEPHONE >= v0.2.54 REQUIS : les appels
-     PC <-> telephone exigent la mise a jour de l'appli telephone (canal
-     test : automatique) ; un vieux telephone recoit un refus PROPRE avec
-     message de mise a jour, jamais d'audio muet.
-   - Telephone <-> telephone : AAC materiel INCHANGE (aucune regression).
-   - Visio : entre telephones seulement (H.264) — les appels PC sont audio.
+NOUVEAUTE v0.3.7 — VISIO PC <-> TELEPHONE (codec MJPEG)
+-------------------------------------------------------
+  Le bouton 📹 lance un APPEL VISIO anonyme (direct onion-to-onion, ADR-015) :
+  le PC PARTAGE SON ECRAN et affiche la CAMERA du telephone.
+   - CODEC VIDEO : le telephone encode en H.264 materiel, indecodable sur
+     PC — les DEUX applications negocient desormais un codec logiciel commun
+     MJPEG (JPEG complet par trame, ~5 trames/s : une trame perdue ne
+     corrompt rien, le flux se gere si le circuit ralentit).
+   - TELEPHONE >= v0.2.55 REQUIS pour la visio (mise a jour par le canal
+     test, automatique) : avec un telephone plus ancien l'appel BASCULE en
+     AUDIO proprement (message honnete, jamais d'appel rate).
+   - Telephone <-> telephone : H.264 materiel INCHANGE (aucune regression).
+   - En visio : bouton 📹 = « Partage en pause » (votre ecran ne part plus,
+     la camera du pair continue) ; la rotation du telephone est suivie.
    - Latence 0,5 a 3 secondes : le prix de l'anonymat (ADR-015), normal.
 
-NOUVEAUTE v0.3.6 — ACCUSES DE RECEPTION REPARES (les ✓✓ passent enfin)
-------------------------------------------------------------------------
-  Trois defauts corriges (proves par vos journaux + test de reproduction) :
-   - l'accuse « LU » ne partait JAMAIS (filtre impossible depuis v0.3.0) ;
-   - un accuse qui echouait (Tor passager) etait PERDU sans nouvelle
-     tentative — desormais DIFFERE puis reparti au cycle suivant ;
-   - MIGRATION : au premier lancement v0.3.6, les messages recus jamais
-     accuses-sus redeviennent en attente (« migration accuses : N message(s)
-     … ») — le telephone verra enfin ses ✓✓ d'avant la mise a jour.
-  Telephone -> PC et PC -> telephone, ouverture de conversation = « lu ».
+NOUVEAUTE v0.3.7 — ACCUSES DE RECEPTION DURCIS
+----------------------------------------------
+  Deux defauts residuels corriges (proves par vos 4e journaux) :
+   - DOUBLE EMISSION : le meme accuse partait parfois DEUX FOIS (deux taches
+     concurrentes lisaient la meme liste) — desormais serialises, un seul
+     accuse part ;
+   - DERIVE D'ID : apres une resynchronisation de sequence (le « 400 »
+     normal des journaux), l'identifiant local du message etait desaligne de
+     celui reellement depose — l'accuse du pair pointait dans le vide et le
+     « ✓✓ » restait « ✓ ». Desormais l'id local est RE-ALIGNE : le ✓✓ arrive.
+
+IMPORTANT — METTRE LE TELEPHONE A JOUR EN v0.2.55
+-------------------------------------------------
+  L'export de logs de votre telephone montre qu'il tourne ENCORE en v0.2.53
+  alors que v0.2.54 est parue : c'est LA cause des appels qui « raccrochent
+  au decrochage » (le PC refuse l'audio AAC seul de la v0.2.53). Installez
+  l'APK v0.2.55 (canal test : l'app se met a jour toute seule ; sinon
+  GitHub > Releases > nyx-messenger v0.2.55). Apres la mise a jour :
+  appels AUDIO et VISIO dans les DEUX sens, et les ✓✓ sur les messages
+  ayant subi un resync.
+
+NOUVEAUTE v0.3.6 (rappel) — APPELS AUDIO AVEC LE TELEPHONE
+-----------------------------------------------------------
+  Bouton 📞 : appel audio anonyme, codec ADPCM negocie (telephone >= v0.2.54),
+  sonnerie via le journal chiffre, micro/mute/raccroche. Telephone <->
+  telephone : AAC materiel INCHANGE. Accuses de reception repares a la
+  racine (read-qui-ne-partait-jamais + DIFFERE/reparti + migration du
+  backlog au premier lancement).
 
 VALIDATION TERRAIN v0.3.4 (journaux recus)
 -------------------------------------------
@@ -128,7 +143,7 @@ NOUVEAUTE v0.3.4 — MEMES FONCTIONNALITES ET BOUTONS QUE LE TELEPHONE
    - REGLAGES complets : replique embarquee (adresse, statistiques, Purger),
      liste des replicas personnalises, sauvegarde de compte, mise a jour
      (canal test en option), deconnexion du compte ;
-   - build test : carte PLAN DE TESTS v0.3.6 (cases a cocher, resultats
+   - build test : carte PLAN DE TESTS v0.3.7 (cases a cocher, resultats
      journalises et envoyes avec les logs) a cote de la carte d'envoi de
      logs.
 
@@ -192,4 +207,5 @@ INTEROPERABILITE
   messages, messages vocaux, fichiers (chiffres 64 Mo par blocs), profils,
   alias, media a affichage limite, suppressions « pour tous ». Sauvegardes
   de compte ET de conversations interchangeables TELEPHONE <-> PC dans les
-  deux sens. Appels audio/visio : phase 2 (ADR-019 §6).
+  deux sens. Appels audio (ADPCM, telephone >= v0.2.54) et visio (MJPEG,
+  telephone >= v0.2.55) dans les DEUX sens.

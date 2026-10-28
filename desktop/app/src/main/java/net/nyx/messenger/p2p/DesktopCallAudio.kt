@@ -25,6 +25,12 @@ import javax.sound.sampled.TargetDataLine
  * HELLO/ACCEPT) : un téléphone ≤ v0.2.53 configure un décodeur valide (jamais
  * de crash) — le champ "ac":"adpcm" fait basculer un téléphone ≥ v0.2.54 sur
  * le codec logiciel ADPCM miroir (p2p/Adpcm.kt de l'APK).
+ *
+ * v0.3.7 — ROUTAGE VIDÉO (miroir CallAudio Android v0.2.20) : la boucle de
+ * lecture est le SEUL lecteur du socket — les trames [P2pProtocol.F_VIDEO]
+ * (JPEG complets du téléphone, MJPEG interop) y sont routées vers
+ * [videoSink], les [P2pProtocol.F_VIDEO_ROT] (rotation de l'écran du pair)
+ * vers [rotSink].
  */
 class DesktopCallAudio(
     private val input: InputStream,
@@ -32,6 +38,12 @@ class DesktopCallAudio(
     private val onFatal: (String) -> Unit,
 ) {
     @Volatile var muted = false
+
+    /** v0.3.7 — trames F_VIDEO (JPEG complet MJPEG) → moteur vidéo. */
+    @Volatile var videoSink: ((ByteArray) -> Unit)? = null
+
+    /** v0.3.7 — trames F_VIDEO_ROT (rotation de l'écran du PAIR) → moteur vidéo. */
+    @Volatile var rotSink: ((ByteArray) -> Unit)? = null
 
     /** v0.2.18 miroir : l'audio ne part QU'après acceptation (pas d'écoute à l'insu). */
     @Volatile var transmit = false
@@ -131,6 +143,8 @@ class DesktopCallAudio(
                             }
                         }
                         P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
+                        P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
+                        P2pProtocol.F_VIDEO_ROT -> rotSink?.invoke(frame.payload)
                     }
                 }
             } catch (e: Exception) {

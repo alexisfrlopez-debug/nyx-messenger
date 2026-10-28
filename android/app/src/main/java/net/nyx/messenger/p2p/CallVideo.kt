@@ -6,6 +6,8 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.media.Image
+import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -47,6 +49,19 @@ import android.view.Surface
  *
  * Budget Tor : ≈19 Ko/s par sens — l'audio (3 Ko/s) reste prioritaire ; la
  * vidéo se dégrade en gel (trames perdues) plutôt qu'en coupure.
+ *
+ * v0.2.55 — MODE MJPEG (interop visio PC↔téléphone) : le bureau ne sait NI
+ * encoder NI décoder le H.264 en pur Java → codec commun MJPEG (JPEG complet
+ * par trame, auto-contenu — une trame perdue ne corrompt rien, miroir des
+ * blocs ADPCM fermes). ÉMISSION : caméra → ImageReader YUV_420_888 → NV21 →
+ * YuvImage.compressToJpeg (q~55, ~10-20 Ko à 320×240) → trame F_VIDEO ; un
+ * exécuteur mono-thread saute la trame si la précédente n'est pas partie
+ * (write bloqué par Tor = gel, jamais de bourrage). RÉCEPTION : JPEG →
+ * BitmapFactory → Canvas sur la surface distante (le lockCanvas marche sur
+ * toute Surface). Le mode est choisi à la CONSTRUCTION ([useMjpeg] — appelé
+ * d'un bureau) ou APRÈS l'ACCEPT ([switchSendingToMjpeg] — le bureau appelé
+ * répond vc="mjpeg" : l'encodeur H.264 n'a encore rien émis, la caméra est
+ * ré-utilisée). Téléphone↔téléphone : H.264 OCTET POUR OCTET inchangé.
  */
 class CallVideo(
     private val context: Context,
@@ -54,6 +69,9 @@ class CallVideo(
     private val onFatal: (String) -> Unit,
     /** v0.2.53 — la rotation LOCALE a changé (l'aperçu et l'état UI suivent). */
     private val onLocalRotation: (Int) -> Unit = {},
+    /** v0.2.55 — mode MJPEG dès le départ (appelant = bureau : il ne fait QUE
+     *  le MJPEG — pas d'encodeur H.264 à démarrer). */
+    private val useMjpeg: Boolean = false,
 ) {
 
     /** v0.2.53 — résultat de [startSending] : csd + présentation locale. */
@@ -67,6 +85,10 @@ class CallVideo(
 
     /** v0.2.20 : aucune trame vidéo ne part avant acceptation explicite. */
     @Volatile var transmit = false
+
+    /** v0.2.55 — mode MJPEG courant (émission ET réception). */
+    @Volatile var mjpeg = useMjpeg
+        private set
 
     /** Caméra active (émission en cours). */
     @Volatile var cameraOn = false
@@ -103,6 +125,15 @@ class CallVideo(
     private var peerCsd: ByteArray = ByteArray(0)
     private val threads = mutableListOf<Thread>()
 
+    // ------------------------- v0.2.55 — mode MJPEG -------------------------
+
+    /** Lecteur YUV de la caméra (mode MJPEG — remplace la surface encodeur). */
+    private var mjpegReader: ImageReader? = null
+
+    /** Exécuteur mono-thread compression+write (gel si le circuit est lent). */
+    private var mjpegExecutor: java.util.concurrent.ExecutorService? = null
+    private val mjpegBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /**
      * Démarre la caméra + l'encodeur. Renvoie le csd H.264 (SPS+PPS
      * concaténés) et la présentation (rotation/taille), ou un csd null si la
@@ -117,6 +148,10 @@ class CallVideo(
             return VideoSendInfo(null, 0, 0, 0)
         }
         return try {
+            // v0.2.55 — MODE MJPEG (appelant = bureau) : pas d'encodeur H.264,
+            // ImageReader YUV → JPEG. Le csd est VIDE (pas de paramètres de
+            // décodeur en MJPEG) mais NON-NULL (la visio est ACTIVE).
+            if (useMjpeg) return startSendingMjpeg()
             // v0.2.52 — L'ORDRE EST INVERSÉ : la caméra démarre AVANT la lecture
             // du csd. Terrain 25/10 : « visio annoncée dans le HELLO (csd 0 o) » —
             // l'encodeur à surface d'entrée n'expose le csd (outputFormat ou
@@ -175,6 +210,177 @@ class CallVideo(
     fun sendCurrentRotation() {
         if (!transmit || stopped) return
         runCatching { write(P2pProtocol.F_VIDEO_ROT, VideoRot.encodeFrame(currentRot)) }
+    }
+
+    /* ------------------------- v0.2.55 — émission MJPEG ------------------------- */
+
+    /**
+     * ÉMISSION MJPEG : ImageReader YUV_420_888 → NV21 → YuvImage.compressToJpeg
+     * → trame F_VIDEO. L'exécuteur mono-thread saute la trame si la précédente
+     * n'est pas encore partie (write bloqué par Tor = gel naturel, jamais de
+     * bourrage du circuit). Renvoie un csd VIDE non-null (visio active, aucun
+     * paramètre de décodeur à transporter — miroir bureau).
+     */
+    private fun startSendingMjpeg(): VideoSendInfo {
+        return try {
+            val (w, h) = pickCaptureSize()
+            val handler = ensureCameraHandler()
+            val reader = ImageReader.newInstance(w, h, android.graphics.ImageFormat.YUV_420_888, 2)
+            reader.setOnImageAvailableListener({ r ->
+                if (stopped) return@setOnImageAvailableListener
+                if (!mjpegBusy.compareAndSet(false, true)) {
+                    // La trame précédente est encore en compression/émission :
+                    // on JETTE les périmées (acquireLatestImage vide la file).
+                    runCatching { r.acquireLatestImage()?.close() }
+                    return@setOnImageAvailableListener
+                }
+                mjpegExecutor?.execute {
+                    try {
+                        val img = r.acquireLatestImage() ?: return@execute
+                        try {
+                            if (transmit && !stopped) {
+                                val jpeg = compressJpeg(img)
+                                if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
+                            }
+                        } finally {
+                            img.close()
+                        }
+                    } catch (e: Exception) {
+                        if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
+                    } finally {
+                        mjpegBusy.set(false)
+                    }
+                }
+            }, handler)
+            mjpegReader = reader
+            mjpegExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                Thread(r, "nyx-video-mj").apply { isDaemon = true }
+            }
+            openCamera(reader.surface)
+            currentRot = computeUprightRotation()
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-video",
+                "visio MJPEG démarrée (${w}x${h}, YUV→JPEG q$MJPEG_QUALITY) — interop bureau"
+            )
+            onLocalRotation(currentRot)
+            startRotationTracking()
+            VideoSendInfo(ByteArray(0), currentRot, w, h, camPick?.front ?: true)
+        } catch (e: Exception) {
+            android.util.Log.w("nyx-video", "caméra indisponible (MJPEG) — visio audio-only : ${e.message}")
+            stopCamera()
+            VideoSendInfo(null, 0, 0, 0)
+        }
+    }
+
+    /**
+     * v0.2.55 — L'APPELÉ est un bureau (ACCEPT.vc="mjpeg") : l'encodeur H.264
+     * n'a encore RIEN émis (transmit était faux) — on l'arrête, on ré-utilise
+     * la caméra vers l'ImageReader YUV, la réception passe en JPEG. Miroir du
+     * switchSendingToAdpcm audio (v0.2.54).
+     */
+    fun switchSendingToMjpeg() {
+        if (mjpeg || stopped) return
+        mjpeg = true
+        // L'encodeur H.264 et son drain meurent (aucune trame n'est partie —
+        // transmit n'a jamais été vrai à ce stade).
+        runCatching { encoder?.stop() }
+        runCatching { encoder?.release() }
+        encoder = null
+        runCatching { encSurface?.release() }
+        encSurface = null
+        runCatching { decoder?.stop(); decoder?.release() }
+        decoder = null
+        // Caméra → ImageReader YUV (même session ré-créée, miroir setPreviewSurface).
+        stopCamera()
+        try {
+            val (w, h) = pickCaptureSize()
+            val handler = ensureCameraHandler()
+            val reader = ImageReader.newInstance(w, h, android.graphics.ImageFormat.YUV_420_888, 2)
+            reader.setOnImageAvailableListener({ r ->
+                if (stopped) return@setOnImageAvailableListener
+                if (!mjpegBusy.compareAndSet(false, true)) {
+                    runCatching { r.acquireLatestImage()?.close() }
+                    return@setOnImageAvailableListener
+                }
+                mjpegExecutor?.execute {
+                    try {
+                        val img = r.acquireLatestImage() ?: return@execute
+                        try {
+                            if (transmit && !stopped) {
+                                val jpeg = compressJpeg(img)
+                                if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
+                            }
+                        } finally {
+                            img.close()
+                        }
+                    } catch (e: Exception) {
+                        if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
+                    } finally {
+                        mjpegBusy.set(false)
+                    }
+                }
+            }, handler)
+            mjpegReader = reader
+            if (mjpegExecutor == null) {
+                mjpegExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                    Thread(r, "nyx-video-mj").apply { isDaemon = true }
+                }
+            }
+            openCamera(reader.surface)
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-video",
+                "codec vidéo MJPEG négocié — émission basculée (caméra ré-utilisée, ${w}x${h})"
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("nyx-video", "bascule MJPEG impossible : ${e.message} — visio coupée côté émission")
+        }
+    }
+
+    /** Image YUV_420_888 → NV21 (VU entrelacé, gère rowStride/pixelStride). */
+    private fun yuv420ToNv21(img: Image): ByteArray {
+        val w = img.width
+        val h = img.height
+        val ySize = w * h
+        val nv21 = ByteArray(ySize + ySize / 2)
+        val yPlane = img.planes[0]
+        val uPlane = img.planes[1]
+        val vPlane = img.planes[2]
+        val yBuf = yPlane.buffer.duplicate()
+        if (yPlane.rowStride == w && yPlane.pixelStride == 1) {
+            yBuf.position(0)
+            yBuf.get(nv21, 0, ySize)
+        } else {
+            var off = 0
+            for (row in 0 until h) {
+                for (col in 0 until w) {
+                    nv21[off++] = yBuf.get(row * yPlane.rowStride + col * yPlane.pixelStride)
+                }
+            }
+        }
+        val uBuf = uPlane.buffer.duplicate()
+        val vBuf = vPlane.buffer.duplicate()
+        var off = ySize
+        for (row in 0 until h / 2) {
+            for (col in 0 until w / 2) {
+                nv21[off++] = vBuf.get(row * vPlane.rowStride + col * vPlane.pixelStride)
+                nv21[off++] = uBuf.get(row * uPlane.rowStride + col * uPlane.pixelStride)
+            }
+        }
+        return nv21
+    }
+
+    /** NV21 → JPEG (null si compression impossible). */
+    private fun compressJpeg(img: Image): ByteArray? {
+        val nv21 = yuv420ToNv21(img)
+        // YuvImage(strides=null : calcule depuis les dimensions).
+        val yuv = android.graphics.YuvImage(
+            nv21, android.graphics.ImageFormat.NV21, img.width, img.height, null
+        )
+        val out = java.io.ByteArrayOutputStream(16 * 1024)
+        if (!yuv.compressToJpeg(android.graphics.Rect(0, 0, img.width, img.height), MJPEG_QUALITY, out)) {
+            return null
+        }
+        return out.toByteArray()
     }
 
     /* ------------------- v0.2.53 — rotation de présentation ------------------- */
@@ -440,7 +646,7 @@ class CallVideo(
             if (camera != null && !stopped) {
                 // Re-crée la session avec/sans aperçu.
                 stopCamera()
-                encSurface?.let { runCatching { openCamera(it) } }
+                captureSurface()?.let { runCatching { openCamera(it) } }
             }
         }
     }
@@ -452,8 +658,15 @@ class CallVideo(
      * par la VUE de l'UI (matrice TextureView) : le support décodeur de
      * KEY_ROTATION est inégal selon les appareils, et changer de rotation en
      * cours d'appel n'exige ainsi AUCUN redémarrage de décodeur.
+     * v0.2.55 — MJPEG : csd VIDE (aucun paramètre de décodeur), pas de
+     * MediaCodec — [feedDecoder] décode les JPEG et rend sur la surface.
      */
     fun startReceiving(peerCsd: ByteArray) {
+        if (mjpeg) {
+            synchronized(lock) { peerCsdBuf = ByteArray(0) }
+            net.nyx.messenger.diag.DiagLog.i("nyx-video", "réception MJPEG prête (JPEG → Canvas)")
+            return
+        }
         synchronized(lock) { peerCsdBuf = peerCsd }
         reconfigureDecoder()
     }
@@ -494,15 +707,19 @@ class CallVideo(
         }
     }
 
-    /** Appelé par la boucle de lecture ([CallAudio.videoSink]) pour chaque F_VIDEO. */
-    fun feedDecoder(h264: ByteArray) {
+    /** Appelé par la boucle de lecture ([CallAudio.videoSink]) pour chaque F_VIDEO.
+     *  v0.2.55 — en MJPEG le payload est un JPEG COMPLET : décodage BitmapFactory
+     *  puis rendu Canvas sur la surface distante (fit centré — la rotation du
+     *  pair est portée par la MATRICE de la vue, comme en H.264). */
+    fun feedDecoder(data: ByteArray) {
+        if (mjpeg) { renderMjpeg(data); return }
         val dec = synchronized(lock) { decoder } ?: return
         try {
             var inIdx = dec.dequeueInputBuffer(10_000)
             if (inIdx < 0) return
             val ib = dec.getInputBuffer(inIdx) ?: return
-            ib.clear(); ib.put(h264)
-            dec.queueInputBuffer(inIdx, 0, h264.size, System.nanoTime() / 1000, 0)
+            ib.clear(); ib.put(data)
+            dec.queueInputBuffer(inIdx, 0, data.size, System.nanoTime() / 1000, 0)
             val info = MediaCodec.BufferInfo()
             while (true) {
                 val outIdx = dec.dequeueOutputBuffer(info, 0)
@@ -514,16 +731,52 @@ class CallVideo(
         }
     }
 
+    /** v0.2.55 — JPEG du bureau → Bitmap → Canvas (fit centré sur la surface). */
+    private fun renderMjpeg(jpeg: ByteArray) {
+        if (jpeg.size > MJPEG_MAX_FRAME_BYTES) return
+        val bmp = runCatching {
+            android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+        }.getOrNull() ?: return
+        val s = synchronized(lock) { remoteSurface }
+        if (s == null) { bmp.recycle(); return }
+        runCatching {
+            val canvas = s.lockCanvas(null)
+            try {
+                canvas.drawColor(android.graphics.Color.BLACK)
+                val scale = minOf(
+                    canvas.width.toFloat() / bmp.width,
+                    canvas.height.toFloat() / bmp.height
+                )
+                val dw = bmp.width * scale
+                val dh = bmp.height * scale
+                val left = (canvas.width - dw) / 2f
+                val top = (canvas.height - dh) / 2f
+                canvas.drawBitmap(
+                    bmp, null,
+                    android.graphics.RectF(left, top, left + dw, top + dh),
+                    android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+                )
+            } finally {
+                s.unlockCanvasAndPost(canvas)
+            }
+        }
+        bmp.recycle()
+    }
+
     /** Coupe/démarre l'ÉMISSION caméra (bouton visio de l'overlay). */
     fun toggleCamera() {
         if (cameraOn) {
             stopCamera()
             cameraOn = false
         } else {
-            val s = encSurface ?: return
+            val s = captureSurface() ?: return
             runCatching { openCamera(s) }
         }
     }
+
+    /** v0.2.55 — surface de CAPTURE courante : encodeur H.264 ou ImageReader MJPEG. */
+    private fun captureSurface(): Surface? =
+        synchronized(lock) { encSurface ?: mjpegReader?.surface }
 
     private fun stopCamera() {
         runCatching { session?.stopRepeating() }
@@ -551,6 +804,11 @@ class CallVideo(
         runCatching { decoder?.stop() }
         runCatching { decoder?.release() }
         runCatching { encSurface?.release() }
+        // v0.2.55 — mode MJPEG : lecteur YUV + exécuteur de compression.
+        runCatching { mjpegExecutor?.shutdownNow() }
+        mjpegExecutor = null
+        runCatching { mjpegReader?.close() }
+        mjpegReader = null
         encoder = null; decoder = null; encSurface = null
         preview = null; remoteSurface = null
     }
@@ -565,5 +823,11 @@ class CallVideo(
 
         /** v0.2.53 — anti-rebond du suivi d'orientation (ms). */
         const val ROT_DEBOUNCE_MS = 600L
+
+        /** v0.2.55 — qualité JPEG de l'émission MJPEG (miroir bureau ~0.55). */
+        const val MJPEG_QUALITY = 55
+
+        /** v0.2.55 — poids max accepté d'une trame JPEG reçue (défense). */
+        const val MJPEG_MAX_FRAME_BYTES = 512 * 1024
     }
 }

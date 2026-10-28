@@ -370,6 +370,18 @@ interface MessageDao {
     @Query("UPDATE messages SET state = :state WHERE eventId = :eventId")
     suspend fun updateState(eventId: String, state: Int)
 
+    /**
+     * v0.2.55 — RE-ALIGNEMENT D'ID (miroir DesktopStore.rekeyMessage v0.3.7,
+     * retour terrain session 77) : quand un dépôt subit un resync de séquence
+     * (400 → réessai au seq attendu par le journal), l'événement DÉPOSÉ porte
+     * un NOUVEL id (le canonical contient le seq) alors que la ligne locale
+     * garde l'ancien — l'accusé du pair référence alors un id introuvable et
+     * la bulle reste « ✓ envoyé » à vie. Renomme la ligne vers l'id réellement
+     * déposé (miroir exact du correctif desktop).
+     */
+    @Query("UPDATE messages SET eventId = :newId WHERE eventId = :oldId")
+    suspend fun rekeyMessage(oldId: String, newId: String)
+
     /** v0.2.11 : suppression de TOUTE la conversation d'un contact (avec lui). */
     @Query("DELETE FROM messages WHERE peerOnion = :peer")
     suspend fun deleteConversation(peer: String)

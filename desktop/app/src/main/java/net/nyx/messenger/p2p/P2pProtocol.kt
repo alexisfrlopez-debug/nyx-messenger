@@ -33,6 +33,20 @@ import java.io.OutputStream
  *    est alors REFUSÉ proprement par le bureau (audio incompatible), avec un
  *    message demandant la mise à jour (auto-update du canal test).
  * Le champ absent/"" = AAC (téléphone↔téléphone, inchangé).
+ *
+ * CODEC VIDÉO (v0.3.7 — interop visio bureau↔téléphone) : même mécanique que
+ * « ac » sur le champ [Hello.vc] / [AcceptInfo.vc] :
+ *  - le bureau ne peut NI encoder NI décoder le H.264 MediaCodec d'Android en
+ *    pur Java → codec vidéo logiciel commun MJPEG (JPEG auto-contenu par
+ *    trame : ImageIO au bureau, YuvImage.compressToJpeg sur Android — zéro
+ *    dépendance des deux côtés) ;
+ *  - HELLO.vc = codecs vidéo SUPPORTÉS par l'appelant (« mjpeg » bureau ;
+ *    « h264,mjpeg » téléphone ≥ v0.2.55 ; ABSENT = H.264 seul ≤ v0.2.54) ;
+ *  - ACCEPT.vc = codec CHOISI par l'appelé (« mjpeg » SEULEMENT quand le
+ *    mjpeg est choisi — téléphone↔téléphone reste OCTET POUR OCTET le
+ *    format v0.2.20 : champ absent) ;
+ *  - en MJPEG les trames [F_VIDEO] portent un JPEG COMPLET (vcsd vide — pas
+ *    de paramètres de décodeur), [F_VIDEO_ROT] s'applique tel quel.
  */
 object P2pProtocol {
 
@@ -53,6 +67,14 @@ object P2pProtocol {
     /** Codec audio logiciel du bureau (négocié via [Hello.ac]). */
     const val AC_AAC = "aac"
     const val AC_ADPCM = "adpcm"
+
+    /** v0.3.7 — codecs vidéo négociés via [Hello.vc]/[AcceptInfo.vc]. */
+    const val VC_H264 = "h264"
+    const val VC_MJPEG = "mjpeg"
+
+    /** v0.3.7 — le champ vc de l'appelant annonce-t-il le MJPEG ? */
+    fun supportsMjpeg(vc: String): Boolean =
+        vc.split(',').map { it.trim() }.filter { it.isNotEmpty() }.contains(VC_MJPEG)
 
     data class Frame(val type: Int, val payload: ByteArray)
 
@@ -125,6 +147,10 @@ object P2pProtocol {
         // ≤ v0.2.53). Un appelé Android ≥ v0.2.54 lit le champ ; un ancien
         // l'ignore (il ne décodera du silence — l'appel sera refusé avant).
         val ac: String = "",
+        // v0.3.7 — CODECS VIDÉO de l'émetteur ("mjpeg" bureau ; "h264,mjpeg"
+        // téléphone ≥ v0.2.55 ; "" = H.264 seul ≤ v0.2.54). L'appelé y choisit
+        // (ACCEPT.vc). Un pair ancien ignore le champ (MiniJson par clé).
+        val vc: String = "",
     )
 
     fun encodeHello(h: Hello, sigB64: String): ByteArray {
@@ -135,14 +161,21 @@ object P2pProtocol {
             .append(",\"cid\":\"").append(esc(h.cid)).append('"')
             .append(",\"csd\":\"").append(esc(h.csd)).append('"')
             .append(",\"count\":").append(h.count)
-        if (h.vcsd.isNotEmpty()) {
-            sb.append(",\"vcsd\":\"").append(esc(h.vcsd)).append('"')
+        // v0.3.7 — présentation vidéo aussi en MJPEG (vcsd vide mais vw/vh
+        // porteurs de l'aspect — un pair ancien ignore ces clés connues).
+        if (h.vcsd.isNotEmpty() || h.vc.isNotEmpty()) {
+            if (h.vcsd.isNotEmpty()) {
+                sb.append(",\"vcsd\":\"").append(esc(h.vcsd)).append('"')
+            }
             sb.append(",\"vrot\":").append(h.vrot.coerceIn(0, 359))
                 .append(",\"vw\":").append(h.vw.coerceIn(0, 4096))
                 .append(",\"vh\":").append(h.vh.coerceIn(0, 4096))
         }
         if (h.ac.isNotEmpty()) {
             sb.append(",\"ac\":\"").append(esc(h.ac)).append('"')
+        }
+        if (h.vc.isNotEmpty()) {
+            sb.append(",\"vc\":\"").append(esc(h.vc)).append('"')
         }
         sb.append(",\"sig\":\"").append(esc(sigB64)).append("\"}")
         return sb.toString().toByteArray(Charsets.UTF_8)
@@ -163,6 +196,7 @@ object P2pProtocol {
             MiniJson.num(s, "vw")?.toInt() ?: 0,
             MiniJson.num(s, "vh")?.toInt() ?: 0,
             MiniJson.str(s, "ac") ?: "",
+            MiniJson.str(s, "vc") ?: "",
         )
     }
 
@@ -178,6 +212,9 @@ object P2pProtocol {
         val vw: Int = 0,
         val vh: Int = 0,
         val ac: String = "",
+        // v0.3.7 — codec vidéo CHOISI par l'appelé ("mjpeg" seulement quand
+        // le mjpeg est choisi ; "" = H.264, format historique inchangé).
+        val vc: String = "",
     )
 
     /**
@@ -195,13 +232,15 @@ object P2pProtocol {
             audioCsdB64: String, videoCsdB64: String,
             vrot: Int = 0, vw: Int = 0, vh: Int = 0,
             ac: String = "",
+            vc: String = "",
         ): String {
-            if (videoCsdB64.isEmpty() && ac.isEmpty()) return audioCsdB64 // format historique
+            if (videoCsdB64.isEmpty() && ac.isEmpty() && vc.isEmpty()) return audioCsdB64 // format historique
             fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
             val acField = if (ac.isNotEmpty()) ",\"ac\":\"${esc(ac)}\"" else ""
+            val vcField = if (vc.isNotEmpty()) ",\"vc\":\"${esc(vc)}\"" else ""
             return "{\"csd\":\"${esc(audioCsdB64)}\",\"vcsd\":\"${esc(videoCsdB64)}\"" +
                 ",\"vrot\":${vrot.coerceIn(0, 359)},\"vw\":${vw.coerceIn(0, 4096)}" +
-                ",\"vh\":${vh.coerceIn(0, 4096)}$acField}"
+                ",\"vh\":${vh.coerceIn(0, 4096)}$acField$vcField}"
         }
 
         /** Infos d'acceptation — tolère l'ancien format brut ET le JSON v0.2.20. */
@@ -216,6 +255,7 @@ object P2pProtocol {
                     MiniJson.num(s, "vw")?.toInt() ?: 0,
                     MiniJson.num(s, "vh")?.toInt() ?: 0,
                     MiniJson.str(s, "ac") ?: "",
+                    MiniJson.str(s, "vc") ?: "",
                 )
             }
             return AcceptInfo(s, "")

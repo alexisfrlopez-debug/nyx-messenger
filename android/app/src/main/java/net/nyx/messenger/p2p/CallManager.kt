@@ -173,7 +173,10 @@ object CallManager {
                 peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS(), relayHint,
                 // v0.2.54 — codecs audio supportés (informationnel ; le bureau
                 // qui sonne saura déjà qu'un chemin ADPCM existe).
-                "aac," + P2pProtocol.AC_ADPCM).encode()
+                // v0.2.55 — intention visio (cosmétique : l'écran d'appel entrant
+                // du bureau affiche « visio » AVANT le HELLO).
+                "aac," + P2pProtocol.AC_ADPCM,
+                if (_ui.value.videoEnabled) P2pProtocol.VC_H264 + "," + P2pProtocol.VC_MJPEG else "").encode()
             )
             if (offered.isFailure) {
                 end("réplica injoignable — appel impossible")
@@ -289,8 +292,11 @@ object CallManager {
             // v0.2.20 — VISIO : si demandée et caméra dispo, le csd H.264 part
             // dans le HELLO (le pair prépare son décodeur et répond le sien).
             // Caméra indisponible → AUDIO-ONLY (jamais d'appel raté pour ça).
+            // v0.2.55 — le HELLO annonce AUSSI le MJPEG ("h264,mjpeg") : un
+            // appelé BUREAU (mjpeg seul) choisira le MJPEG dans son ACCEPT.
             var vCsdB64 = ""
             var vRot = 0; var vW = 0; var vH = 0
+            var myVc = ""
             if (_ui.value.videoEnabled) {
                 val ctx = appContext
                 if (ctx == null) {
@@ -308,12 +314,13 @@ object CallManager {
                     audioEngine.rotSink = { p -> onPeerRotation(p) }
                     vCsdB64 = java.util.Base64.getEncoder().encodeToString(vSend.csd)
                     vRot = vSend.rotation; vW = vSend.w; vH = vSend.h
+                    myVc = P2pProtocol.VC_H264 + "," + P2pProtocol.VC_MJPEG
                     _ui.value = _ui.value.copy(
                         videoLocalRot = vRot, videoLocalW = vW, videoLocalH = vH,
                         videoLocalFront = vSend.front)
                     net.nyx.messenger.diag.DiagLog.i(
                         "nyx-video",
-                        "visio annoncée dans le HELLO (csd ${vSend.csd.size} o, rotation ${vRot}°, ${vW}x${vH})"
+                        "visio annoncée dans le HELLO (csd ${vSend.csd.size} o, rotation ${vRot}°, ${vW}x${vH}, vc=$myVc)"
                     )
                 } else {
                     engine.stop()
@@ -335,8 +342,10 @@ object CallManager {
                     // v0.2.53 — vrot/vw/vh : présentation vidéo (un pair v0.2.52 ignore ces clés).
                     // v0.2.54 — ac : codecs audio SUPPORTÉS (le bureau ne sait pas
                     // l'AAC → il choisira adpcm dans son ACCEPT ; un pair ≤ v0.2.53 ignore la clé).
+                    // v0.2.55 — vc : codecs vidéo SUPPORTÉS (un appelé bureau — mjpeg seul —
+                    // choisira mjpeg dans son ACCEPT ; un pair ≤ v0.2.54 ignore la clé).
                     P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64, vRot, vW, vH,
-                        "aac," + P2pProtocol.AC_ADPCM), sig
+                        "aac," + P2pProtocol.AC_ADPCM, myVc), sig
                 ))
             }.getOrElse { e ->
                 net.nyx.messenger.diag.DiagLog.w("nyx-call", "HELLO non remis : ${e.message}")
@@ -369,7 +378,25 @@ object CallManager {
                         runCatching { audioEngine.startReceiving(peerCsd) }
                     }
                     audioEngine.transmit = true // acceptation explicite → l'audio part
-                    if (_ui.value.videoEnabled && accept.videoCsd.isNotEmpty()) {
+                    // v0.2.55 — VISIO : l'appelé a répondu vc="mjpeg" (c'est un
+                    // bureau) → l'émission bascule en MJPEG (l'encodeur H.264
+                    // n'a rien émis), la réception décode les JPEG de son écran.
+                    // Sinon (vc absent, pair ≤ v0.2.54) : dégradation honnête en
+                    // AUDIO — l'appel TIENT (miroir bureau).
+                    if (_ui.value.videoEnabled && accept.vc == P2pProtocol.VC_MJPEG) {
+                        runCatching {
+                            video?.switchSendingToMjpeg()
+                            video?.startReceiving(ByteArray(0))
+                            video?.transmit = true
+                            video?.sendCurrentRotation()
+                        }
+                        _ui.value = _ui.value.copy(
+                            videoPeerRot = accept.vrot, videoPeerW = accept.vw, videoPeerH = accept.vh)
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-video",
+                            "visio MJPEG ACTIVE — interop bureau (écran du pair ${accept.vw}x${accept.vh})"
+                        )
+                    } else if (_ui.value.videoEnabled && accept.videoCsd.isNotEmpty()) {
                         runCatching {
                             val vcsd = java.util.Base64.getDecoder().decode(accept.videoCsd)
                             video?.startReceiving(vcsd)
@@ -385,10 +412,17 @@ object CallManager {
                             "visio ACTIVE (csd pair ${accept.videoCsd.length} o b64, rotation ${accept.vrot}°, ${accept.vw}x${accept.vh})"
                         )
                     } else {
-                        // Le pair n'a pas de vidéo (v0.2.19 ou caméra refusée).
+                        // Le pair n'a pas de vidéo (v0.2.19, bureau ≤ v0.3.6 ou caméra refusée).
                         _ui.value = _ui.value.copy(videoEnabled = false)
                         runCatching { video?.stop() }
                         video = null
+                        if (accept.vc.isEmpty() && accept.videoCsd.isEmpty() && _ui.value.phase == Phase.OUTGOING) {
+                            // informe l'opérateur sans casser l'appel (audio)
+                            net.nyx.messenger.diag.DiagLog.w(
+                                "nyx-video",
+                                "vc absent du pair — visio indisponible (bureau < v0.3.7 ?) : appel AUDIO"
+                            )
+                        }
                     }
                     _ui.value = _ui.value.copy(phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "", phaseChangedAt = nowMs())
                     net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…)")
@@ -746,35 +780,52 @@ object CallManager {
         }
         // v0.2.20 — le pair a annoncé de la VIDÉO (HELLO vcsd) : on démarre la
         // nôtre et on répond en JSON {csd, vcsd} (pair forcément v0.2.20).
+        // v0.2.55 — un appelant BUREAU n'a pas de vcsd (pas de H.264) mais
+        // annonce vc="mjpeg" : la visio se négocie AUSSI par là. MJPEG choisi
+        // quand l'appelant ne SAIT PAS le H.264 (c'est un bureau) ; téléphone↔
+        // téléphone (vc="h264,mjpeg") garde le H.264 matériel OCTET POUR OCTET.
         var myVCsdB64 = ""
         var myVRot = 0; var myVW = 0; var myVH = 0
-        val peerWantVideo = c.hello.vcsd.isNotEmpty()
+        val callerCodecsV = c.hello.vc.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val chosenMjpeg = callerCodecsV.contains(P2pProtocol.VC_MJPEG) && !callerCodecsV.contains(P2pProtocol.VC_H264)
+        val peerWantVideo = c.hello.vcsd.isNotEmpty() || P2pProtocol.supportsMjpeg(c.hello.vc)
         val ctx = appContext
         if (peerWantVideo && ctx != null) {
             // v0.2.53 — même moteur que l'appelant : rotation suivie + callback UI.
+            // v0.2.55 — useMjpeg quand l'appelant est un bureau (mjpeg seul).
             val vEngine = CallVideo(ctx,
                 { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } },
-                { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) })
+                { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) },
+                useMjpeg = chosenMjpeg)
             val vSend = runCatching { vEngine.startSending() }.getOrNull()
             if (vSend?.csd != null) {
                 video = vEngine
                 engine.videoSink = { bytes -> vEngine.feedDecoder(bytes) }
                 engine.rotSink = { p -> onPeerRotation(p) }
-                myVCsdB64 = java.util.Base64.getEncoder().encodeToString(vSend.csd)
+                // csd VIDE en MJPEG (aucun paramètre de décodeur) — le HELLO du
+                // bureau n'en attend aucun, l'ACCEPT répond vc="mjpeg".
+                myVCsdB64 = if (chosenMjpeg) "" else java.util.Base64.getEncoder().encodeToString(vSend.csd)
                 myVRot = vSend.rotation; myVW = vSend.w; myVH = vSend.h
                 _ui.value = _ui.value.copy(
                     videoLocalRot = myVRot, videoLocalW = myVW, videoLocalH = myVH,
                     videoLocalFront = vSend.front,
-                    // présentation de L'APPELANT lue de son HELLO (0/0/0 si v0.2.52)
+                    // présentation de L'APPELANT lue de son HELLO (0/0/0 si v0.2.52 ;
+                    // vw/vh d'écran s'il s'agit du bureau)
                     videoPeerRot = c.hello.vrot, videoPeerW = c.hello.vw, videoPeerH = c.hello.vh)
                 runCatching {
-                    vEngine.startReceiving(java.util.Base64.getDecoder().decode(c.hello.vcsd))
+                    vEngine.startReceiving(
+                        if (chosenMjpeg) ByteArray(0)
+                        else java.util.Base64.getDecoder().decode(c.hello.vcsd)
+                    )
                     vEngine.transmit = true
                     vEngine.sendCurrentRotation()
                 }
                 net.nyx.messenger.diag.DiagLog.i(
                     "nyx-video",
-                    "visio ACTIVE côté appelé (rotation locale ${myVRot}°, pair ${c.hello.vrot}°)"
+                    if (chosenMjpeg)
+                        "visio MJPEG ACTIVE côté appelé — interop bureau (rotation locale ${myVRot}°, écran pair ${c.hello.vw}x${c.hello.vh})"
+                    else
+                        "visio ACTIVE côté appelé (rotation locale ${myVRot}°, pair ${c.hello.vrot}°)"
                 )
             } else {
                 vEngine.stop()
@@ -787,9 +838,12 @@ object CallManager {
             // (un appelant v0.2.52 ignore ces clés du JSON).
             // v0.2.54 — ac : le codec CHOISI (adpcm = interop bureau ; ABSENT
             // sinon → format/téléphone↔téléphone inchangés).
+            // v0.2.55 — vc : codec vidéo CHOISI (« mjpeg » seulement quand le
+            // MJPEG est choisi — téléphone↔téléphone reste le format historique).
             c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(
                 myCsdB64, myVCsdB64, myVRot, myVW, myVH,
-                if (chosenAdpcm) P2pProtocol.AC_ADPCM else ""
+                if (chosenAdpcm) P2pProtocol.AC_ADPCM else "",
+                if (chosenMjpeg) P2pProtocol.VC_MJPEG else ""
             ).toByteArray(Charsets.UTF_8))
         }.getOrElse { e ->
             net.nyx.messenger.diag.DiagLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
@@ -800,7 +854,7 @@ object CallManager {
         engine.transmit = true // l'appelé a accepté explicitement
         _ui.value = _ui.value.copy(
             phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "",
-            videoEnabled = myVCsdB64.isNotEmpty(), phaseChangedAt = nowMs()
+            videoEnabled = myVCsdB64.isNotEmpty() || chosenMjpeg, phaseChangedAt = nowMs()
         )
         net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel actif avec ${_ui.value.peer.take(16)}… (côté appelé)")
     }
