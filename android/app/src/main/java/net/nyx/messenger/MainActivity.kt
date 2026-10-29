@@ -45,6 +45,18 @@ import net.nyx.messenger.ui.theme.NyxTheme
  */
 class MainActivity : FragmentActivity() {
 
+    /** v0.2.61 — DEEP-LINK notification → conversation : pair demandé par le
+     *  tap sur une notification (EXTRA_ONION). État mutable observé par
+     *  [NyxNavHost] — la navigation n'a lieu qu'une fois l'app déverrouillée
+     *  et passée la porte connexions. */
+    private val openPeerFromIntent = androidx.compose.runtime.mutableStateOf<String?>(null)
+
+    /** v0.2.61 — extrait le pair d'un intent de notification (message/appel). */
+    private fun peerFromIntent(intent: android.content.Intent?): String? {
+        val peer = intent?.getStringExtra(net.nyx.messenger.notify.ContactNotifier.EXTRA_ONION)
+        return peer?.takeIf { it.isNotBlank() }?.trim()?.lowercase()
+    }
+
     /**
      * v0.2.53 — PERMISSIONS DE DÉMARRAGE EN UNE SEULE BOÎTE (demande
      * opérateur 25/10 : « il faudrait que les demandes d'autorisation soient
@@ -95,6 +107,13 @@ class MainActivity : FragmentActivity() {
         )
         AppLock.init(identityExists && (biometricOptIn || passwordLock))
 
+        // v0.2.61 — le tap sur une notification de message ouvre LA
+        // CONVERSATION (avant : l'extra était ignoré — l'app s'ouvrait sur la
+        // liste, le message était « lu » sans ouvrir le chat → jamais
+        // d'accusé « lu » chez l'expéditeur ; terrain 29/10 : « accusé reçu
+        // mais pas lu »).
+        peerFromIntent(intent)?.let { openPeerFromIntent.value = it }
+
         // Fermeture (v0.2.0, rév. v0.2.9) : SANS identité (première étape de
         // connexion), le retour système QUITTE avec arrêt PROPRE du démon tor
         // (il tourne pourtant dès l'onboarding depuis v0.2.3 — l'ancien code
@@ -135,7 +154,9 @@ class MainActivity : FragmentActivity() {
                         initialAddRequest = intent?.data?.let { uri ->
                             if (uri.scheme == "nyx" && uri.host == "add") uri.getQueryParameter("o") else null
                         },
-                        exitDialog = { ExitDialog(this@MainActivity) }
+                        exitDialog = { ExitDialog(this@MainActivity) },
+                        // v0.2.61 — deep-link notification → conversation.
+                        openPeer = openPeerFromIntent
                     )
                 }
                 }
@@ -146,6 +167,14 @@ class MainActivity : FragmentActivity() {
     override fun onPause() {
         super.onPause()
         AppLock.onBackgrounded()
+    }
+
+    /** v0.2.61 — notification tapée alors que l'activité vit déjà
+     *  (FLAG_ACTIVITY_SINGLE_TOP) : le pair est extrait et transmis à la
+     *  navigation SANS recréer l'activité. */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        peerFromIntent(intent)?.let { openPeerFromIntent.value = it }
     }
 
     private fun requestStartupPermissionsIfNeeded() {

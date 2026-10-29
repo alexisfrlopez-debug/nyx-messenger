@@ -535,6 +535,35 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
+    /** v0.2.61 — items de validation (miroir de docs/releases/v0.2.61.md —
+     *  retour terrain 29/10 00:34 : les 6 points de l'opérateur). */
+    val ITEMS_V0_2_61 = listOf(
+        Item(
+            "raccrocher-notification",
+            "RACCROCHER DEPUIS LA NOTIFICATION — ITEM DÉCISIF n°1 (NOUVEAU v0.2.61, retour terrain 29/10 : « si l'app tel est réduite quand l'appel est reçu, obligé de réouvrir l'appli pour raccrocher ») : appel PC→tel, décrocher, puis RÉDUIRE l'appli (bouton accueil) → une notification « <alias> — Appel en cours » persiste avec un bouton RACCROCHER → l'appuyer TERMINE l'appel sans rouvrir l'appli ; l'export contient « raccroché DEPUIS LA NOTIFICATION (appel en cours) » et la notification disparaît"
+        ),
+        Item(
+            "annulation-propagee",
+            "APPEL ANNULÉ NE RESSUSCITE PAS — ITEM DÉCISIF n°2 (NOUVEAU v0.2.61, preuve 29/10 00:32 : appel PC annulé puis re-sonné + « actif » 7 s après le cancel) : appel visio PC→tel, tel appli réduite, ANNULER côté PC pendant la sonnerie ; au bout de ~1 min, réouvrir le tel : l'appel annulé NE RE-SONNE PAS (ou sonnerie brève immédiatement tuée par le BYE — JAMAIS de décrochage dans le vide) ; côté PC : JAMAIS « appel actif » après le cancel (le journal peut montrer « F_CALL_ACCEPT tardif IGNORÉ … : BYE au pair »)"
+        ),
+        Item(
+            "sonnerie-des-le-hello",
+            "SONNERIE DÈS LE HELLO (NOUVEAU v0.2.61, miroir bureau v0.3.10 — retour 29/10 : « l'application tel était réduite, pas de notification d'appel ») : appel PC→tel → le téléphone sonne (notification + sonnerie) NETTEMENT plus tôt qu'avant — à l'arrivée de la connexion média, sans attendre le poll de l'offre ; l'export contient « appel entrant DÈS LE HELLO (sonnerie immédiate — offre journal en confirmation » puis « offre journal en confirmation (déjà en INCOMING »"
+        ),
+        Item(
+            "accuse-lu-notif",
+            "ACQUISÉ « LU » PAR TAP SUR LA NOTIFICATION (NOUVEAU v0.2.61, retour 29/10 : « accusé reçu mais pas lu ») : envoyer un message PC→tel → taper la NOTIFICATION sur le téléphone : la CONVERSATION s'ouvre directement (plus jamais la liste) → le PC affiche ✓✓ lu sous le message en ≤ 30 s ; l'export tel contient « ✓ accusé « read » déposé »"
+        ),
+        Item(
+            "reconnexion-media",
+            "RECONNEXION MÉDIA EN COURS D'APPEL (NOUVEAU v0.2.61, preuve 29/10 00:22→00:30 : circuits Tor morts à 7-19 s — « la video s'est coupée ») : appel PC↔tel de PLUSIEURS minutes ; si le circuit tombe, l'écran d'appel affiche « reconnexion… » et l'export contient « média perdu en cours d'appel … — reconnexion » puis « média RÉTABLI — appel repris » (budget 2 cycles) ; sans retour du pair sous 60 s : fin honnête « connexion perdue »"
+        ),
+        Item(
+            "build-propre-v61",
+            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.61 vérifié : SONNERIE DÈS LE HELLO authentifié » (chaîne complète du marqueur — cf. notes de release)"
+        ),
+    )
+
     /** v0.2.60 — items de validation (miroir de docs/releases/v0.2.60.md). */
     val ITEMS_V0_2_60 = listOf(
         Item(
@@ -702,7 +731,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_60 + ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_61 + ITEMS_V0_2_60 + ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

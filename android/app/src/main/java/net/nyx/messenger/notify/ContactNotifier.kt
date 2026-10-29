@@ -53,6 +53,10 @@ object ContactNotifier {
     // v0.2.56 — actions d'appel sur la notification verrouillée (session 78).
     const val ACTION_CALL_ANSWER = "net.nyx.messenger.notify.CALL_ANSWER"
     const val ACTION_CALL_DECLINE = "net.nyx.messenger.notify.CALL_DECLINE"
+    /** v0.2.61 — raccrocher un appel EN COURS depuis la notification (terrain
+     *  29/10 : « si l'app tel est réduite quand l'appel est reçu, obligé de
+     *  réouvrir l'appli pour raccrocher »). */
+    const val ACTION_CALL_HANGUP = "net.nyx.messenger.notify.CALL_HANGUP"
     const val EXTRA_ONION = "onion"
     const val EXTRA_ALIAS = "alias"
     /** v0.2.57 — l'activité verrouillée DOIT décrocher dès son ouverture
@@ -260,6 +264,47 @@ object ContactNotifier {
         val ctx = NotifyCore.appContext ?: return
         runCatching { NotificationManagerCompat.from(ctx).cancel((onion + "call").hashCode()) }
     }
+
+    /**
+     * v0.2.61 — NOTIFICATION D'APPEL EN COURS (terrain 29/10 00:29 : appel
+     * pc=>tel décroché DEPUIS la notification verrouillée, l'appli réduite
+     * ensuite → AUCUN moyen de raccrocher sans rouvrir l'appli).
+     * Persistante (setOngoing) pendant OUTGOING/ACTIVE, avec action
+     * « Raccrocher » ([ACTION_CALL_HANGUP] → CallActionReceiver →
+     * CallManager.hangup) et contentIntent qui ROUVRE l'écran d'appel —
+     * l'appel se termine sans jamais rouvrir l'application.
+     * Canal silencieux : l'appel EST déjà audible, la notification ne sonne pas.
+     */
+    fun ongoingCall(onion: String, alias: String, video: Boolean = false) {
+        val ctx = NotifyCore.appContext ?: return
+        if (!canPost()) return
+        val n = NotificationCompat.Builder(ctx, CHANNEL_CALLS)
+            .setSmallIcon(android.R.drawable.ic_menu_call)
+            .setContentTitle(alias)
+            .setContentText(ctx.getString(R.string.notif_ongoing_call_text))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setOngoing(true)
+            .setContentIntent(
+                if (video) answerActivityIntent(ctx, onion)
+                else NotifyCore.contentIntent(ctx, onion, "call")
+            )
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel, ctx.getString(R.string.call_hangup),
+                callActionIntent(ctx, ACTION_CALL_HANGUP, onion)
+            )
+            .build()
+        NotifyCore.notify(ONGOING_CALL_ID, n)
+    }
+
+    /** v0.2.61 — retire la notification d'appel en cours (fin d'appel). */
+    fun cancelOngoingCall() {
+        val ctx = NotifyCore.appContext ?: return
+        runCatching { NotificationManagerCompat.from(ctx).cancel(ONGOING_CALL_ID) }
+    }
+
+    /** v0.2.61 — identifiant fixe de la notification d'appel en cours. */
+    private const val ONGOING_CALL_ID = 474_712
 
     /** 3. Nous avons été supprimé des contacts du pair. */
     fun removed(onion: String, alias: String) {

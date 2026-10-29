@@ -378,9 +378,18 @@ class DesktopCallVideo(
     private fun startSenderLoop() {
         val t = Thread({
             try {
+                // v0.3.13 — FRAME SKIPPING PAR CONTRE-PRESSION (terrain 29/10 :
+                // le circuit Tor du visio PC↔tel était SATURÉ — RTT SENDME
+                // 1,5-2,4 s, BDP ~150-220 — 32 Ko × 5 fps l'étouffaient et le
+                // circuit MOURAIT à 7-19 s) : si le write précédent a été lent
+                // (socket encombré), on SAUTE des trames — la cadence
+                // s'adapte au circuit au lieu de le tuer.
+                var skipBudget = 0
+                var skippingLogged = false
                 while (!stopped) {
                     Thread.sleep(FRAME_INTERVAL_MS)
                     if (paused || !transmit || stopped) continue
+                    if (skipBudget > 0) { skipBudget--; continue }
                     val src = source
                     var jpeg: ByteArray? = when (src) {
                         Source.CAMERA -> camFrame
@@ -391,7 +400,21 @@ class DesktopCallVideo(
                         jpeg = recompress(jpeg)
                         if (jpeg == null || jpeg.size > MAX_FRAME_BYTES) continue
                     }
+                    val t0 = System.currentTimeMillis()
                     write(P2pProtocol.F_VIDEO, jpeg)
+                    val writeMs = System.currentTimeMillis() - t0
+                    if (writeMs > SLOW_WRITE_MS) {
+                        // write lent = circuit encombré : on saute le nombre de
+                        // trames équivalent au retard (≤ 3) pour laisser respirer.
+                        skipBudget = ((writeMs / FRAME_INTERVAL_MS).toInt()).coerceIn(1, 3)
+                        if (!skippingLogged) {
+                            skippingLogged = true
+                            DesktopLog.i(
+                                "nyx-video",
+                                "frame skipping engagé (write ${writeMs} ms > $SLOW_WRITE_MS ms — la cadence s'adapte au circuit)"
+                            )
+                        }
+                    }
                 }
             } catch (e: InterruptedException) {
                 // stop() — sortie propre.
@@ -603,6 +626,9 @@ class DesktopCallVideo(
 
         /** Cadence cible (ms entre trames) — s'auto-ralentit si le write bloque. */
         const val FRAME_INTERVAL_MS = 200L
+
+        /** v0.3.13 — write au-delà duquel on SAUTE des trames (circuit saturé). */
+        const val SLOW_WRITE_MS = 350L
 
         const val FPS = 5
 

@@ -258,6 +258,8 @@
     <string name="call_status_connecting">Connexion…</string>
     <string name="notif_call_title">Appel entrant</string>
     <string name="notif_call_text">%1$s vous appelle.</string>
+    <!-- v0.2.61 — notification d'appel en cours (action Raccrocher sans rouvrir l'appli). -->
+    <string name="notif_ongoing_call_text">Appel en cours</string>
 
     <!-- v0.2.18 — les trois mots de passe (normal / panique / destruction). -->
     <string name="settings_passwords">Mots de passe d\'accès</string>

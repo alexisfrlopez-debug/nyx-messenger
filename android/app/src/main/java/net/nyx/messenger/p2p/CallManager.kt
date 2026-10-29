@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -116,6 +117,50 @@ object CallManager {
      */
     private val endedCids = HashMap<String, Long>()
 
+    /** v0.2.61 — cids récemment REFUSÉS (miroir bureau v0.3.10 : l'offre ou le
+     *  HELLO peut arriver APRÈS le refus — jamais de re-sonnerie). */
+    private val rejectedCids = HashMap<String, Long>()
+
+    /** v0.2.61 — RECONNEXION MÉDIA (miroir bureau v0.3.13 — terrain 29/10
+     *  00:22→00:30 : les circuits Tor mouraient à 7-19 s d'un appel sain,
+     *  « Connection reset » des deux côtés, la visio se coupait) : l'appel
+     *  ne meurt plus à la première mort de socket — le CONNECTEUR re-compose
+     *  le MÊME cid, l'autre bout maintient l'appel (grâce 60 s) et
+     *  ré-adopte la nouvelle connexion. Budget : RECONNECT_BUDGET cycles. */
+    @Volatile private var isCaller = false
+    @Volatile private var reconnectsLeft = 0
+    @Volatile private var reconnecting = false
+
+    /** v0.2.61 — dernier HELLO émis / dernier ACCEPT envoyé (re-send tels
+     *  quels à la reconnexion — même cid, même présentation). */
+    @Volatile private var lastHelloPayload: ByteArray = ByteArray(0)
+    @Volatile private var lastAcceptPayload: ByteArray = ByteArray(0)
+
+    /** v0.2.61 — l'appel est en mode interop ADPCM (PC↔tel) : la reconnexion
+     *  média ne s'applique QU'à ce chemin (le csd y est sans objet) ; un
+     *  appel téléphone↔téléphone (AAC/H.264) garde la fin immédiate. */
+    @Volatile private var interopAdpcm = false
+
+    /** v0.2.61 — envoi média via la connexion COURANTE (indirection : les
+     *  moteurs vidéo/audio survivent à un échange de socket). */
+    private fun sendMedia(type: Int, payload: ByteArray) {
+        val c = conn ?: return
+        runCatching { c.send(type, payload) }
+    }
+
+    /** v0.2.61 — notification d'APPEL EN COURS (terrain 29/10 : « si l'app
+     *  tel est réduite quand l'appel est reçu, obligé de réouvrir l'appli
+     *  pour raccrocher ») : persistante pendant OUTGOING/ACTIVE avec action
+     *  RACCROCHER — l'appel se termine sans rouvrir l'application. */
+    private fun updateOngoingCallNotification() {
+        val st = _ui.value
+        if (st.phase == Phase.OUTGOING || st.phase == Phase.ACTIVE) {
+            net.nyx.messenger.notify.ContactNotifier.ongoingCall(st.peer, st.alias, st.videoEnabled)
+        } else {
+            net.nyx.messenger.notify.ContactNotifier.cancelOngoingCall()
+        }
+    }
+
     /** v0.2.60 — le pair comprend le protocole partage d'écran (sc=1). */
     @Volatile private var peerScreenProtocol = false
 
@@ -187,6 +232,14 @@ object CallManager {
         val cid = CallSignal.newCid()
         _ui.value = CallUi(Phase.OUTGOING, peer, alias, cid,
             message = "sonnerie…", videoEnabled = withVideo, phaseChangedAt = nowMs())
+        // v0.2.61 — rôle + budget de reconnexion + notification d'appel en
+        // cours (l'appelant peut réduire l'appli pendant la sonnerie).
+        isCaller = true
+        reconnectsLeft = 0 // armé au passage ACTIVE (pas pendant la sonnerie)
+        reconnecting = false
+        lastHelloPayload = ByteArray(0)
+        lastAcceptPayload = ByteArray(0)
+        updateOngoingCallNotification()
         // v0.2.58 — RETOUR D'APPEL AUDIBLE chez l'appelant (terrain 28/10 :
         // « lors d'une tentative d'appel, je veux une sonnerie côté appelant
         // pour indiquer que le tel ou pc appelle ») : bi-ton doux pendant que
@@ -213,19 +266,18 @@ object CallManager {
             // 1. Sonnerie chez le pair (journal chiffré — ≤ 15 s de poll).
             //    v0.2.44 — l'offre embarque le RÉPLICA RELAIS (repli média) :
             //    l'appelé saura où se brancher si le direct n'arrive pas.
+            //    v0.2.61 — OFFRE EN PARALLÈLE de la connexion média (miroir
+            //    bureau v0.3.13, terrain 29/10 00:31:59 : le dépôt d'offre
+            //    prenait ~20 s AVANT le premier essai média — le pair sonnait
+            //    tard ; désormais la connexion démarre IMMÉDIATEMENT, le HELLO
+            //    fait sonner un pair ≥ v0.2.61/v0.3.13 dès son arrivée).
             val relayHint = r.relayHintFor(peer) ?: ""
-            val offered = r.sendCallSignal(
-                peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS(), relayHint,
-                // v0.2.54 — codecs audio supportés (informationnel ; le bureau
-                // qui sonne saura déjà qu'un chemin ADPCM existe).
-                // v0.2.55 — intention visio (cosmétique : l'écran d'appel entrant
-                // du bureau affiche « visio » AVANT le HELLO).
-                "aac," + P2pProtocol.AC_ADPCM,
-                if (_ui.value.videoEnabled) P2pProtocol.VC_H264 + "," + P2pProtocol.VC_MJPEG else "").encode()
-            )
-            if (offered.isFailure) {
-                end("réplica injoignable — appel impossible")
-                return@run
+            val offerJob = scope.async {
+                r.sendCallSignal(
+                    peer, CallSignal(CallSignal.OP_OFFER, cid, r.myAlias, nowS(), relayHint,
+                    "aac," + P2pProtocol.AC_ADPCM,
+                    if (_ui.value.videoEnabled) P2pProtocol.VC_H264 + "," + P2pProtocol.VC_MJPEG else "").encode()
+                )
             }
             // 2. Connexion média directe — FENÊTRE DE TENTATIVES (fix terrain
             //    v0.2.18 : un seul essai de 40 s partait IMMÉDIATEMENT après
@@ -326,10 +378,33 @@ object CallManager {
                 runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
                 end("pas de réponse"); return@run
             }
+            // v0.2.61 — garde POST-boucle (miroir bureau v0.3.13, terrain 29/10
+            // 00:32: un appel annulé PENDANT un essai en vol voyait la
+            // connexion aboutir APRÈS le cancel — l'acceptation tardive du
+            // pair ressuscitait l'appel). Une connexion qui aboutit hors
+            // OUTGOING est rejetée + BYE, sans jamais redevenir active.
+            if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) {
+                net.nyx.messenger.diag.DiagLog.i("nyx-call", "connexion média aboutie après annulation (cid ${cid.take(8)}…) — rejetée + BYE")
+                runCatching {
+                    val ghost = P2pCallConnection(socket, P2pProtocol.Hello("call", "", "", cid, "", 0, ""))
+                    ghost.send(P2pProtocol.F_BYE); ghost.close()
+                }
+                runCatching { socket.close() }
+                offerJob.cancel()
+                return@run
+            }
+            // v0.2.61 — le dépôt d'offre doit aboutir AUSSI (sans lui le pair
+            // ≤ v0.2.60 ne sonne jamais) : il est presque toujours déjà fini.
+            val offered = offerJob.await()
+            if (offered.isFailure) {
+                runCatching { socket.close() }
+                end("réplica injoignable — appel impossible")
+                return@run
+            }
             val c = P2pCallConnection(socket, P2pProtocol.Hello("call", P2pClient.me ?: "", alias, cid, "", 0, ""))
             conn = c
             // csd-0 AVANT le HELLO (l'appelé en a besoin pour décoder).
-            val audioEngine = CallAudio(c.input, { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
+            val audioEngine = CallAudio(c.input, { t, p -> sendMedia(t, p) }, { reason -> scope.launch { onMediaLostOrEnd(reason) } })
             audio = audioEngine
             myCsd = runCatching { audioEngine.startSending() }.getOrElse { e ->
                 end("micro indisponible : ${e.message}"); return@run
@@ -350,7 +425,7 @@ object CallManager {
                 // v0.2.53 — le callback de rotation locale alimente l'état UI
                 // (l'aperçu suit le téléphone), la rotation part dans le HELLO.
                 val engine = CallVideo(ctx,
-                    { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } },
+                    { t, p -> sendMedia(t, p) }, { reason -> scope.launch { onMediaLostOrEnd(reason) } },
                     { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) },
                     onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } })
                 val vSend = runCatching { engine.startSending() }.getOrNull()
@@ -384,20 +459,23 @@ object CallManager {
             ) ?: ""
             // v0.2.26 : le HELLO non remis (pair raccroché entre-temps) ne tue
             // plus la coroutine sans nettoyage — BYE + fin propre.
-            runCatching {
-                c.send(P2pProtocol.F_HELLO, P2pProtocol.encodeHello(
-                    // v0.2.53 — vrot/vw/vh : présentation vidéo (un pair v0.2.52 ignore ces clés).
-                    // v0.2.54 — ac : codecs audio SUPPORTÉS (le bureau ne sait pas
-                    // l'AAC → il choisira adpcm dans son ACCEPT ; un pair ≤ v0.2.53 ignore la clé).
-                    // v0.2.55 — vc : codecs vidéo SUPPORTÉS (un appelé bureau — mjpeg seul —
-                    // choisira mjpeg dans son ACCEPT ; un pair ≤ v0.2.54 ignore la clé).
-                    P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64, vRot, vW, vH,
-                        "aac," + P2pProtocol.AC_ADPCM, myVc,
-                        // v0.2.60 — protocole partage d'écran validé (l'appelé
-                        // bureau ≥ v0.3.12 l'écho-t-il dans son ACCEPT).
-                        P2pProtocol.SC_PROTOCOL), sig
-                ))
-            }.getOrElse { e ->
+            // v0.2.61 — payload MÉMORISÉ ([lastHelloPayload]) : la reconnexion
+            // le re-send tel quel (même cid, même présentation vidéo).
+            val helloPayload = P2pProtocol.encodeHello(
+                // v0.2.53 — vrot/vw/vh : présentation vidéo (un pair v0.2.52 ignore ces clés).
+                // v0.2.54 — ac : codecs audio SUPPORTÉS (le bureau ne sait pas
+                // l'AAC → il choisira adpcm dans son ACCEPT ; un pair ≤ v0.2.53 ignore la clé).
+                // v0.2.55 — vc : codecs vidéo SUPPORTÉS (un appelé bureau — mjpeg seul —
+                // choisira mjpeg dans son ACCEPT ; un pair ≤ v0.2.54 ignore la clé).
+                P2pProtocol.Hello("call", me, alias, cid, csdB64, 0, sig, vCsdB64, vRot, vW, vH,
+                    "aac," + P2pProtocol.AC_ADPCM, myVc,
+                    // v0.2.60 — protocole partage d'écran validé (l'appelé
+                    // bureau ≥ v0.3.12 l'écho-t-il dans son ACCEPT).
+                    P2pProtocol.SC_PROTOCOL), sig
+            )
+            lastHelloPayload = helloPayload
+            runCatching { c.send(P2pProtocol.F_HELLO, helloPayload) }
+                .getOrElse { e ->
                 net.nyx.messenger.diag.DiagLog.w("nyx-call", "HELLO non remis : ${e.message}")
                 runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
                 end("connexion perdue"); return@run
@@ -412,6 +490,19 @@ object CallManager {
             val answer = P2pProtocol.readCallAnswer(c.input, 60_000) { p -> onPeerRotation(p) }
             when (answer?.type) {
                 P2pProtocol.F_CALL_ACCEPT -> {
+                    // v0.2.61 — GARDE D'ÉTAT (miroir bureau v0.3.13, terrain
+                    // 29/10 00:32: le F_CALL_ACCEPT tardif d'un appel ANNULÉ
+                    // ressuscitait l'appel côté PC) : un appel qui n'est plus
+                    // OUTGOING ne redevient JAMAIS actif — BYE immédiat.
+                    if (_ui.value.phase != Phase.OUTGOING || _ui.value.cid != cid) {
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-call", "F_CALL_ACCEPT tardif IGNORÉ (cid ${cid.take(8)}… — appel ${_ui.value.phase}) : BYE au pair"
+                        )
+                        runCatching { c.send(P2pProtocol.F_BYE) }
+                        runCatching { c.close() }
+                        runCatching { r.sendCallSignal(peer, CallSignal(CallSignal.OP_BYE, cid, "", nowS()).encode()) }
+                        return@run
+                    }
                     // v0.2.20 : payload JSON {csd, vcsd} (ou b64 brut v0.2.19) ;
                     // v0.2.53 : + présentation vidéo de l'appelé (vrot/vw/vh).
                     val accept = P2pProtocol.AcceptPayload.parse(answer.payload)
@@ -427,6 +518,8 @@ object CallManager {
                     if (accept.ac == P2pProtocol.AC_ADPCM) {
                         runCatching { audioEngine.switchSendingToAdpcm() }
                         runCatching { audioEngine.startReceiving(peerCsd, P2pProtocol.AC_ADPCM) }
+                        // v0.2.61 — mode interop : la reconnexion média s'applique.
+                        interopAdpcm = true
                         net.nyx.messenger.diag.DiagLog.i(
                             "nyx-call", "codec ADPCM négocié — interop bureau (cid ${cid.take(8)}…)"
                         )
@@ -488,6 +581,9 @@ object CallManager {
                     // v0.2.58 — le retour d'appel s'arrête AVANT l'audio (le
                     // décroché est effectif — plus de tonalité par-dessus la voix).
                     net.nyx.messenger.notify.CallRingback.stop()
+                    // v0.2.61 — budget de reconnexion armé + notification en cours.
+                    reconnectsLeft = RECONNECT_BUDGET
+                    updateOngoingCallNotification()
                     net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel actif avec ${peer.take(16)}… (cid ${cid.take(8)}…)")
                 }
                 P2pProtocol.F_CALL_REJECT -> end("refusé")
@@ -533,6 +629,28 @@ object CallManager {
                     net.nyx.messenger.diag.DiagLog.i(
                         "nyx-call",
                         "offre d'un appel déjà terminé (cid ${signal.cid.take(8)}…) — ignorée (doublon de livraison)"
+                    )
+                    return
+                }
+                // v0.2.61 — offre d'un appel REFUSÉ il y a < 120 s (miroir
+                // bureau v0.3.10 : le refus de la carte a précédé le poll) :
+                // silence, pas de re-sonnerie.
+                val rejAt = synchronized(rejectedCids) { rejectedCids[signal.cid] }
+                if (rejAt != null && nowMs() - rejAt < 120_000L) {
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-call", "offre d'un appel déjà refusé (cid ${signal.cid.take(8)}…) — ignorée"
+                    )
+                    return
+                }
+                // v0.2.61 — OFFRE D'UN APPEL DÉJÀ CONNU (miroir bureau v0.3.10 :
+                // la connexion média + HELLO authentifié sont arrivés AVANT
+                // le poll — la sonnerie a déjà démarré DÈS LE HELLO, ou
+                // l'appel est déjà décroché/actif) → l'offre ne fait que
+                // CONFIRMER, jamais re-sonner ni renvoyer OP_REJECT au pair.
+                if (_ui.value.phase != Phase.IDLE && _ui.value.cid == signal.cid) {
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-call",
+                        "offre journal en confirmation (déjà en ${_ui.value.phase} — cid ${signal.cid.take(8)}…)"
                     )
                     return
                 }
@@ -599,6 +717,14 @@ object CallManager {
                 }
             }
             CallSignal.OP_BYE -> {
+                // v0.2.61 — TOUT BYE mémorise le cid (même hors appel : le BYE
+                // d'un appel annulé peut être traité pendant IDLE — l'offre ou
+                // le HELLO re-livré ensuite ne re-sonnera JAMAIS, miroir
+                // bureau v0.3.13).
+                synchronized(endedCids) {
+                    endedCids[signal.cid] = nowMs()
+                    endedCids.entries.removeIf { nowMs() - it.value > 600_000L }
+                }
                 when (_ui.value.phase) {
                     Phase.INCOMING -> if (_ui.value.peer == author) {
                         pendingOffer = null
@@ -737,6 +863,16 @@ object CallManager {
         val rejConn = conn
         pendingOffer = null
         acceptedCid = null
+        // v0.2.61 — memo du refus (garde anti re-sonnerie : l'offre journal
+        // ou le HELLO peuvent arriver APRÈS le refus — miroir bureau v0.3.10).
+        synchronized(rejectedCids) {
+            rejectedCids[state.cid] = nowMs()
+            val it2 = rejectedCids.entries.iterator()
+            while (it2.hasNext()) {
+                val e = it2.next()
+                if (nowMs() - e.value > 300_000L) it2.remove()
+            }
+        }
         // v0.2.52 — LA FIN EST IMMÉDIATE : terrain 25/10 05:34-05:35, avec
         // tor mort le dépôt OP_REJECT traînait 25-50 s (SOCKS refusé,
         // connectTimeout 25 s) et FIGEAIT le refus « sur place ». Désormais :
@@ -761,21 +897,81 @@ object CallManager {
      */
     fun onIncomingConnection(connection: P2pCallConnection) {
         scope.launch {
+            // v0.2.61 — GARDE CONTACT BLOQUÉ (avant la section critique — la
+            // vérification est suspend) : silence total pour un bloqué, quel
+            // que soit l'état local (offre déjà traitée ou pas).
+            val fromOnionEarly = connection.hello.onion
+            if (repo?.isContactBlocked(fromOnionEarly) == true) {
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-call", "HELLO de ${fromOnionEarly.take(16)}… ignoré (contact bloqué localement)"
+                )
+                runCatching { connection.send(P2pProtocol.F_CALL_REJECT) }
+                runCatching { connection.close() }
+                return@launch
+            }
             synchronized(this@CallManager) {
                 val state = _ui.value
                 val wanted = state.phase == Phase.INCOMING && state.cid == connection.hello.cid
                 val alreadyAccepted = state.phase == Phase.WAIT && acceptedCid == connection.hello.cid
+                // v0.2.61 — RECONNEXION : le connecteur re-compose le MÊME cid
+                // pendant un appel ACTIF en reconnexion → ré-adoption + ACCEPT
+                // ré-émis (le moteur vidéo SURVIT — envoi par [sendMedia]).
+                val resumeActive = reconnecting && state.phase == Phase.ACTIVE && state.cid == connection.hello.cid
+                if (resumeActive) {
+                    conn = connection
+                    resumeCallOnConnection(connection)
+                    return@launch
+                }
                 if (state.phase == Phase.IDLE) {
-                    // L'offre n'est pas encore arrivée (poll ≤ 15 s) : garder.
                     val cid = connection.hello.cid
-                    waited[cid] = connection
-                    net.nyx.messenger.diag.DiagLog.i("nyx-call", "média AVANT l'offre — connexion gardée (cid ${cid.take(8)}…)")
+                    val fromOnion = connection.hello.onion
+                    // v0.2.61 — SONNERIE DÈS LE HELLO AUTHENTIFIÉ (miroir
+                    // bureau v0.3.10, terrain 29/10 00:31:59 : l'appel PC→tel
+                    // ne sonnait qu'à l'OFFRE du poll, ~25-45 s après le
+                    // lancement — l'opérateur annulait avant ; le HELLO média
+                    // arrive AVANT et porte DÉJÀ tout : identité vérifiée par
+                    // le serveur P2P, cid, alias, codecs, intention visio).
+                    // Gardes : contact bloqué (vérifié AVANT la section
+                    // critique), appel terminé < 10 min, appel refusé < 120 s
+                    // (jamais de re-sonnerie fantôme).
+                    val endedAt2 = synchronized(endedCids) { endedCids[cid] }
+                    if (endedAt2 != null && nowMs() - endedAt2 < 600_000L) {
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-call", "HELLO d'un appel déjà terminé (cid ${cid.take(8)}…) — refusé"
+                        )
+                        runCatching { connection.send(P2pProtocol.F_CALL_REJECT) }
+                        runCatching { connection.close() }
+                        return@launch
+                    }
+                    val rejAt2 = synchronized(rejectedCids) { rejectedCids[cid] }
+                    if (rejAt2 != null && nowMs() - rejAt2 < 120_000L) {
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-call", "HELLO d'un appel déjà refusé (cid ${cid.take(8)}…) — refusé"
+                        )
+                        runCatching { connection.send(P2pProtocol.F_CALL_REJECT) }
+                        runCatching { connection.close() }
+                        return@launch
+                    }
+                    val label = connection.hello.alias.ifBlank { fromOnion.take(10) + "…" }
+                    val wantsVideo = P2pProtocol.supportsMjpeg(connection.hello.vc) ||
+                        connection.hello.vcsd.isNotEmpty()
+                    conn = connection
+                    _ui.value = CallUi(Phase.INCOMING, fromOnion, label, cid,
+                        videoEnabled = wantsVideo,
+                        message = "appel entrant…", phaseChangedAt = nowMs())
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-call",
+                        "appel entrant DÈS LE HELLO (sonnerie immédiate — offre journal en confirmation, cid ${cid.take(8)}…, codec ${connection.hello.ac.ifEmpty { "aac" }}, visio ${if (wantsVideo) "oui" else "non"})"
+                    )
+                    net.nyx.messenger.notify.ContactNotifier.incomingCall(fromOnion, label, wantsVideo)
+                    net.nyx.messenger.notify.CallRinger.start()
+                    // Garde-fou : média sans offre suivie (pair disparu) → pas
+                    // de sonnerie à l'infini (miroir du chemin offre).
                     scope.launch {
-                        delay(WAITED_TTL_MS)
-                        val orphan = synchronized(this@CallManager) { waited.remove(cid) }
-                        if (orphan != null) {
-                            runCatching { orphan.send(P2pProtocol.F_CALL_REJECT) }
-                            runCatching { orphan.close() }
+                        delay(120_000)
+                        if (_ui.value.phase == Phase.INCOMING && _ui.value.cid == cid) {
+                            repo?.addCallInfo(fromOnion, false, "Appel manqué")
+                            end("appel manqué")
                         }
                     }
                     return@launch
@@ -849,11 +1045,13 @@ object CallManager {
         val callerCodecs = c.hello.ac.split(',').map { it.trim() }.filter { it.isNotEmpty() }
         val chosenAdpcm = callerCodecs.contains(P2pProtocol.AC_ADPCM) && !callerCodecs.contains(P2pProtocol.AC_AAC)
         if (chosenAdpcm) {
+            // v0.2.61 — mode interop : la reconnexion média s'applique.
+            interopAdpcm = true
             net.nyx.messenger.diag.DiagLog.i(
                 "nyx-call", "appelant ${c.hello.onion.take(16)}… ADPCM seul (bureau) — codec logiciel interop"
             )
         }
-        val engine = CallAudio(c.input, { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } })
+        val engine = CallAudio(c.input, { t, p -> sendMedia(t, p) }, { reason -> scope.launch { onMediaLostOrEnd(reason) } })
         if (chosenAdpcm) engine.useAdpcm = true   // AVANT startSending — boucle ADPCM d'emblée
         audio = engine
         val myCsdB64 = runCatching {
@@ -878,7 +1076,7 @@ object CallManager {
             // v0.2.53 — même moteur que l'appelant : rotation suivie + callback UI.
             // v0.2.55 — useMjpeg quand l'appelant est un bureau (mjpeg seul).
             val vEngine = CallVideo(ctx,
-                { t, p -> c.send(t, p) }, { reason -> scope.launch { end(reason) } },
+                { t, p -> sendMedia(t, p) }, { reason -> scope.launch { onMediaLostOrEnd(reason) } },
                 { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) },
                 useMjpeg = chosenMjpeg,
                 onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } })
@@ -921,6 +1119,17 @@ object CallManager {
         }
         // v0.2.26 : la réponse d'acceptation non remise (pair disparu) ne fige
         // plus WAIT — fin propre immédiate.
+        // v0.2.61 — payload ACCEPT MÉMORISÉ ([lastAcceptPayload]) : ré-émis tel
+        // quel quand le connecteur re-compose le même cid après une reconnexion.
+        val acceptPayload = P2pProtocol.AcceptPayload.encode(
+            myCsdB64, myVCsdB64, myVRot, myVW, myVH,
+            if (chosenAdpcm) P2pProtocol.AC_ADPCM else "",
+            if (chosenMjpeg) P2pProtocol.VC_MJPEG else "",
+            // v0.2.60 — ÉCHO du protocole partage d'écran (l'appelant
+            // bureau ≥ v0.3.12 y lit notre capacité sc).
+            if (peerScreenProtocol) P2pProtocol.SC_PROTOCOL else ""
+        ).toByteArray(Charsets.UTF_8)
+        lastAcceptPayload = acceptPayload
         runCatching {
             // v0.2.53 — la présentation de l'appelé accompagne son csd
             // (un appelant v0.2.52 ignore ces clés du JSON).
@@ -928,14 +1137,7 @@ object CallManager {
             // sinon → format/téléphone↔téléphone inchangés).
             // v0.2.55 — vc : codec vidéo CHOISI (« mjpeg » seulement quand le
             // MJPEG est choisi — téléphone↔téléphone reste le format historique).
-            c.send(P2pProtocol.F_CALL_ACCEPT, P2pProtocol.AcceptPayload.encode(
-                myCsdB64, myVCsdB64, myVRot, myVW, myVH,
-                if (chosenAdpcm) P2pProtocol.AC_ADPCM else "",
-                if (chosenMjpeg) P2pProtocol.VC_MJPEG else "",
-                // v0.2.60 — ÉCHO du protocole partage d'écran (l'appelant
-                // bureau ≥ v0.3.12 y lit notre capacité sc).
-                if (peerScreenProtocol) P2pProtocol.SC_PROTOCOL else ""
-            ).toByteArray(Charsets.UTF_8))
+            c.send(P2pProtocol.F_CALL_ACCEPT, acceptPayload)
         }.getOrElse { e ->
             net.nyx.messenger.diag.DiagLog.w("nyx-call", "CALL_ACCEPT non remis : ${e.message}")
             end("connexion perdue"); return
@@ -954,7 +1156,135 @@ object CallManager {
             phase = Phase.ACTIVE, startedAt = System.currentTimeMillis(), message = "",
             videoEnabled = myVCsdB64.isNotEmpty() || chosenMjpeg, phaseChangedAt = nowMs()
         )
+        // v0.2.61 — rôle APPELÉ + budget de reconnexion armé (miroir appelant)
+        // + notification d'appel en cours (action Raccrocher).
+        isCaller = false
+        reconnectsLeft = RECONNECT_BUDGET
+        updateOngoingCallNotification()
         net.nyx.messenger.diag.DiagLog.i("nyx-call", "appel actif avec ${_ui.value.peer.take(16)}… (côté appelé)")
+    }
+
+    /* ------------- v0.2.61 — RECONNEXION MÉDIA EN COURS D'APPEL ------------- */
+
+    /**
+     * Mort du média EN COURS D'APPEL (terrain 29/10 00:22→00:30 : circuits
+     * Tor morts à 7-19 s — « Connection reset » des deux côtés, la visio se
+     * coupait) : au lieu d'une fin immédiate, l'appel passe en
+     * « reconnexion… » — le CONNECTEUR (l'appelant d'origine) re-compose le
+     * MÊME cid, l'appelé maintient l'appel (grâce RECONNECT_GRACE_MS) et
+     * ré-adopte la connexion. Budget RECONNECT_BUDGET cycles par appel ;
+     * épuisé, hors ACTIVE ou hors interop ADPCM → fin classique [end].
+     */
+    private fun onMediaLostOrEnd(reason: String) {
+        val st = _ui.value
+        if (st.phase != Phase.ACTIVE || reconnectsLeft <= 0 || reconnecting || !interopAdpcm) {
+            end(reason)
+            return
+        }
+        reconnectsLeft--
+        reconnecting = true
+        _ui.value = st.copy(message = "reconnexion… ($reconnectsLeft essai${if (reconnectsLeft > 1) "s" else ""} restant${if (reconnectsLeft > 1) "s" else ""})", phaseChangedAt = nowMs())
+        net.nyx.messenger.diag.DiagLog.w(
+            "nyx-call",
+            "média perdu en cours d'appel ($reason) — reconnexion (cid ${st.cid.take(8)}…, ${if (reconnectsLeft > 0) "$reconnectsLeft cycle(s) restant(s)" else "dernier cycle"})"
+        )
+        // Le lecteur de l'ANCIEN socket est mort ; l'émission n'écrirait que
+        // dans le vide → moteur audio arrêté (recréé à la reprise). Le moteur
+        // vidéo SURVIT (émission via [sendMedia] — la nouvelle connexion y
+        // route automatiquement les trames).
+        runCatching { audio?.stop() }
+        audio = null
+        if (isCaller) attemptMediaReconnect(st.peer, st.cid) else reconnectHoldWatchdog(st.cid)
+    }
+
+    /** Côté CONNECTEUR : re-compose le même cid jusqu'à RECONNECT_TRIES
+     * essais ; ACCEPT → reprise ; épuisement → fin honnête. */
+    private fun attemptMediaReconnect(peer: String, cid: String) {
+        scope.launch {
+            try {
+                for (round in 1..RECONNECT_TRIES) {
+                    if (_ui.value.phase != Phase.ACTIVE || _ui.value.cid != cid || !reconnecting) return@launch
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-call", "reconnexion média essai $round/$RECONNECT_TRIES → ${peer.take(16)}…:${P2pProtocol.MEDIA_ONION_PORT}"
+                    )
+                    val sock = runCatching { P2pClient.connect(peer, RECONNECT_ATTEMPT_MS) }.getOrNull()
+                    if (sock != null) {
+                        val c = P2pCallConnection(sock, P2pProtocol.Hello("call", P2pClient.me ?: "", "", cid, "", 0, ""))
+                        val ok = runCatching {
+                            // HELLO de reprise : MÊME cid, même présentation
+                            // ([lastHelloPayload]) — l'appelé ré-adopte.
+                            if (lastHelloPayload.isEmpty()) error("HELLO d'origine inconnu")
+                            c.send(P2pProtocol.F_HELLO, lastHelloPayload)
+                            sock.soTimeout = 15_000
+                            val answer = P2pProtocol.readCallAnswer(c.input, 15_000) { p -> onPeerRotation(p) }
+                            answer?.type == P2pProtocol.F_CALL_ACCEPT
+                        }.getOrDefault(false)
+                        if (ok) {
+                            conn = c
+                            resumeCallOnConnection(c)
+                            return@launch
+                        }
+                        runCatching { c.close() }
+                    }
+                    if (round < RECONNECT_TRIES) delay(3_000)
+                }
+                if (_ui.value.phase == Phase.ACTIVE && _ui.value.cid == cid && reconnecting) {
+                    net.nyx.messenger.diag.DiagLog.w("nyx-call", "reconnexion impossible — fin de l'appel (cid ${cid.take(8)}…)")
+                    end("connexion perdue")
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                if (_ui.value.phase == Phase.ACTIVE && _ui.value.cid == cid) end("connexion perdue : ${e.message?.take(80)}")
+            }
+        }
+    }
+
+    /** Reprise sur une connexion ré-établée (les DEUX rôles y passent) :
+     *  audio recréé sur le nouveau flux, la visio continue (émission
+     *  [sendMedia], réception re-câblée au nouveau lecteur). */
+    private fun resumeCallOnConnection(c: P2pCallConnection) {
+        scope.launch {
+            try {
+                // Côté appelé : ré-pOND l'ACCEPT d'origine (le connecteur l'attend).
+                if (!isCaller && lastAcceptPayload.isNotEmpty()) {
+                    runCatching { c.send(P2pProtocol.F_CALL_ACCEPT, lastAcceptPayload) }
+                }
+                runCatching { audio?.stop() }
+                val engine = CallAudio(c.input, { t, p -> sendMedia(t, p) }, { reason -> scope.launch { onMediaLostOrEnd(reason) } })
+                engine.useAdpcm = interopAdpcm // AVANT startSending — mode interop d'emblée
+                audio = engine
+                engine.videoSink = video?.let { v -> { bytes -> v.feedDecoder(bytes) } }
+                engine.rotSink = { p -> onPeerRotation(p) }
+                engine.screenSink = { t, p -> onScreenFrame(t, p) }
+                runCatching { engine.startSending() } // csd frais (ignoré en ADPCM)
+                runCatching { engine.startReceiving(ByteArray(0), if (interopAdpcm) P2pProtocol.AC_ADPCM else "") }
+                engine.muted = _ui.value.muted
+                engine.transmit = true
+                reconnecting = false
+                _ui.value = _ui.value.copy(message = "", phaseChangedAt = nowMs())
+                net.nyx.messenger.diag.DiagLog.i("nyx-call", "média RÉTABLI — appel repris (cid ${_ui.value.cid.take(8)}…)")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                net.nyx.messenger.diag.DiagLog.w("nyx-call", "reprise média impossible : ${e.message?.take(80)}")
+                // L'appel tient encore un cycle si le budget le permet.
+                if (reconnectsLeft > 0) onMediaLostOrEnd("reprise échouée") else end("connexion perdue")
+            }
+        }
+    }
+
+    /** Côté appelé : grâce sans retour du connecteur → fin honnête. */
+    private fun reconnectHoldWatchdog(cid: String) {
+        scope.launch {
+            delay(RECONNECT_GRACE_MS)
+            if (_ui.value.phase == Phase.ACTIVE && _ui.value.cid == cid && reconnecting) {
+                net.nyx.messenger.diag.DiagLog.w(
+                    "nyx-call", "reconnexion sans retour du pair sous ${RECONNECT_GRACE_MS / 1000} s — fin (cid ${cid.take(8)}…)"
+                )
+                end("connexion perdue")
+            }
+        }
     }
 
     /* ------------------------------- COMMUN ------------------------------- */
@@ -1244,6 +1574,12 @@ object CallManager {
         // timeout, erreur, raccroché — filet identique à la sonnerie).
         net.nyx.messenger.notify.CallRingback.stop()
         net.nyx.messenger.notify.ContactNotifier.cancelCall(peer)
+        // v0.2.61 — reset de la reconnexion + notification d'appel en cours
+        // retirée (plus de cycle fantôme au prochain appel).
+        reconnecting = false
+        reconnectsLeft = 0
+        interopAdpcm = false
+        net.nyx.messenger.notify.ContactNotifier.cancelOngoingCall()
         val wasActive = _ui.value.phase == Phase.ACTIVE
         _ui.value = _ui.value.copy(phase = Phase.ENDED, message = reason, muted = false, speaker = false,
             videoEnabled = false,
@@ -1291,4 +1627,9 @@ object CallManager {
     private const val WAIT_WATCHDOG_MS = 180_000L  // WAIT sans média → fin (BYE au pair)
     private const val GLOBAL_CALL_CAP_MS = 240_000L // phases transitoires > 4 min (filet global)
     private const val ACTIVE_CALL_CAP_MS = 7_200_000L // v0.2.42 : ACTIVE > 2 h (anti-collé uniquement)
+    // v0.2.61 — reconnexion média (terrain 29/10 : circuits morts à 7-19 s)
+    private const val RECONNECT_BUDGET = 2          // cycles de reconnexion par appel
+    private const val RECONNECT_TRIES = 2           // essais de connexion par cycle
+    private const val RECONNECT_ATTEMPT_MS = 12_000  // essai individuel (circuit tiède)
+    private const val RECONNECT_GRACE_MS = 60_000L   // grâce de l'appelé sans retour du connecteur
 }

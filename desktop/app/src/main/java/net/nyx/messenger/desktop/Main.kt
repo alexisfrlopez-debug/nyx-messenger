@@ -199,11 +199,15 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
     LaunchedEffect(callUi.phase) {
         val f = window as? Frame ?: return@LaunchedEffect
         if (callUi.phase == net.nyx.messenger.p2p.DesktopCallManager.Phase.INCOMING) {
-            f.isAlwaysOnTop = true
+            // v0.3.13 — PLUS JAMAIS alwaysOnTop SUR LA FENÊTRE PRINCIPALE
+            // pendant l'INCOMING (terrain 29/10 : « la fenêtre pour décrocher
+            // du pc se met derrière l'appli de messagerie » — la fenêtre
+            // principale en alwaysOnTop + toFront() recouvrait la CARTE
+            // DÉDIÉE IncomingCallWindow). On se contente de la DÉ-MINIMISER ;
+            // la carte dédiée (alwaysOnTop + toFront propre) reste AU-DESSUS.
             f.isVisible = true
             // dé-minimisation (préserve l'état maximisé) : retire le bit ICONIFIED
             f.extendedState = f.extendedState and java.awt.Frame.ICONIFIED.inv()
-            f.toFront()
         } else if (callUi.phase == net.nyx.messenger.p2p.DesktopCallManager.Phase.ACTIVE) {
             // v0.3.11 — au DÉCROCHÉ : ramenée AU PREMIER PLAN UNE FOIS (terrain
             // 28/10 : décroché depuis la carte dédiée, fenêtre principale

@@ -3,6 +3,7 @@ package net.nyx.messenger.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -49,11 +50,31 @@ import net.nyx.messenger.ui.settings.SettingsScreen
 @Composable
 fun NyxNavHost(
     initialAddRequest: String? = null,
-    exitDialog: (@Composable () -> Unit)? = null
+    exitDialog: (@Composable () -> Unit)? = null,
+    // v0.2.61 — DEEP-LINK notification → conversation (terrain 29/10 : le tap
+    // sur une notification de message n'ouvrait JAMAIS la conversation —
+    // l'utilisateur « lisait » depuis la liste sans ouvrir le chat, donc
+    // AUCUN accusé « lu » ne partait jamais : « accusé reçu mais pas lu »).
+    // État MUTABLE porté par MainActivity (onCreate + onNewIntent y écrivent).
+    openPeer: androidx.compose.runtime.MutableState<String?>? = null
 ) {
     val locked by AppLock.locked.collectAsState()
     val nav = rememberNavController()
     val hasIdentity = ServiceLocator.initialized && ServiceLocator.identity.exists
+
+    // v0.2.61 — navigation vers la conversation demandée DÈS que l'app est
+    // déverrouillée et passée la porte « connexions » (le cold-start depuis
+    // une notification attend sagement la validation Tor/réplique).
+    LaunchedEffect(openPeer?.value, locked, hasIdentity, nav.currentDestination?.route) {
+        val peer = openPeer?.value ?: return@LaunchedEffect
+        if (locked || !hasIdentity) return@LaunchedEffect
+        val route = nav.currentDestination?.route ?: return@LaunchedEffect
+        if (route == "connexions" || route == "onboarding") return@LaunchedEffect
+        nav.navigate("chat/${java.net.URLEncoder.encode(peer, "UTF-8").replace("+", "%20")}") {
+            launchSingleTop = true
+        }
+        openPeer.value = null
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(navController = nav, startDestination = "connexions") {

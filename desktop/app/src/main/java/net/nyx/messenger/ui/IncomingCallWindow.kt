@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -77,6 +78,19 @@ fun IncomingCallWindow() {
         icon = nyxWindowIcon(),
         onCloseRequest = { DesktopCallManager.rejectIncoming() },
     ) {
+        // v0.3.13 — AU-DESSUS DE LA FENÊTRE PRINCIPALE (terrain 29/10 : « la
+        // fenêtre pour décrocher du pc se met derrière l'appli de
+        // messagerie » — Main.kt forçait la fenêtre principale en
+        // alwaysOnTop PENDANT l'INCOMING, qui recouvrait alors cette carte).
+        // La carte se ré-affirme au premier plan + demande le focus à chaque
+        // (ré)affichage : elle reste au-dessus de TOUT pendant la sonnerie.
+        LaunchedEffect(ui.cid) {
+            runCatching {
+                window.isAlwaysOnTop = true
+                window.toFront()
+                window.requestFocus()
+            }
+        }
         Column(
             modifier = Modifier.fillMaxSize()
                 .background(Color(0xF70B0820), RoundedCornerShape(16.dp))

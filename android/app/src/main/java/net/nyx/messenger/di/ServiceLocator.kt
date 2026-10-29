@@ -233,7 +233,7 @@ object ServiceLocator {
                 // la montre à chaque démarrage.
                 net.nyx.messenger.diag.DiagLog.i(
                     "nyx-boot",
-                    "câblage v0.2.60 vérifié : PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS (trames F_SCREEN_REQ/F_SCREEN_ACCEPT/F_SCREEN_STOP + champ sc du HELLO/ACCEPT — le PC doit ACCEPTER avant que notre écran ne parte, et son dialogue système Android en plus : double consentement ; MediaProjection en service au premier plan, JPEG ≤480 ~5 fps), RÉCUPÉRATION CAMÉRA après erreur FATALE 3/10 (fermeture + 1,2 s de repos + réouverture fraîche, UNE fois par appel — terrain 28/10 20:16 : erreur 3 à 19 s d'une visio saine), DÉDUP INGEST PAR eventId (la flotte re-livrait le MÊME journal à chaque poll — re-traitements écrêtés, miroir bureau v0.3.12), OFFRE D'UN APPEL TERMINÉ ignorée 10 min (re-sonnerie fantôme du cid b2829fd6 tuée), annonce réplica horodatée par l'ÉVÉNEMENT (re-livraison = connue, plus de re-persist), CAMÉRA GARDE DE GÉNÉRATION (callbacks d'ouvertures périmées ignorés, relance 400 ms ×2 sur erreurs transitives), ÉMISSION SEULE meurt si la caméra est perdue — la RÉCEPTION CONTINUE (miroir micro HS), MÉDIA À VUE LIMITÉE affiché depuis la MÉMOIRE jusqu'à la sortie de l'écran, signature HELLO « events » sur le COUNT (repli direct P2P), RETOUR D'APPEL audible chez l'appelant (bi-ton 425+480 Hz), VISIO MJPEG PRÉ-TOURNÉE À L'ENCODE (vpr=1), DÉCROCHER VISIO depuis la notification (activité verrouillée), refus/décroché verrouillés (intent plein écran + boutons notification + overlay au-dessus du verrou), micro ADPCM démarré avant lecture (plus d'ANR Error -38), ACCEPT avant toute trame média, latence audio interop réduite, sonnerie possédée, csd H.264 lu après la 1ʳᵉ trame caméra, raccroché et refus LIBRES immédiatement, démon tor RELANCÉ automatiquement s'il meurt, csd-0 AAC calculé, offre sur la boîte du pair puis flotte, poll réplica propre + flotte, codec ADPCM négociable (HELLO/ACCEPT ac — interop appels PC↔téléphone), VISIO MJPEG interop PC↔téléphone (HELLO/ACCEPT vc + vpr, téléphone↔téléphone reste H.264), accusés sans double émission + id local re-aligné au resync"
+                    "câblage v0.2.61 vérifié : SONNERIE DÈS LE HELLO authentifié (miroir bureau v0.3.10 — l'appel PC→tel sonne à l'arrivée du média, PLUS à l'offre du poll : gardes contact bloqué/terminé/refusé), APPEL ANNULÉ ne redevient JAMAIS actif (garde d'état sur F_CALL_ACCEPT + garde post-connexion — terrain 29/10 : appel annulé du PC ressuscité 7 s après le cancel), RECONNEXION MÉDIA en cours d'appel (budget 2 cycles : le connecteur re-compose le MÊME cid, l'appelé maintient 60 s et ré-adopte — terrain 29/10 : circuits Tor morts à 7-19 s), TOUT BYE mémorise le cid (offre/HELLO re-livré ne re-sonne jamais), NOTIFICATION D'APPEL EN COURS avec bouton RACCROCHER (l'appel se termine appli réduite — terrain 29/10), DEEP-LINK notification→conversation (le tap ouvre LE chat : accusé « lu » enfin honnête), POLL DÈS BOOTSTRAP 75 % + WARM-UP circuits réplicas (connexion au réplica des dizaines de secondes plus tôt), OFFRE PARALLÈLE à la connexion média (miroir bureau v0.3.13), PARTAGE D'ÉCRAN VALIDÉ DES DEUX CÔTÉS (trames F_SCREEN_REQ/F_SCREEN_ACCEPT/F_SCREEN_STOP + champ sc du HELLO/ACCEPT — le PC doit ACCEPTER avant que notre écran ne parte, et son dialogue système Android en plus : double consentement ; MediaProjection en service au premier plan, JPEG ≤480 ~5 fps), RÉCUPÉRATION CAMÉRA après erreur FATALE 3/10 (fermeture + 1,2 s de repos + réouverture fraîche, UNE fois par appel — terrain 28/10 20:16 : erreur 3 à 19 s d'une visio saine), DÉDUP INGEST PAR eventId (la flotte re-livrait le MÊME journal à chaque poll — re-traitements écrêtés, miroir bureau v0.3.12), OFFRE D'UN APPEL TERMINÉ ignorée 10 min (re-sonnerie fantôme du cid b2829fd6 tuée), annonce réplica horodatée par l'ÉVÉNEMENT (re-livraison = connue, plus de re-persist), CAMÉRA GARDE DE GÉNÉRATION (callbacks d'ouvertures périmées ignorés, relance 400 ms ×2 sur erreurs transitives), ÉMISSION SEULE meurt si la caméra est perdue — la RÉCEPTION CONTINUE (miroir micro HS), MÉDIA À VUE LIMITÉE affiché depuis la MÉMOIRE jusqu'à la sortie de l'écran, signature HELLO « events » sur le COUNT (repli direct P2P), RETOUR D'APPEL audible chez l'appelant (bi-ton 425+480 Hz), VISIO MJPEG PRÉ-TOURNÉE À L'ENCODE (vpr=1), DÉCROCHER VISIO depuis la notification (activité verrouillée), refus/décroché verrouillés (intent plein écran + boutons notification + overlay au-dessus du verrou), micro ADPCM démarré avant lecture (plus d'ANR Error -38), ACCEPT avant toute trame média, latence audio interop réduite, sonnerie possédée, csd H.264 lu après la 1ʳᵉ trame caméra, raccroché et refus LIBRES immédiatement, démon tor RELANCÉ automatiquement s'il meurt, csd-0 AAC calculé, offre sur la boîte du pair puis flotte, poll réplica propre + flotte, codec ADPCM négociable (HELLO/ACCEPT ac — interop appels PC↔téléphone), VISIO MJPEG interop PC↔téléphone (HELLO/ACCEPT vc + vpr, téléphone↔téléphone reste H.264), accusés sans double émission + id local re-aligné au resync"
                 )
                 net.nyx.messenger.net.LinkChannel.socksProvider = {
                     // -1 tant que Tor n'est pas prêt (le canal dort, pas de
@@ -357,12 +357,46 @@ object ServiceLocator {
             while (true) {
                 val now = android.os.SystemClock.elapsedRealtime()
                 val tor = net.nyx.messenger.tor.TorManager.get(appContext())
-                val ready = tor.state.value is net.nyx.messenger.tor.TorManager.TorState.Ready
+                // v0.2.61 — POLL DÈS LE BOOTSTRAP UTILISABLE (terrain 29/10 :
+                // « le téléphone est encore très long à se connecter au
+                // replica, pas ce problème sur le pc » — le PC lit sa
+                // réplique LOCALE, le téléphone attendait le Ready COMPLET
+                // (bootstrap 100 % + publication onion, jusqu'à plusieurs
+                // minutes sur réseau mobile) AVANT son premier poll).
+                // Désormais : dès Starting ≥ 75 % (SOCKS ouvert, circuits en
+                // construction) — Tor TAMponNE les connexions jusqu'au
+                // circuit prêt (« data from edge while in waiting for circuit
+                // state », tor.log terrain) : le premier poll part des
+                // dizaines de secondes plus tôt.
+                val st = tor.state.value
+                val earlyUsable = st is net.nyx.messenger.tor.TorManager.TorState.Starting && st.percent >= 75
+                val ready = st is net.nyx.messenger.tor.TorManager.TorState.Ready || earlyUsable
                 if (ready && fastUntil == 0L) {
                     // Transition vers Ready (démarrage, retry, relance du démon).
                     fastUntil = now + FAST_WINDOW_MS
                     readySinceMs = now // v0.2.41 — âge du bootstrap pour l'anti-churn
-                    android.util.Log.i("nyx-poll", "tor prêt — reprise rapide du poll")
+                    android.util.Log.i(
+                        "nyx-poll",
+                        if (earlyUsable) "tor ${(st as net.nyx.messenger.tor.TorManager.TorState.Starting).percent} % — poll anticipé (circuits en construction) + warm-up"
+                        else "tor prêt — reprise rapide du poll"
+                    )
+                    // v0.2.61 — WARM-UP PARALLÈLE : une connexion muette vers
+                    // CHAQUE réplica (P2pClient.connect = handshake SOCKS
+                    // complet + récupération HSFETCH du descripteur) force Tor
+                    // à construire LES circuits vers ces cibles MAINTENANT —
+                    // le premier vrai poll chevauche des circuits déjà chauds
+                    // au lieu d'attendre un build à froid (10-30 s par cible).
+                    // Le port 47471 peut être refusé par le réplica : peu
+                    // importe, le circuit ET le descripteur restent chauds.
+                    if (earlyUsable) {
+                        for (addr in runCatching { repository.replicas }.getOrDefault(emptyList())) {
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                runCatching {
+                                    net.nyx.messenger.p2p.P2pClient.connect(addr, 20_000).close()
+                                }
+                            }
+                        }
+                    }
                 } else if (!ready) {
                     fastUntil = 0L      // tor retombe : la fenêtre n'a plus de sens
                     readySinceMs = 0L   // v0.2.41 — idem pour l'âge du Ready

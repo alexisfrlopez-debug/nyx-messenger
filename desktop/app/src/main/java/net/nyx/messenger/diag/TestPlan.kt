@@ -48,6 +48,31 @@ object TestPlan {
      * caméra du PC par défaut + bascule écran, notifications de messages à la
      * racine, sonnerie immédiate au HELLO + retour d'appel.
      */
+    /** v0.3.13 — items de validation (miroir de docs/releases/v0.3.13-desktop.md
+     *  — retour terrain 29/10 00:34 : les 6 points de l'opérateur). */
+    val ITEMS_V0_3_13 = listOf(
+        Item(
+            "fenetre-decrochage-devant",
+            "LA FENÊTRE DE DÉCROCHAGE EST DEVANT — ITEM DÉCISIF n°1 (NOUVEAU v0.3.13, retour 29/10 : « la fenêtre pour décrocher du pc se met derrière l'appli de messagerie » — la fenêtre principale était forcée alwaysOnTop PENDANT la sonnerie et recouvrait la carte) : appel tel→PC alors que la fenêtre principale Nyx est OUVERTE et ACTIVE → la carte ✓ Décrocher / ✕ Refuser apparaît AU-DESSUS de la fenêtre principale, reste visible pendant TOUTE la sonnerie et reprend le focus si on la perd"
+        ),
+        Item(
+            "annule-jamais-actif",
+            "UN APPEL ANNULÉ NE REDEVIENT JAMAIS ACTIF — ITEM DÉCISIF n°2 (NOUVEAU v0.3.13, preuve 29/10 00:32:26→00:32:33 : « appel terminé (OUTGOING) » puis « appel actif » 7 s après le cancel de l'opérateur) : appeler le téléphone puis ANNULER pendant la sonnerie ; même si le téléphone accepte tardivement, le PC affiche « F_CALL_ACCEPT tardif IGNORÉ (… — appel ENDED) : BYE au pair » et l'appel ne devient JAMAIS actif ; une connexion qui aboutit après l'annulation est rejetée (« connexion média aboutie après annulation … — rejetée + BYE »)"
+        ),
+        Item(
+            "reconnexion-media-pc",
+            "RECONNEXION MÉDIA EN COURS D'APPEL (NOUVEAU v0.3.13, preuve 29/10 00:22→00:30 : les appels mouraient à 7-19 s — WSAECONNABORTED/« Connection reset ») : appel de PLUSIEURS minutes avec le téléphone ; si la connexion meurt, la carte flottante affiche « reconnexion… » et le journal contient « média perdu en cours d'appel … — reconnexion » puis « média RÉTABLI — appel repris » — l'appel CONTINUE sans intervention (budget 2 cycles, grâce 60 s côté appelé) ; sans retour possible : fin honnête « connexion perdue »"
+        ),
+        Item(
+            "appel-rapide-parallele",
+            "APPEL PC→TEL PLUS RAPIDE (NOUVEAU v0.3.13, preuve 29/10 00:31:59→00:32:21 : le dépôt d'offre en cascade prenait ~22 s AVANT le premier essai média) : appeler le téléphone → le journal montre « média essai 1 » DÈS les premières secondes (dépôt d'offre en PARALLÈLE, plus jamais séquentiel) ; le téléphone sonne nettement plus tôt (le HELLO le fait sonner dès l'arrivée du média, Android ≥ v0.2.61)"
+        ),
+        Item(
+            "frame-skipping",
+            "FRAME SKIPPING SUR CIRCUIT LENT (NOUVEAU v0.3.13, preuve 29/10 : RTT SENDME 1,5-2,4 s — le circuit Tor saturé mourait) : pendant une visio sur réseau chargé, le journal peut montrer « frame skipping engagé (write … ms > 350 ms — la cadence s'adapte au circuit) » et l'appel SURVIT au-delà des 7-19 s observées avant ; régressions : webcam par défaut + partage d'écran validé + carte flottante inchangés"
+        ),
+    )
+
     /** v0.3.12 — items de validation (miroir de docs/releases/v0.3.12-desktop.md). */
     val ITEMS_V0_3_12 = listOf(
         Item(
@@ -281,7 +306,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_12 + ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_13 + ITEMS_V0_3_12 + ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

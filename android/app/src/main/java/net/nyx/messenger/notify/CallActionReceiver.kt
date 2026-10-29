@@ -39,6 +39,16 @@ class CallActionReceiver : BroadcastReceiver() {
                     "nyx-call", "refusé DEPUIS LA NOTIFICATION (verrouillé — session 78)"
                 )
             }
+            // v0.2.61 — RACCROCHER un appel EN COURS sans rouvrir l'appli
+            // (terrain 29/10 : appel décroché puis appli réduite — aucun
+            // moyen de terminer l'appel sans la rouvrir).
+            ContactNotifier.ACTION_CALL_HANGUP -> {
+                ContactNotifier.cancelOngoingCall()
+                CallManager.hangup()
+                net.nyx.messenger.diag.DiagLog.i(
+                    "nyx-call", "raccroché DEPUIS LA NOTIFICATION (appel en cours — session 83)"
+                )
+            }
         }
     }
 }

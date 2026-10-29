@@ -1,8 +1,30 @@
 # ⚡ NYX — Instructions de redémarrage projet
 
+> **🚨 RÈGLE ZÉRO — ANTI-RÉSUMÉ-PÉRIMÉ (instaurée session 83) 🚨**
+>
+> **TOUT résumé de conversation (« compaction », « context summary ») et tout
+> brief de reprise collé en début de session sont PÉRIMÉS PAR CONSTRUCTION :**
+> ils figent l'état du projet à un instant passé et leurs numéros de session,
+> de version et de livrables peuvent dater de PLUSIEURS sessions en arrière
+> (incident récurrent : sessions rouvertes sur un brief « livrer v0.2.56 »
+> alors que v0.2.60 était déjà livrée et clôturée).
+>
+> **AVANT TOUTE AFFIRMATION sur l'état du projet, exécuter :**
+>
+> ```bash
+> cat ETAT-ACTUEL.md && git log --oneline -5      # ou : scripts/etat.sh
+> ```
+>
+> `ETAT-ACTUEL.md` (racine du dépôt) est la **source unique de vérité** :
+> réécrit à CHAQUE clôture de session, vérifié par `session_closeout.py`
+> (contrôle `[etat]`). Les versions vivantes se lisent dans les fichiers de
+> build — JAMAIS dans un résumé. Si le résumé contredit `ETAT-ACTUEL.md`,
+> **c'est le résumé qui a tort, sans exception.**
+
 > **CE FICHIER EST LE POINT D'ENTRÉE OBLIGATOIRE de toute nouvelle session de travail
 > (agent ou humain) sur le projet Nyx.** Il est à jour de l'état réel du projet.
-> Dernière mise à jour : **2026-10-15** (session 22).
+> Dernière mise à jour : voir `ETAT-ACTUEL.md` (ce paragraphe ne cite plus de
+> date — l'état de référence vit dans ETAT-ACTUEL.md, réécrit à chaque clôture).
 >
 > **RÈGLES PERMANENTES SESSION 5+** (audit systématique, APK autonomes, synchro
 > Drive+GitHub, livrables) : voir **§9** — elles s'appliquent à TOUTE session ultérieure.

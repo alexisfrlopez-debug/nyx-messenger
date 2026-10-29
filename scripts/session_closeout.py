@@ -364,6 +364,36 @@ def check_worklog(last_session):
         add("WARN", "worklog", f"aucune section « session {last_session} » dans worklog.md")
 
 
+def check_etat_actuel(repo, attendus, last_session):
+    """Session 83 — RÈGLE ZÉRO ANTI-RÉSUMÉ-PÉRIMÉ : ETAT-ACTUEL.md est la
+    source unique de vérité que toute session relit AVANT de faire confiance
+    à un résumé de conversation. Un FAIL ici bloque la clôture (§9.11) :
+    le fichier DOIT citer les versions effectivement livrées (celles des
+    pointeurs rapides) et la session la plus récente."""
+    path = os.path.join(repo, "ETAT-ACTUEL.md")
+    if not os.path.isfile(path):
+        add("FAIL", "etat", "ETAT-ACTUEL.md ABSENT à la racine — le créer (règle zéro session 83) puis relancer")
+        return
+    text = open(path, encoding="utf-8").read()
+    ok = True
+    for key, label in (("app", "Messagerie Android"), ("desktop", "Desktop"),
+                       ("serveur", "Serveur"), ("console", "Console")):
+        v = attendus.get(key)
+        if v and f"v{v}" not in text:
+            add("FAIL", "etat", f"ETAT-ACTUEL.md ne cite pas {label} v{v} (version livrée aux pointeurs) — le mettre à jour")
+            ok = False
+    m = re.search(r"Dernière clôture\s*\**\s*:.*?session\s\*\*(\d+)", text, re.S) or \
+        re.search(r"session\s\*\*(\d+)", text)
+    if m:
+        if int(m.group(1)) < last_session:
+            add("FAIL", "etat", f"ETAT-ACTUEL.md cite une clôture session {m.group(1)} < session {last_session} des pointeurs — PÉRIMÉ, le mettre à jour")
+            ok = False
+    else:
+        add("WARN", "etat", "ETAT-ACTUEL.md : numéro de session de clôture illisible — vérifier le format")
+    if ok:
+        add("PASS", "etat", f"ETAT-ACTUEL.md à jour (session {last_session}, versions conformes aux pointeurs)")
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(description="Garde-fou de clôture de session Nyx")
@@ -423,6 +453,7 @@ def main():
 
     check_fiche(args.repo, attendus)
     check_worklog(last_session)
+    check_etat_actuel(args.repo, attendus, last_session)
 
     if args.json:
         print(json.dumps({"attendus": attendus,
