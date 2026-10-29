@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.60 et client Windows v0.3.12, au "
+         "(messagerie Android v0.2.61 et client Windows v0.3.13, au "
          "29 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,7 +378,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.60 · Client Windows v0.3.12 · "
+              ["Versions livrées", "Messagerie Android v0.2.61 · Client Windows v0.3.13 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(29 octobre 2026)"],
           ],
@@ -614,54 +614,35 @@ def build_story():
               ["Appels", "Appels audio et vidéo P2P onion-vers-onion ; v0.2.44 : "
                  "repli relais média par le réplica de flotte quand le direct "
                  "échoue ; v0.2.47 : média direct réparé (cause racine IPv6 ::1) ; "
-                 "v0.2.48 : décrochage débloqué côté applicatif (verrou de "
-                 "contact aligné sur la sonnerie, 1er essai 45 s, permission "
-                 "micro demandée, §3.4) ; v0.2.56/v0.3.8 : DÉCROCHER/REFUSER "
-                 "ÉCRAN VERROUILLÉ (activité d'appel affichée SUR le keyguard par "
-                 "intent plein écran de la notification + boutons "
-                 "Décrocher/Refuser fonctionnant verrouillé + sonnerie bureau "
-                 "audible), micro ADPCM réparé (fin de l'ANR « Error -38 »), "
-                 "visio qui tient au décroché (ACCEPT toujours premier) et "
-                 "latence audio réduite (tampons minimaux + garde anti-arriéré) ; "
-                 "v0.2.58/v0.3.10 : RETOUR D'APPEL audible chez l'appelant + "
-                 "visio pré-tournée (portrait ↔ paysage — la résolution suit "
-                 "l'orientation) + sonnerie immédiate + caméra du PC par défaut ; "
-                 "v0.2.59/v0.3.11 : visio ENFIN bidirectionnelle + messages "
-                 "tel→PC notifiés/accusés + média à vue manuel ; "
+                 "v0.2.48 : décrochage débloqué côté applicatif ; "
+                 "v0.2.56/v0.3.8 : DÉCROCHER/REFUSER ÉCRAN VERROUILLÉ + micro "
+                 "ADPCM réparé (fin de l'ANR) + visio qui tient au décroché + "
+                 "latence réduite ; v0.2.58/v0.3.10 : RETOUR D'APPEL audible + "
+                 "visio pré-tournée + caméra du PC par défaut ; "
+                 "v0.2.59/v0.3.11 : visio ENFIN bidirectionnelle ; "
                  "v0.2.60/v0.3.12 : PARTAGE D'ÉCRAN VALIDÉ + WEBCAM du PC "
-                 "détectée",
-               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56 · v0.2.58 · v0.2.59 · v0.2.60"],
+                 "détectée ; v0.2.61/v0.3.13 : appels FIABLES (annulation "
+                 "propagée + reconnexion média + RACCROCHER depuis la "
+                 "notification + accusé lu au tap + sonnerie dès le HELLO)",
+               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56 · v0.2.58 · v0.2.59 · v0.2.60 · v0.2.61"],
               ["Plateformes", "CLIENT DESKTOP WINDOWS (ADR-019, Compose Desktop) : "
                  "même noyau Kotlin que l'Android, partagé 1:1 — messagerie "
                  "complète E2E (texte, fichiers 64 Mo, accusés, alias, "
                  "profils), réplique embarquée in-process, Tor expert bundle "
                  "15.0.26 et runtime Java 21 embarqués, installateur .exe + "
-                 "zip portable ; v0.3.1 : correctif démarrage (dll libsodium "
-                 "MinGW + dll compagnes, skiko Windows, autotest --selftest) ; "
-                 "v0.3.2 : raccourcis bureau/menu résolus par l'API shell "
-                 "Windows (OneDrive/localisation) + icône dédiée + SAUVEGARDE "
-                 "DE COMPTE interopérable téléphone↔PC (enveloppe chiffrée "
-                 "PBKDF2+AES-GCM, import/export complets : alias, profil, "
-                 "contacts, position de lecture) ; v0.3.3 (VERSION TEST) : connexion "
-                 "Tor/réplicas corrigée (démarrage non bloquant, retry + "
-                 "bouton Réessayer, nettoyage des Tor orphelins, erreurs "
-                 "explicites, journal persistant) + BOUTON D'ENVOI DE LOGS "
-                 "miroir Android (dépôt Drive de diagnostic) ; v0.3.4 (VERSION "
-                 "TEST) : connexion Tor corrigée PAR PREUVE des logs terrain "
-                 "(course du port de contrôle : cookie périmé purgé + attente "
-                 "d'un connect TCP accepté) + écran de connexion au démarrage "
-                 "avec barre de progression Tor puis réplicas (miroir Android) + "
-                 "PARITÉ COMPLÈTE des interfaces (vocaux, pièces jointes + "
-                 "visionneuse, médias à affichage limité, suppression pour "
-                 "moi/pour tous, mots de passe normal/panique/destruction, "
-                 "session leurre, plateau système + notifications, éphémères, "
-                 "export/import des conversations, plan de tests) ; v0.3.10 "
-                 "(VERSION TEST) : CAMÉRA DU PC PAR DÉFAUT en visio (ffmpeg embarqué, "
-                 "bascule 📹/🖥️ à chaud), NOTIFICATIONS de messages une seule fois, "
-                 "SONNERIE d'appel entrant IMMÉDIATE dès la connexion directe, "
+                 "zip portable ; v0.3.1 : correctif démarrage (natives + "
+                 "autotest) ; v0.3.2 : SAUVEGARDE DE COMPTE interopérable "
+                 "téléphone↔PC ; v0.3.3 : connexion Tor corrigée + BOUTON "
+                 "D'ENVOI DE LOGS miroir Android ; v0.3.4 : connexion PAR "
+                 "PREUVE des logs terrain + écran de connexion + PARITÉ "
+                 "COMPLÈTE des interfaces ; v0.3.10 : CAMÉRA DU PC PAR DÉFAUT "
+                 "en visio (ffmpeg embarqué, bascule 📹/🖥️ à chaud), "
+                 "NOTIFICATIONS une seule fois, SONNERIE IMMÉDIATE, "
                  "RETOUR D'APPEL chez l'appelant ; v0.3.11 : CARTE FLOTTANTE + "
                  "RACCROCHER au premier plan ; v0.3.12 : WEBCAM ENFIN DÉTECTÉE + "
-                 "PARTAGE D'ÉCRAN VALIDÉ ; v0.3.8 : SONNERIE bureau audible enfin (bi-ton "
+                 "PARTAGE D'ÉCRAN VALIDÉ ; v0.3.13 : appels FIABLES (décrochage "
+                 "toujours DEVANT, annulation jamais active, reconnexion "
+                 "média) ; v0.3.8 : SONNERIE bureau audible enfin (bi-ton "
                  "440+480 Hz généré en mémoire, stop déterministe < 150 ms — le "
                  "bureau était MUET : un appel visio entrant de 54 s n'avait "
                  "jamais été remarqué) + fenêtre ramenée au premier plan "
@@ -691,7 +672,7 @@ def build_story():
                  "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
                  "au premier lancement, plus d'exception brute en rouge) ; "
                  "appels audio/visio = phase 2 documentée (visio LIVRÉE v0.3.7)",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8 · v0.3.9 · v0.3.10 · v0.3.11 · v0.3.12"],
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8 · v0.3.9 · v0.3.10 · v0.3.11 · v0.3.12 · v0.3.13"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -722,7 +703,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.60 / v0.8.12 · client Windows v0.3.12).",
+                  "(version v0.2.61 / v0.8.12 · client Windows v0.3.13).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -862,7 +843,7 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.12, ADR-019, parité Android complète + appels audio ET "
+               "(v0.3.13, ADR-019, parité Android complète + appels audio ET "
                "VISIO interop — MJPEG, caméra du PC par défaut, bascule écran — + "
                "DÉCROCHAGE ÉCRAN VERROUILLÉ + SONNERIE bureau + RETOUR D'APPEL — "
                "messagerie confirmée opérationnelle dans les deux sens par les "
@@ -943,7 +924,9 @@ def build_story():
                "morte) — garde de génération + relances + débounce ; la "
                "caméra perdue ne coupe plus que l'émission locale "
                "(réception maintenue) ; chien de garde 8 s côté bureau ; "
-               "v0.2.60/v0.3.12 : WEBCAM du PC enfin détectée + PARTAGE "
+               "v0.2.60/v0.3.12 : WEBCAM du PC enfin détectée + PARTAGE ; "
+                  "v0.2.61/v0.3.13 : fiabilité des appels (annulation propagée, "
+                  "reconnexion média, raccrocher depuis la notification) "
                "D'ÉCRAN VALIDÉ PAR LE PAIR."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
@@ -975,7 +958,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "29 octobre 2026 (messagerie v0.2.60 · client Windows v0.3.12). "
+                 "29 octobre 2026 (messagerie v0.2.61 · client Windows v0.3.13). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -992,16 +975,18 @@ def build_story():
                "csd calculé v0.2.51, lot v0.2.52 confirmé terrain 25/10, "
                "orientation v0.2.53) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.60 puis phase 2",
+               "v0.2.44-v0.2.61 puis phase 2",
                "Audio et visio confirmés terrain ; v0.2.54/v0.3.6 : appels audio "
                "téléphone↔PC par codec ADPCM négocié ; v0.2.55/v0.3.7 : VISIO "
                "PC↔téléphone par codec MJPEG ; v0.2.56/v0.3.8 : visio qui TIENT, "
                "v0.2.58/v0.3.10 : caméra du PC par défaut, trames pré-tournées, "
                "retour d'appel ; v0.2.59/v0.3.11 : visio bidirectionnelle "
                "fiable, messages tel→PC notifiés/accusés, carte d'appel "
-               "toujours au premier plan ; au décroché + micro ADPCM réparé (ANR) + latence réduite + "
-               "décrochage écran verrouillé (téléphone ET app) ; v0.2.60/v0.3.12 : "
-               "PARTAGE D'ÉCRAN VALIDÉ + webcam détectée + appel PC→tel fiable"],
+               "toujours au premier plan ; micro ADPCM réparé (ANR) ; "
+               "décrochage écran verrouillé ; "
+               "v0.2.60/v0.3.12 : PARTAGE D'ÉCRAN VALIDÉ + webcam ; "
+               "v0.2.61/v0.3.13 : appels fiables (annulation, reconnexion, "
+               "raccrocher notifié, accusé lu)"],
               ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.8, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
@@ -1152,6 +1137,20 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["26ᵉ édition", "29 octobre 2026", "Messagerie Android v0.2.61 · "
+              "Client Windows v0.3.13 · Console v0.8.12 · Serveur v0.2.38",
+              "La fiabilité des appels : le test v0.2.60/v0.3.12 (2 exports, "
+              "29/10 00:34) PROUVE qu'un appel ANNULÉ du PC redevenait "
+              "« actif » 7 s après le cancel, que les appels mouraient à "
+              "7-19 s (circuits Tor saturés), que le tap sur une notification "
+              "n'ouvrait JAMAIS la conversation (jamais d'accusé « lu ») et "
+              "qu'il fallait rouvrir l'appli pour raccrocher. TROIS gardes "
+              "tuent le ghost call ; la reconnexion média (2 cycles) fait "
+              "survivre les appels ; RACCROCHER depuis la notification ; "
+              "deep-link → accusé lu honnête ; sonnerie dès le HELLO ; "
+              "connexion réplica dès 75 % de bootstrap. Et la RÈGLE ZÉRO "
+              "anti-résumé-périmé (ETAT-ACTUEL.md) : chaque session relit "
+              "l'état RÉEL du dépôt."],
               ["25ᵉ édition", "29 octobre 2026", "Messagerie Android v0.2.60 · "
               "Client Windows v0.3.12 (VERSION TEST) · Console v0.8.12 · "
               "Serveur v0.2.38",

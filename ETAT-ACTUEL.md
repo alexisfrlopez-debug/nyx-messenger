@@ -22,20 +22,25 @@
 
 ---
 
-## État au 29 octobre 2026
+## État au 29 octobre 2026 (fin de session 83)
 
-- **Dernière clôture** : session **82** — 2026-10-29, commit `aeac0c2`, closeout §9.11 **PASS (0 FAIL, 2 WARN)**
-- **Messagerie Android** : **v0.2.60** (versionCode 64) — livrée (release GitHub + Drive, archivage OK)
-- **Messagerie desktop** : **v0.3.12** — livrée (release GitHub + Drive, exe + zip + SUMS)
+- **Dernière clôture** : session **83** — 2026-10-29, closeout §9.11 (le SHA du commit final est dans `git log`)
+- **Messagerie Android** : **v0.2.61** (versionCode 65) — livrée (release GitHub v0.2.61 + Drive, v0.2.60 archivée)
+- **Messagerie desktop** : **v0.3.13** — livrée (release GitHub v0.3.13-desktop + Drive, exe + zip + SUMS, v0.3.12 archivée)
 - **Serveur** : v0.2.38 — binaire en asset GitHub (convention Drive respectée)
 - **Console admin** : v0.8.12 (dépôt privé nyx-admin)
-- **Terrain attendu** : retour d'expérience sur v0.2.60 / v0.3.12 → voir §3 RESTART.md (instructions session 82)
+- **Fiche de présentation** : 26ᵉ édition (36 pages) — cite v0.2.61/v0.3.13
+- **Terrain attendu** : retour d'expérience sur v0.2.61 / v0.3.13 → TestPlan v0.2.61 (6 items) + v0.3.13 (5 items), décisifs : `raccrocher-notification` + `annulation-propagee` (Android) / `fenetre-decrochage-devant` + `annule-jamais-actif` (desktop) — voir §3 RESTART.md (pointeur rapide session 83).
 
-## Session EN COURS : 83
+## Contenu de la session 83 (closeout)
 
-- **Déclencheur** : retour terrain opérateur Alek du 2026-10-29 00:34 (logs v0.2.60/v0.3.12 dans `reports/logs-s83/`) — 6 points : connexion tel lente au réplica, fenêtre décrochage derrière, résolution vidéo + coupure, accusé « reçu » pas « lu », raccrocher depuis la notification, appel annulé qui se relance.
-- **Cible** : **v0.2.61 Android (versionCode 65) + v0.3.13 desktop**
-- **État d'avancement** : code écrit et compilé des deux côtés (desktop : tests JVM OK ; Android : variant standard OK) — restent tests des autres variants, builds release, audits, release GitHub, Drive, worklog, pointeur rapide.
+Retour terrain 29/10 00:34 (6 points, logs dans `reports/logs-s83/`) : (1) appel annulé ne ressuscite plus —
+3 gardes anti-ghost-call ; (2) reconnexion média en cours d'appel (2 cycles, visio continue) ; (3) raccrocher
+depuis la notification d'appel en cours ; (4) accusé « lu » par deep-link notification→conversation ;
+(5) sonnerie dès le HELLO + offre parallèle + fenêtre décrochage devant ; (6) poll dès bootstrap 75 % +
+warm-up circuits + frame skipping. NOUVEAU AUSSI : RÈGLE ZÉRO anti-résumé-périmé — ce fichier devient la
+source unique de vérité, réécrite à chaque clôture et vérifiée par le contrôle `[etat]` de
+`scripts/session_closeout.py`.
 
 ## Invariants (ne jamais rouvrir sans ADR)
 
