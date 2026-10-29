@@ -22,17 +22,34 @@
 
 ---
 
-## État au 29 octobre 2026 (session 85 — correctif livraison v0.2.62)
+## État au 29 octobre 2026 (session 86 — correctif livraison TERMINÉ)
 
-- **Dernière clôture** : session **84** — 2026-10-29, closeout §9.11 ; session **85** = correctif de livraison (re-signature APK)
-- **Messagerie Android** : **v0.2.62** (versionCode 66) — APK **RE-SIGNÉS RELEASE** (build 080342 : std `31a5c097…` + test `672c00ae…`, clé `b0d17630…`) : les APK du matin (064311) étaient signés CLÉ DEBUG par erreur (conflit d'installation signalé par l'opérateur) — retirés de GitHub + Drive, remplacés ; release GitHub v0.2.62 à jour ; ⚠ **Drive non synchronisé** (token mort au cycle ~7 j — ré-auth interactive opérateur requise, puis `scripts/publish-drive.sh --kind client --version 0.2.62`)
-- **Messagerie desktop** : **v0.3.14** — livrée (release GitHub v0.3.14-desktop + Drive, exe + zip + SUMS, v0.3.13 archivée)
+- **Dernière clôture** : session **84** — 2026-10-29, closeout §9.11 ; sessions **85-86** = correctifs de livraison (clé debug → re-signage → token mort → rebuild)
+- **Messagerie Android** : **v0.2.62** (versionCode 66) — build **092836** : std `71bbd2e5…` + test `1bad1eec…`, clé release `b0d17630…`, **jeton Drive vif embarqué dans le flavor test** (le 080342 portait encore le jeton mort) ; GitHub v0.2.62 + Drive `dernieres-livrables/` **SYNCHRONISÉS** (les 2 canaux à jour, SUMS vérifiés)
+- **Messagerie desktop** : **v0.3.14** — livrée (release GitHub v0.3.14-desktop + Drive, exe + zip + SUMS)
 - **Serveur** : v0.2.38 — binaire en asset GitHub (convention Drive respectée)
 - **Console admin** : v0.8.12 (dépôt privé nyx-admin)
-- **Fiche de présentation** : 27ᵉ édition (36 pages) — cite v0.2.62/v0.3.14 (vidéo sur la carte flottante bureau, notification + ANNULER/ARRÊTER le partage d'écran, badge PROUVÉ par logs, webcam 640×360 ; QA pdftotext v0.2.62×10 / v0.3.14×10, bug de concaténation du Tableau 5 corrigé)
-- **Terrain attendu** : RE-TÉLÉCHARGER v0.2.62 depuis la release GitHub (build 080342 — le SHA du corps de release fait foi ; supprimer tout APK 064311 déjà téléchargé), l'installer PAR-DESSUS v0.2.61 (RIEN désinstaller — même clé `b0d17630…`) → TestPlan v0.2.62 (7 items, décisifs `bye-pendant-sonnerie` + `annuler-partage-tel`) + v0.3.14 (7 items, décisifs `video-carte-flottante` + `notif-partage-ecran`) — la carte affiche déjà les items VALIDÉS PAR LOGS du 29/10 (badge + preuve) ; voir §3 RESTART.md (pointeur rapide session 85).
+- **Fiche de présentation** : 27ᵉ édition (36 pages) — cite v0.2.62/v0.3.14
+- **Token Drive** : **VIF** — refresh token ré-authorisé par l'opérateur le 29/10 08:35 (`1//0ePNdRY0…`), installé dans `.credentials/tokens/` + `Tokens/` Drive + `android/test-upload.properties` (embarqué APK test) ; l'ancien relais (22/10) est mort au cycle ~7 j — si 400 invalid_grant revient → ré-auth interactive (procédure session 53)
+- **Terrain attendu** : RE-TÉLÉCHARGER v0.2.62 (build **092836** — GitHub ou Drive, ignorer tout APK 064311/080342 déjà téléchargé), installer PAR-DESSUS (même clé, rien désinstaller) → **vérifier que le bouton « envoyer les logs » du téléphone fonctionne** (preuve que le jeton vif embarqué) + TestPlan v0.2.62 (7 items) + v0.3.14 (7 items) — voir §3 RESTART.md (pointeur rapide session 86).
 
-## Contenu de la session 85 (correctif livraison, pas de closeout complet)
+## Contenu de la session 86 (correctif livraison, pas de closeout complet)
+
+Reprise de la session 85 interrompue sur « token Drive mort → sync EN ATTENTE ». (a)
+l'opérateur a fourni la ré-auth OAuth (callback collé) → nouveau refresh token échangé et
+installé partout (credentials + backup Drive Tokens/ + test-upload.properties) ; (b) BUG DE
+CACHE DE REPRISE corrigé dans `scripts/build-apk.sh` : l'empreinte de reprise ignorait les
+fichiers git-ignorés qui alimentent le build (`test-upload.properties`, `keystore.properties`,
+`replica-bootstrap.properties`) → un changement de credentials resservait l'ANCIEN APK du
+cache /tmp — le re-signage 080342 portait donc ENCORE le jeton mort ; ces 3 fichiers entrent
+désormais dans l'empreinte ; (c) REBUILD v0.2.62 (build 092836) : apksigner ×2 =
+`CN=Nyx Messenger` `b0d17630…`, dex = `0.2.62-test (code 66)` + NOUVEAU jeton présent /
+ANCIEN absent ; (d) livraison remplacée PARTOUT : GitHub (assets + corps PATCHé) + Drive
+(`publish-drive.sh`) ; (e) les 2 APK 064311 CLÉ DEBUG étaient ENCORE dans
+`dernieres-livrables/` Drive (la corbeille de la session 85 avait échoué sur le token mort)
+→ corbeillés POUR DE VRAI (sinon quiconque les téléchargeait re-provoquait le conflit).
+
+## Contenu de la session 85 (correctif livraison, historique)
 
 Retour terrain : « l'apk test refuse de s'installer car elle entre en conflit avec celle déjà
 installée ». Preuves : apksigner v0.2.62-test 064311 = `CN=Android Debug` (e0b6793c…) vs
@@ -40,11 +57,10 @@ v0.2.61-test installé = `CN=Nyx Messenger` (b0d17630…). Cause racine :
 `android/keystore.properties` absent après le 8ᵉ reset (keystore restauré à la racine du
 dépôt) → fallback SILENCIEUX clé debug. Correctifs : (1) keystore permanent
 `/home/z/my-project/keystore/` + `android/keystore.properties` chemin ABSOLU ; (2) APK
-re-signés (build 080342, AUCUN changement de code) ; (3) **garde-fou anti-clé-debug** dans
-`build-apk.sh` (APK debug-signé = CRIT, livraison bloquée) ; (4) assets debug retirés de
-GitHub (3 × 204) + Drive (corbeille) ; (5) disque 100 % plein purgé (1,5 Go rendus) ;
-(6) token Drive mort au cycle ~7 j (400 invalid_grant) → ré-auth opérateur en attente,
-sync Drive des APK re-signés EN ATTENTE (SKIP explicite §6).
+re-signés (build 080342 — jeton mort embarqué, corrigé en session 86) ; (3) **garde-fou
+anti-clé-debug** dans `build-apk.sh` (APK debug-signé = CRIT, livraison bloquée) ; (4) assets
+debug retirés de GitHub (les Drive ont été corbeillés réellement en session 86) ; (5) disque
+100 % plein purgé (1,5 Go) ; (6) token Drive mort au cycle ~7 j — ré-auth faite en session 86.
 
 ## Contenu de la session 84 (closeout)
 

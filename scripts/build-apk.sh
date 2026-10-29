@@ -95,7 +95,16 @@ build_one() { # build_one <Flavor> <glob-sortie-attendue>
   # des propriétés, pas le contenu compilé. La reprise n'est plus fondée
   # que sur l'EMPREINTE SHA-256 du contenu source, complète et ordinale.
   local CACHED_APK="/tmp/nyx-apk-$FLAVOR.apk" CACHED_SHA="/tmp/nyx-apk-$FLAVOR.srcsha" FP
-  FP=$(find android/app/src android/app/build.gradle.kts -type f -print0 2>/dev/null \
+  # v0.2.62-rebuild (session 86, 29/10) — L'EMPREINTE INCLUT LES FICHIERS
+  # GIT-IGNORÉS QUI ALIMENTENT LE BUILD (test-upload.properties : refresh token
+  # Drive EMBARQUÉ dans le flavor test ; keystore.properties : identité de
+  # signature ; replica-bootstrap.properties : BOOTSTRAP_REPLICAS). Avant, un
+  # simple changement de credentials laissait l'empreinte IDENTIQUE → le cache
+  # /tmp resservait l'ANCIEN APK (jeton mort dedans) — même famille que
+  # l'incident du 08:12 (reprise jamais fondée sur l'état réel du build).
+  FP=$(find android/app/src android/app/build.gradle.kts android/test-upload.properties \
+        android/keystore.properties android/replica-bootstrap.properties \
+        -type f -print0 2>/dev/null \
         | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
   if [ -f "$CACHED_APK" ] && [ -f "$CACHED_SHA" ] && [ "$(cat "$CACHED_SHA" 2>/dev/null)" = "$FP" ]; then
     echo "APK $FLAVOR déjà construit (empreinte source identique $FP) — REPRISE : $CACHED_APK"
