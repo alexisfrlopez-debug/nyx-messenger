@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.62 et client Windows v0.3.14, au "
+         "(messagerie Android v0.2.63 et client Windows v0.3.15, au "
          "29 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,7 +378,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.62 · Client Windows v0.3.14 · "
+              ["Versions livrées", "Messagerie Android v0.2.63 · Client Windows v0.3.15 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(29 octobre 2026)"],
           ],
@@ -626,8 +626,13 @@ def build_story():
                  "notification + accusé lu au tap + sonnerie dès le HELLO) ; v0.2.62 : "
                  "VALIDATION PAR LOGS des tests (badge PROUVÉ sur la carte) + "
                  "appel ANNULÉ = sonnerie ARRÊTÉE à l'instant + BYE = fin "
-                 "immédiate + ANNULER/ARRÊTER le partage d'écran",
-               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56 · v0.2.58 · v0.2.59 · v0.2.60 · v0.2.61 · v0.2.62"],
+                 "immédiate + ANNULER/ARRÊTER le partage d'écran ; v0.2.63 : "
+                 "LETTERBOX FIDÈLE (la géométrie vit dans la trame — fin du "
+                 "« se centre mal sur le téléphone ») + QUALITÉ ADAPTATIVE au "
+                 "débit (AIMD q30→q55 piloté par le write Tor) + sonnerie "
+                 "tuée par un MÉDIA MORT (EOF/RST pendant la sonnerie) + "
+                 "récupération caméra 2 essais",
+               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56 · v0.2.58 · v0.2.59 · v0.2.60 · v0.2.61 · v0.2.62 · v0.2.63"],
               ["Plateformes", "CLIENT DESKTOP WINDOWS (ADR-019, Compose Desktop) : "
                  "même noyau Kotlin que l'Android, partagé 1:1 — messagerie "
                  "complète E2E (texte, fichiers 64 Mo, accusés, alias, "
@@ -649,6 +654,11 @@ def build_story():
                  "« côté pc je ne vois pas les vidéos ») + NOTIFICATION de "
                  "demande de partage d'écran + dialogue ✓/✕ sur la carte + "
                  "ANNULER/ARRÊTER le partage des deux côtés + webcam 640×360 ; "
+                 "v0.3.15 : PLEIN ÉCRAN VIDÉO + APERÇU LOCAL EN COIN (bouton ⛶ : "
+                 "vidéo reçue plein écran + notre vidéo en haut à droite, "
+                 "proportions d'origine par bandes noires) + QUALITÉ ADAPTATIVE "
+                 "au débit (AIMD q0.30→q0.55) + annulation HONNÊTE même média "
+                 "mort ; "
                  "v0.3.8 : SONNERIE bureau audible enfin (bi-ton "
                  "440+480 Hz généré en mémoire, stop déterministe < 150 ms — le "
                  "bureau était MUET : un appel visio entrant de 54 s n'avait "
@@ -679,7 +689,7 @@ def build_story():
                  "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
                  "au premier lancement, plus d'exception brute en rouge) ; "
                  "appels audio/visio = phase 2 documentée (visio LIVRÉE v0.3.7)",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8 · v0.3.9 · v0.3.10 · v0.3.11 · v0.3.12 · v0.3.13 · v0.3.14"],
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8 · v0.3.9 · v0.3.10 · v0.3.11 · v0.3.12 · v0.3.13 · v0.3.14 · v0.3.15"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -710,7 +720,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.62 / v0.8.12 · client Windows v0.3.14).",
+                  "(version v0.2.63 / v0.8.12 · client Windows v0.3.15).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -850,7 +860,7 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.14, ADR-019, parité Android complète + appels audio ET "
+               "(v0.3.15, ADR-019, parité Android complète + appels audio ET "
                "VISIO interop — MJPEG, caméra du PC par défaut, bascule écran — + "
                "DÉCROCHAGE ÉCRAN VERROUILLÉ + SONNERIE bureau + RETOUR D'APPEL — "
                "messagerie confirmée opérationnelle dans les deux sens par les "
@@ -935,7 +945,8 @@ def build_story():
                   "v0.2.61/v0.3.13 : fiabilité des appels (annulation, reconnexion "
                   "média, raccrocher notifié) ; v0.2.62/v0.3.14 : le partage "
                   "s'ANNULE et s'ARRÊTE, BYE = fin immédiate, annulation = "
-                  "sonnerie tuée, tests PROUVÉS par les logs."],
+                  "sonnerie tuée, tests PROUVÉS par les logs ; v0.2.63/v0.3.15 : "
+                  "visio ENFIN fidèle (letterbox dans la trame)."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -949,7 +960,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.62) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.63) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -966,7 +977,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "29 octobre 2026 (messagerie v0.2.62 · client Windows v0.3.14). "
+                 "29 octobre 2026 (messagerie v0.2.63 · client Windows v0.3.15). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -983,7 +994,7 @@ def build_story():
                "csd calculé v0.2.51, lot v0.2.52 confirmé terrain 25/10, "
                "orientation v0.2.53) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.62 puis phase 2",
+               "v0.2.44-v0.2.63 puis phase 2",
                "Audio et visio confirmés ; v0.2.54/v0.3.6 : appels audio "
                "tel↔PC (ADPCM) ; v0.2.55/v0.3.7 : VISIO PC↔tel (MJPEG) ; "
                "v0.2.56/v0.3.8 : visio qui TIENT ; v0.2.58/v0.3.10 : caméra "
@@ -993,7 +1004,7 @@ def build_story():
                "v0.2.61/v0.3.13 : appels fiables (annulation, reconnexion, "
                "raccrocher notifié) ; v0.2.62/v0.3.14 : BYE = fin immédiate, "
                "sonnerie tuée à l'annulation, partage ANNULE/ARRÊTÉ, tests "
-               "PROUVÉS par les logs"],
+               "PROUVÉS par les logs ; v0.2.63/v0.3.15 : visio fidèle"],
               ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.8, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
@@ -1144,6 +1155,27 @@ def build_story():
                "versions ; 486 tests JVM. Erratum (24/10 au soir) : la "
                "console courante est la v0.8.12 (NYX-LINK) — livrée session 68 "
                "mais jamais synchronisée, la synchro Drive a été rattrapée."],
+              ["28ᵉ édition", "29 octobre 2026", "Messagerie Android v0.2.63 · "
+              "Client Windows v0.3.15 · Console v0.8.12 · Serveur v0.2.38",
+              "La visio devient FINALEMENT FIDÈLE : le test relancé du 29/10 "
+              "11:35 (2 exports, reports/logs-s87/ — le téléphone a déposé le "
+              "sien PAR LE BOUTON d'envoi : le correctif de session 86 sur le "
+              "jeton Drive vif EMBARQUÉ est PROUVÉ terrain ; le PC a dû "
+              "téléverser le sien à la main, son jeton v0.3.14 datait "
+              "d'avant la ré-auth) révèle la cause du « la video pc se centre "
+              "mal sur le téléphone » : DEUX letterbox empilés (le rendu "
+              "ajustait la trame à la taille ANNONCÉE, la matrice ajustait à "
+              "nouveau) ; désormais LA GÉOMÉTRIE VIT DANS LA TRAME (bandes "
+              "noires symétriques, jamais d'étirement, la vue suit la trame "
+              "décodée). Le PC gagne le PLEIN ÉCRAN VIDÉO (bouton ⛶ : vidéo "
+              "reçue plein écran + notre vidéo en fenêtre 224×138 en HAUT À "
+              "DROITE, proportions d'origine, restauration au raccroché). La "
+              "QUALITÉ S'ADAPTE AU DÉBIT (AIMD : l'émetteur mesure son write "
+              "Tor — lent = on allège, 24 writes rapides = on remonte). Un "
+              "MÉDIA MORT PENDANT LA SONNERIE l'arrête désormais (terrain "
+              "cid 441c689b : Windows tuait la socket du PC, le tel sonnait "
+              "dans le vide 4,3 s) et la caméra du tel récupère en 2 essais "
+              "+ réarmement après 30 s de santé."],
               ["26ᵉ édition", "29 octobre 2026", "Messagerie Android v0.2.61 · "
               "Client Windows v0.3.13 · Console v0.8.12 · Serveur v0.2.38",
               "La fiabilité des appels : le test v0.2.60/v0.3.12 (2 exports, "

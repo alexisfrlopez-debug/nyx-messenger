@@ -22,32 +22,48 @@
 
 ---
 
-## État au 29 octobre 2026 (session 86 — correctif livraison TERMINÉ)
+## État au 29 octobre 2026 (session 87 — visio : letterbox fidèle + plein écran + adaptatif)
 
-- **Dernière clôture** : session **86** — 2026-10-29, correctif de livraison (la dernière clôture COMPLÈTE est la 84 ; sessions 85-86 = correctifs : clé debug → re-signage → token mort → rebuild)
-- **Messagerie Android** : **v0.2.62** (versionCode 66) — build **092836** : std `71bbd2e5…` + test `1bad1eec…`, clé release `b0d17630…`, **jeton Drive vif embarqué dans le flavor test** (le 080342 portait encore le jeton mort) ; GitHub v0.2.62 + Drive `dernieres-livrables/` **SYNCHRONISÉS** (les 2 canaux à jour, SUMS vérifiés)
-- **Messagerie desktop** : **v0.3.14** — livrée (release GitHub v0.3.14-desktop + Drive, exe + zip + SUMS)
+- **Dernière clôture** : session **87** — 2026-10-29 (la dernière clôture COMPLÈTE est la 84 ; sessions 85-86 = correctifs de livraison)
+- **Messagerie Android** : **v0.2.63** (versionCode 67) — build **152552** : std `a642400c…` + test `5fd2b02c…`, clé release `b0d17630…` (installation PAR-DESSUS), jeton Drive vif embarqué ; GitHub v0.2.63 + Drive `dernieres-livrables/` SYNCHRONISÉS
+- **Messagerie desktop** : **v0.3.15** — livrée (release GitHub v0.3.15-desktop + Drive : zip `c9bb2af6…` + exe `d521cac5…` + SUMS) — **jeton Drive vif EMBARQUÉ** (le bouton d'envoi de logs repart — preuve à venir du terrain, l'export v0.3.14 échouait en invalid_grant ×2)
 - **Serveur** : v0.2.38 — binaire en asset GitHub (convention Drive respectée)
 - **Console admin** : v0.8.12 (dépôt privé nyx-admin)
-- **Fiche de présentation** : 27ᵉ édition (36 pages) — cite v0.2.62/v0.3.14
-- **Token Drive** : **VIF** — refresh token ré-authorisé par l'opérateur le 29/10 08:35 (`1//0ePNdRY0…`), installé dans `.credentials/tokens/` + `Tokens/` Drive + `android/test-upload.properties` (embarqué APK test) ; l'ancien relais (22/10) est mort au cycle ~7 j — si 400 invalid_grant revient → ré-auth interactive (procédure session 53)
-- **Terrain attendu** : RE-TÉLÉCHARGER v0.2.62 (build **092836** — GitHub ou Drive, ignorer tout APK 064311/080342 déjà téléchargé), installer PAR-DESSUS (même clé, rien désinstaller) → **vérifier que le bouton « envoyer les logs » du téléphone fonctionne** (preuve que le jeton vif embarqué) + TestPlan v0.2.62 (7 items) + v0.3.14 (7 items) — voir §3 RESTART.md (pointeur rapide session 86).
+- **Fiche de présentation** : 28ᵉ édition (38 pages) — cite v0.2.63/v0.3.15/v0.8.12 (régénérée §9.10, Drive livrables/documents/)
+- **Token Drive** : **VIF** — refresh token du 29/10 08:35 (`1//0ePNdRY0…`), présent dans les DEUX builds (vérifié dex + jar embarqué)
+- **Terrain attendu** : installer v0.2.63 sur le tel PAR-DESSUS v0.2.62 + v0.3.15 sur le PC → visio : vidéo du PC EN PLEINES PROPORTIONS sur le tel (« la vue suit la TRAME » dans l'export), bouton ⛶ Plein écran sur le PC (vidéo reçue plein écran + notre vidéo en haut à droite), annulation pendant la sonnerie = arrêt < 2 s (EOF/RST), boutons envoyer-logs DES DEUX côtés ; TestPlan v0.2.63 (6 items) + v0.3.15 (6 items) — voir §3 RESTART.md (pointeur rapide session 87).
 
-## Contenu de la session 86 (correctif livraison, pas de closeout complet)
+## Contenu de la session 87 (visio : letterbox + plein écran + adaptatif + sonnerie)
 
-Reprise de la session 85 interrompue sur « token Drive mort → sync EN ATTENTE ». (a)
-l'opérateur a fourni la ré-auth OAuth (callback collé) → nouveau refresh token échangé et
-installé partout (credentials + backup Drive Tokens/ + test-upload.properties) ; (b) BUG DE
-CACHE DE REPRISE corrigé dans `scripts/build-apk.sh` : l'empreinte de reprise ignorait les
-fichiers git-ignorés qui alimentent le build (`test-upload.properties`, `keystore.properties`,
-`replica-bootstrap.properties`) → un changement de credentials resservait l'ANCIEN APK du
-cache /tmp — le re-signage 080342 portait donc ENCORE le jeton mort ; ces 3 fichiers entrent
-désormais dans l'empreinte ; (c) REBUILD v0.2.62 (build 092836) : apksigner ×2 =
-`CN=Nyx Messenger` `b0d17630…`, dex = `0.2.62-test (code 66)` + NOUVEAU jeton présent /
-ANCIEN absent ; (d) livraison remplacée PARTOUT : GitHub (assets + corps PATCHé) + Drive
-(`publish-drive.sh`) ; (e) les 2 APK 064311 CLÉ DEBUG étaient ENCORE dans
-`dernieres-livrables/` Drive (la corbeille de la session 85 avait échoué sur le token mort)
-→ corbeillés POUR DE VRAI (sinon quiconque les téléchargeait re-provoquait le conflit).
+Retour terrain 29/10 11:35 (v0.2.62/v0.3.14, test relancé à cause des bugs) : « la video pc se
+centre mal sur le téléphone » + « sur pc, je veux la possibilité de mettre la video reçue en
+plein écran en gardant la video envoyée en fenêtre dans le coin en haut à droite » + « même
+chose sur téléphone » + « je veux que l'application qui reçoit un flux video adapte le format
+du flux reçu… par ajout de bandes noires » + « je veux que la qualité du flux video s'adapte au
+débit de connexion » + « j'ai uploadé le log pc à la main car token embarqué par l'appli
+expiré ». Livré v0.2.63 + v0.3.15 : (1) **LETTERBOX FIDÈLE** — cause racine : le rendu MJPEG
+ajustait la trame DANS le buffer à la taille ANNONCÉE puis la matrice ajustait CE buffer à
+nouveau (deux letterbox empilés → image rétrécie au centre de bandes gigognes) ; désormais la
+trame remplit le canvas et SEULE la matrice letterboxe, la géométrie suit la trame DÉCODÉE
+(`onPeerFrameSize`) ; (2) **PLEIN ÉCRAN + PiP bureau** — bouton ⛶ : fenêtre OS maximisée
+(`windowMaximizer` Main.kt), vidéo reçue en ContentScale.Fit (proportions d'origine), notre
+vidéo en 224×138 en haut à droite (`localPreview` caméra à chaud/écran à l'émission), ⤢
+quitte, fin d'appel = restauration (jamais de maximisée fantôme) ; téléphone : acquis v0.2.20,
+non-régression ; (3) **QUALITÉ ADAPTATIVE AU DÉBIT** — MjpegAimd (q30→q55) + VideoAimd
+(q0.30→q0.55), l'ÉMETTEUR mesure SON write Tor (lent/trames jetées = descente, 24 rapides =
+montée, hystérésis asymétrique, plafond = qualité historique), objets purs JVM-testés, aucun
+changement protocolaire ; (4) **SONNERIE SUR MÉDIA MORT** — terrain cid 441c689b : Windows a
+tué la socket du PC pendant que le tel sonnait, le BYE non remis (runCatching silencieux) +
+l'EOF lu en silence par le surveillant laissaient la sonnerie courir 4,3 s → décroché dans le
+vide ; désormais EOF/exception = annulation du pair (fin réelle) + BYE honnête bureau
+("BYE non remis au pair…") ; (5) **CAMÉRA 2 ESSAIS + RÉARMEMENT** — terrain 10:34:35 :
+erreur fatale 3, réouverture +1,2 s puis nouvelle erreur immédiate ; budget 2 par épisode (repos
+1,2 s puis 3 s) + caméra productive ≥ 30 s réarme le budget ; (6) **JETON VIF DES DEUX CÔTÉS**
+— le PC v0.3.14 portait le jeton mort (construit avant la ré-auth) : « invalid_grant » ×2 dans
+l'export ; le rebuild v0.3.15 l'embarque ; le tel A BIEN déposé son export via le bouton —
+correctif session 86 PROUVÉ terrain. Qualité : Android 355 tests JVM ×4 variants + audit PASSED
+0/0/1 ; bureau 256 tests (VideoAimdTest 8) + selftest 5/5 + smoke 522 entrées + audits PASSED
+(MjpegAimd/VideoAimd en allowlist portage-miroir). Logs terrain : reports/logs-s87/.
 
 ## Contenu de la session 85 (correctif livraison, historique)
 
