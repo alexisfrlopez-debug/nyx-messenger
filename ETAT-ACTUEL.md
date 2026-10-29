@@ -24,7 +24,7 @@
 
 ## État au 29 octobre 2026 (session 86 — correctif livraison TERMINÉ)
 
-- **Dernière clôture** : session **84** — 2026-10-29, closeout §9.11 ; sessions **85-86** = correctifs de livraison (clé debug → re-signage → token mort → rebuild)
+- **Dernière clôture** : session **86** — 2026-10-29, correctif de livraison (la dernière clôture COMPLÈTE est la 84 ; sessions 85-86 = correctifs : clé debug → re-signage → token mort → rebuild)
 - **Messagerie Android** : **v0.2.62** (versionCode 66) — build **092836** : std `71bbd2e5…` + test `1bad1eec…`, clé release `b0d17630…`, **jeton Drive vif embarqué dans le flavor test** (le 080342 portait encore le jeton mort) ; GitHub v0.2.62 + Drive `dernieres-livrables/` **SYNCHRONISÉS** (les 2 canaux à jour, SUMS vérifiés)
 - **Messagerie desktop** : **v0.3.14** — livrée (release GitHub v0.3.14-desktop + Drive, exe + zip + SUMS)
 - **Serveur** : v0.2.38 — binaire en asset GitHub (convention Drive respectée)
