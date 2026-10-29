@@ -180,6 +180,22 @@ check_apk() { # check_apk <chemin-apk> <étiquette>
     check "Signature valide (installation 1 clic)" 1
   fi
 
+  # a-bis) GARDE-FOU ANTI-CLÉ-DEBUG (incident 29/10 v0.2.62 : android/keystore.properties
+  #        absent après reset du bac à sable → fallback silencieux sur la clé debug →
+  #        APK livré sur GitHub+Drive puis CONFLIT À L'INSTALLATION sur le terrain :
+  #        « l'apk test refuse de s'installer car elle entre en conflit avec celle
+  #        déjà installée » — la clé debug change à chaque reset, seule la clé
+  #        release (CN=Nyx Messenger, empreinte b0d17630…) garantit les mises à
+  #        jour par-dessus l'existant sans désinstallation. Un APK debug-signé
+  #        est désormais CRIT : LIVRAISON BLOQUÉE même si l'audit passe.
+  if rg -q "CN=Android Debug" /tmp/apkcerts.txt 2>/dev/null; then
+    check "Signature RELEASE (pas la clé debug)" 1 \
+      "signé avec la CLÉ DEBUG — restaurer android/keystore.properties (Drive Tokens/, incident 29/10)"
+  else
+    check "Signature RELEASE (pas la clé debug)" 0 \
+      "$(rg -o 'CN=[^,]+' /tmp/apkcerts.txt | head -1)"
+  fi
+
   # Listing du zip UNE FOIS dans un fichier — le pipe `unzip | rg -q` est
   # RACEUX : rg -q ferme le tube dès le premier match → SIGPIPE chez unzip →
   # pipefail transforme un MATCH en échec (v0.2.18 : « Tor embarqué x86 ✗ »
