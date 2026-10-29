@@ -157,6 +157,19 @@ fun App(onQuit: () -> Unit, onHide: () -> Unit, awtWindow: java.awt.Window?) {
     // notification coté pc » alors que le message était bien stocké).
     LaunchedEffect(window) {
         appWindow = window
+        // v0.3.15 — PLEIN ÉCRAN VIDÉO : l'overlay d'appel maximise/restaure la
+        // fenêtre principale via ce câblage (demande 29/10 : « mettre la video
+        // reçue en plein écran ») — Frame.MAXIMIZED_BOTH / NORMAL, miroir du
+        // remontage de DesktopNotifier.activateWindow.
+        net.nyx.messenger.p2p.DesktopCallManager.windowMaximizer = { maximize ->
+            (window as? Frame)?.let {
+                runCatching {
+                    it.extendedState =
+                        if (maximize) it.extendedState or Frame.MAXIMIZED_BOTH
+                        else Frame.NORMAL
+                }
+            }
+        }
         DesktopNotifier.init {
             (window as? Frame)?.apply {
                 isVisible = true

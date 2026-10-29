@@ -82,6 +82,20 @@ class DesktopCallVideo(
     @Volatile var frameVersion: Long = 0
         private set
 
+    /** v0.3.15 — APERÇU LOCAL (demande 29/10 : « garder la video envoyée en
+     *  fenêtre dans le coin en haut à droite » en plein écran) : dernier JPEG
+     *  de NOTRE émission (caméra ffmpeg à chaud, ou capture écran au send). */
+    @Volatile private var localJpegCache: ByteArray? = null
+    @Volatile private var localJpegVersion: Long = 0
+
+    /** v0.3.15 — aperçu local (copie non propriétaire — NE PAS modifier le tableau). */
+    val localPreview: ByteArray?
+        get() = localJpegCache
+
+    /** Compteur de l'aperçu local — l'UI ne redessine que s'il change. */
+    val localPreviewVersion: Long
+        get() = localJpegVersion
+
     /** Rotation courante du pair (F_VIDEO_ROT — présentation de sa caméra). */
     @Volatile var peerRot: Int = 0
 
@@ -323,6 +337,10 @@ class DesktopCallVideo(
             val parser = MjpegStreamParser { frame ->
                 if (frame.size in 64..MAX_FRAME_BYTES * 2) {
                     camFrame = frame
+                    // v0.3.15 — l'aperçu local suit la caméra à chaud (~10 fps,
+                    // indépendamment de la cadence d'émission circuit-débit).
+                    localJpegCache = frame
+                    localJpegVersion++
                     if (camW == 0 && frame.size > 100) {
                         runCatching {
                             val dims = jpegDims(frame)
@@ -368,6 +386,36 @@ class DesktopCallVideo(
 
     /* --------------------------- boucle d'émission --------------------------- */
 
+    /** v0.3.15 — QUALITÉ ADAPTATIVE AU DÉBIT (demande 29/10 : « je veux que la
+     *  qualité du flux video s'adapte au débit de connexion entre les 2
+     *  messengers connectés ») — miroir Android v0.2.63 : l'ÉMETTEUR mesure
+     *  SON write() sur le circuit Tor ; lent = circuit encombré → la qualité
+     *  JPEG descend d'un cran ; writes rapides soutenus (24) → elle remonte
+     *  (hystérésis, jamais de pompage). Toute la logique vit dans l'objet PUR
+     *  [VideoAimd] (JVM-testable) ; le frame skipping v0.3.13 (cadence) et
+     *  [recompress] (budget) restent en place — cadence, budget, qualité. */
+    @Volatile private var aimd = VideoAimd.State()
+
+    /** Qualité courante de l'échelle adaptative. */
+    val quality: Float get() = aimd.quality
+
+    /** v0.3.15 — AIMD sur le write : délègue à [VideoAimd.onWrite], journalise
+     *  chaque transition. Exécuté sur le thread émetteur. */
+    private fun adaptQuality(writeMs: Long) {
+        val prev = aimd
+        val next = VideoAimd.onWrite(prev, writeMs)
+        aimd = next
+        if (next.idx != prev.idx) {
+            DesktopLog.i(
+                "nyx-video",
+                "qualité vidéo ADAPTÉE au débit : q${"%.2f".format(prev.quality)} → q${"%.2f".format(next.quality)} " +
+                    (if (next.idx < prev.idx)
+                        "(write ${writeMs} ms — circuit encombré, on allège les trames)"
+                    else "(writes rapides soutenus — circuit sain, on remonte)")
+            )
+        }
+    }
+
     /**
      * Émetteur unique (~[FPS] fps) : pioche la trame de la SOURCE COURANTE
      * (caméra : dernier JPEG ffmpeg ; écran : capture Robot → JPEG), la
@@ -396,6 +444,14 @@ class DesktopCallVideo(
                         Source.SCREEN -> captureScreenJpeg()
                     }
                     if (jpeg == null) continue
+                    // v0.3.15 — QUALITÉ ADAPTATIVE : sous l'échelon de base,
+                    // la trame est RECOMPRESSÉE au niveau courant (caméra ffmpeg
+                    // : decode+re-encode ~15 ms à 640×360 ; écran : déjà encodé
+                    // au niveau par [captureScreenJpeg]).
+                    if (src == Source.CAMERA && !aimd.atTop) {
+                        jpeg = recompress(jpeg, aimd.quality)
+                        if (jpeg == null) continue
+                    }
                     if (jpeg.size > MAX_FRAME_BYTES) {
                         jpeg = recompress(jpeg)
                         if (jpeg == null || jpeg.size > MAX_FRAME_BYTES) continue
@@ -403,6 +459,13 @@ class DesktopCallVideo(
                     val t0 = System.currentTimeMillis()
                     write(P2pProtocol.F_VIDEO, jpeg)
                     val writeMs = System.currentTimeMillis() - t0
+                    // v0.3.15 — l'aperçu écran suit l'émission (la caméra vit
+                    // à chaud dans [readCameraStream]).
+                    if (src == Source.SCREEN) {
+                        localJpegCache = jpeg
+                        localJpegVersion++
+                    }
+                    adaptQuality(writeMs)
                     if (writeMs > SLOW_WRITE_MS) {
                         // write lent = circuit encombré : on saute le nombre de
                         // trames équivalent au retard (≤ 3) pour laisser respirer.
@@ -436,7 +499,18 @@ class DesktopCallVideo(
         }
         val shot = runCatching { r.createScreenCapture(screen) }.getOrNull() ?: return null
         val scaled = scaleTo(shot, screenW, screenH)
-        return encodeJpeg(scaled, JPEG_QUALITY)
+        // v0.3.15 — encodé au niveau de qualité ADAPTATIF courant (la source
+        // écran n'a pas de pipeline ffmpeg : la qualité se règle à l'encodage).
+        return encodeJpeg(scaled, aimd.quality)
+    }
+
+    /** Recompression à qualité EXPLICITE — null si le JPEG est illisible. */
+    private fun recompress(jpeg: ByteArray, quality: Float): ByteArray? {
+        val img = runCatching {
+            ImageIO.read(java.io.ByteArrayInputStream(jpeg))
+        }.getOrNull() ?: return null
+        if (img.width <= 0 || img.height <= 0) return null
+        return encodeJpeg(img, quality)
     }
 
     /** Recompression dure (circuit étroit) — null si le JPEG est illisible. */
@@ -562,6 +636,7 @@ class DesktopCallVideo(
         stopFfmpeg()
         latestJpeg = null
         camFrame = null
+        localJpegCache = null
     }
 
     /* ----------------------------- encodage JPEG ----------------------------- */

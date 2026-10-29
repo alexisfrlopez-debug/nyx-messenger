@@ -147,6 +147,20 @@ desktop/app/src/main/java/net/nyx/messenger/p2p/DesktopCallVideo.kt:portage-miro
 android/app/src/main/java/net/nyx/messenger/p2p/CallVideo.kt:portage-miroir
 android/app/src/main/java/net/nyx/messenger/p2p/VideoRot.kt:portage-miroir
 
+# v0.2.63 / v0.3.15 (session 87) — objets purs miroirs « qualité vidéo
+# adaptative au débit » (demande opérateur 29/10 : « je veux que la qualité
+# du flux video s'adapte au débit de connexion entre les 2 messengers
+# connectés ») : MjpegAimd (Android, échelle Int q30→q55 + rafales jetées)
+# et VideoAimd (desktop, échelle Float q0.30→q0.55) partagent VOLONTAIREMENT
+# les mêmes invariants AIMD (SLOW_WRITE_MS 500 / FAST_WRITE_MS 250 /
+# FAST_STREAK_TO_CLIMB 24, hystérésis asymétrique, plafond = qualité
+# historique) — même convention que sessions 76-78 : la duplication des
+# SEUILS est la GARANTIE que les DEUX émetteurs adaptent au même rythme et
+# que le JPEG reste auto-descriptif (aucun changement protocolaire) ; les
+# tests JVM couvrent les DEUX objets (MjpegAimdTest + VideoAimdTest).
+android/app/src/main/java/net/nyx/messenger/p2p/MjpegAimd.kt:portage-miroir
+desktop/app/src/main/java/net/nyx/messenger/p2p/VideoAimd.kt:portage-miroir
+
 # v0.2.56 / v0.3.8 (session 78) — tests miroirs « lecture de la réponse
 # d'appel en boucle » (cause racine terrain 28/10 : trame F_VIDEO_ROT expédiée
 # AVANT le F_CALL_ACCEPT par un appelé ≤ v0.2.55, lue comme « pas de réponse »

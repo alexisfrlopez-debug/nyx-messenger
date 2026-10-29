@@ -180,6 +180,14 @@ object DesktopCallManager {
     /** v0.3.7 — moteur vidéo courant (l'overlay y poll les trames du pair). */
     val remoteVideo: DesktopCallVideo? get() = video
 
+    /** v0.3.15 — PLEIN ÉCRAN VIDÉO (demande 29/10 : « mettre la video reçue en
+     *  plein écran en gardant la video envoyée en fenêtre dans le coin en haut
+     *  à droite ») : l'overlay n'a pas d'accès direct à la fenêtre AWT —
+     *  Main.kt câble ici le maximiseur (Frame.MAXIMIZED_BOTH / NORMAL). Null
+     *  si non câblé : le mode plein écran reste alors INTERNE à la fenêtre
+     *  (sans maximisation OS) — jamais de crash. */
+    @Volatile var windowMaximizer: ((maximize: Boolean) -> Unit)? = null
+
     /* ----------------------------- APPEL SORTANT ----------------------------- */
 
     /**
@@ -1267,7 +1275,21 @@ object DesktopCallManager {
         val r = repo
         val byeConn = conn
         scope.launch {
-            runCatching { byeConn?.send(P2pProtocol.F_BYE) }
+            // v0.3.15 — ÉMISSION HONNÊTE du BYE (miroir v0.2.62 « plus de
+            // REQ émis de facade » — terrain 29/10 cid 441c689b : Windows a
+            // tué la socket média du PC à 11:33:38, le runCatching avalait
+            // l'échec SANS UNE LIGNE, le tel n'a jamais su l'annulation et
+            // a sonné jusqu'au décroché dans le vide). Un BYE non remis est
+            // journalisé — l'annulation hors-bande (journal OP_BYE) reste
+            // le filet de sécurité.
+            val sent = runCatching { byeConn?.send(P2pProtocol.F_BYE) }
+            if (sent.isFailure) {
+                DesktopLog.w(
+                    "nyx-call",
+                    "BYE non remis au pair (${sent.exceptionOrNull()?.javaClass?.simpleName}" +
+                        " : ${sent.exceptionOrNull()?.message?.take(60)}) — média déjà mort ; annulation relayée par le journal"
+                )
+            }
             end(reason)
             runCatching {
                 r?.sendCallSignal(state.peer, CallSignal(CallSignal.OP_BYE, state.cid, "", nowS()).encode())

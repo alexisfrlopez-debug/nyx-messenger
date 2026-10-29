@@ -592,6 +592,37 @@ object TestPlan {
     /** v0.2.62 — items de validation (miroir de docs/releases/v0.2.62.md —
      *  retour terrain 29/10 06:29 : les 4 points visio/partage de l'opérateur
      *  + les défauts détectés dans l'export du jour). */
+    /** v0.2.63 — items de validation (miroir de docs/releases/v0.2.63.md —
+     *  demande opérateur 29/10 : letterbox fidèle (la géométrie vit dans la
+     *  trame), qualité adaptative au débit ; plein écran + aperçu en coin
+     *  déjà acquis v0.2.20 → item de NON-RÉGRESSION). */
+    val ITEMS_V0_2_63 = listOf(
+        Item(
+            "video-proportions-tel",
+            "LA VIDÉO DU PC S'AFFICHE FIDÈLEMENT — ITEM DÉCISIF n°1 (NOUVEAU v0.2.63, retour 29/10 : « la video pc se centre mal sur le téléphone » — CAUSE : le rendu MJPEG ajustait la trame DANS le buffer à la taille ANNONCÉE puis la matrice ajustait CE buffer à nouveau — deux letterbox empilés, l'image rétrécissait au centre de bandes gigognes dès que l'annonce déviait des trames réelles) : visio PC→tel → la vidéo du PC occupe la vue en PLEINES PROPORTIONS (16:9 pour une webcam, bandes noires symétriques haut/bas sur l'écran portrait), JAMAIS rétrécie ni étirée ; l'export contient « rendu MJPEG : trame WxH (aspect N.NNN) — la vue suit la TRAME, pas l'annonce » ; si le PC BASCULE caméra↔écran en cours d'appel (aspect différent), le tel SUIT le nouvel aspect en ~1 s SANS déformation"
+        ),
+        Item(
+            "plein-ecran-pip-tel",
+            "PLEIN ÉCRAN + APERÇU EN COIN HAUT-DROIT CONSERVÉS (NON-RÉGRESSION v0.2.63 — demande 29/10 « même chose sur téléphone » : le tel l'a DEPUIS v0.2.20) : pendant une visio, la vue DU PAIR occupe tout l'écran et l'aperçu DE MA caméra vit en PETITE FENÊTRE ARRONDIE en haut à droite (110x150) ; l'aperçu suit la rotation du téléphone (matrice miroir caméra front) ; aucun changement de layout dans cette version — l'item prouve la NON-RÉGRESSION"
+        ),
+        Item(
+            "qualite-adaptive-tel",
+            "QUALITÉ VIDÉO ADAPTATIVE AU DÉBIT (NOUVEAU v0.2.63, miroir bureau v0.3.15 — demande verbatim 29/10 : « je veux que la qualité du flux video s'adapte au débit de connexion entre les 2 messengers connectés ») : sur un circuit ENCOMBRÉ, l'export contient « qualité vidéo ADAPTÉE au débit : q55 → q46/38/30 (write NNN ms — circuit encombré) » ; le résumé de visio mentionne « YUV→JPEG qNN (adaptatif) » ; sur un circuit SAIN : AUCUNE descente (q55 maintenu, aucune ligne d'adaptation) ; les montées exigent ~24 trames saines (hystérésis anti-pompage) ; la résolution et l'orientation restent inchangées (seule la qualité JPEG bouge)"
+        ),
+        Item(
+            "sonnerie-mort-media",
+            "UN MÉDIA MORT PENDANT LA SONNERIE ARRÊTE LA SONNERIE — ITEM DÉCISIF (NOUVEAU v0.2.63, preuve 29/10 cid 441c689b : Windows a tué la socket du PC 10:33:38 pendant que le tel SONNAIT ; l'EOF/RST est arrivé sur le média du tel mais le surveillant sortait SANS RIEN DIRE — la sonnerie a continué 4,3 s jusqu'au décroché dans le vide « CALL_ACCEPT non remis : Broken pipe ») : appel PC→tel visio, ANNULER côté PC pendant que le tel sonne ALORS que le média vient de mourir → le tel arrête la sonnerie en < 2 s avec « fermeture du pair pendant la sonnerie (EOF) — sonnerie arrêtée » OU « média du pair MORT pendant la sonnerie (…) — sonnerie arrêtée » dans l'export ; JAMAIS de décroché dans le vide après une mort du média"
+        ),
+        Item(
+            "recuperation-camera-v2",
+            "RÉCUPÉRATION CAMÉRA RENFORCÉE — 2 ESSAIS + RÉARMEMENT (NOUVEAU v0.2.63, preuve 29/10 10:34:35 : erreur fatale 3 à 24 s de visio, réouverture à +1,2 s puis NOUVELLE erreur 3 IMMÉDIATE — le HAL mort n'avait pas rendu la main et l'unique essai avait brûlé le budget) : en cas d'erreur fatale 3/10, l'export montre « TENTATIVE DE RÉCUPÉRATION 1/2 (réouverture dans 1,2 s) » ; si une NOUVELLE erreur survient, « TENTATIVE DE RÉCUPÉRATION 2/2 (réouverture dans 3,0 s — repos long : le HAL doit rendre la main) » ; si le HAL revient : « caméra active (visio en émission) » et l'émission REPREND ; après épuisement : dégradation honnête « émission visio coupée — la RÉCEPTION CONTINUE » ; une caméra productive ≥ 30 s RÉARME le budget (un crash isolé plus tard retrouve ses 2 essais)"
+        ),
+        Item(
+            "build-propre-v63",
+            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.63 vérifié : LA GÉOMÉTRIE VIT DANS LA TRAME » (chaîne complète du marqueur — cf. notes de release)"
+        ),
+    )
+
     val ITEMS_V0_2_62 = listOf(
         Item(
             "bye-pendant-sonnerie",
@@ -790,7 +821,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_62 + ITEMS_V0_2_61 + ITEMS_V0_2_60 + ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_63 + ITEMS_V0_2_62 + ITEMS_V0_2_61 + ITEMS_V0_2_60 + ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**

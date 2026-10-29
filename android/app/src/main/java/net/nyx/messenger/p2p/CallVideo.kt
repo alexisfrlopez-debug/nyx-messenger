@@ -85,6 +85,13 @@ class CallVideo(
     /** v0.2.57 — visio perdue en cours d'appel (caméra fermée/erreur) :
      *  L'APPEL CONTINUE EN AUDIO. Miroir du micro HS. */
     private val onVideoLost: (String) -> Unit = {},
+    /** v0.2.63 — dimensions RÉELLES d'une trame MJPEG du pair (retour 29/10 :
+     *  « la video pc se centre mal sur le téléphone » — l'annonce vw/vh du
+     *  HELLO peut dater : bascule caméra↔écran du PC, résolution adaptée…).
+     *  La VUE (buffer + matrice letterbox) suit la trame DÉCODÉE, pas
+     *  l'annonce : plus AUCUNE distorsion possible, la géométrie vit dans
+     *  le JPEG lui-même). */
+    private val onPeerFrameSize: (Int, Int) -> Unit = { _, _ -> },
 ) {
 
     /** v0.2.53 — résultat de [startSending] : csd + présentation locale. */
@@ -173,6 +180,82 @@ class CallVideo(
     /** Exécuteur mono-thread compression+write (gel si le circuit est lent). */
     private var mjpegExecutor: java.util.concurrent.ExecutorService? = null
     private val mjpegBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /* v0.2.63 — QUALITÉ ADAPTATIVE AU DÉBIT (demande 29/10 : « je veux que la
+     * qualité du flux video s'adapte au débit de connexion entre les 2
+     * messengers connectés »). L'ÉMETTEUR mesure SON propre write() sur le
+     * circuit Tor — c'est LUI le goulot de son sens (miroir bureau v0.3.15) :
+     * un write lent ou des trames jetées (busy) = circuit encombré → la
+     * qualité JPEG DESCEND d'un cran ; des writes rapides soutenus → elle
+     * REMONTE (hystérésis : 24 trames saines pour monter, 1 trame lente
+     * pour descendre — jamais de pompage). AUCUN changement protocolaire :
+     * le JPEG reste auto-descriptif, le pair n'y voit que du feu. */
+    @Volatile private var aimd = MjpegAimd.State()
+    private val mjpegDrops = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Qualité JPEG courante de l'émission (sommet = [MjpegAimd.LEVELS]). */
+    @get:Synchronized val mjpegQuality: Int get() = synchronized(this) { aimd.quality }
+
+    /** v0.2.63 — AIMD : descend si le write a traîné ou que des trames ont été
+     *  jetées ; remonte après un flux soutenu de writes rapides. Exécuté sur
+     *  le thread unique de l'exécuteur (aucune course). */
+    private fun adaptMjpegQuality(writeMs: Long) {
+        val drops = mjpegDrops.getAndSet(0)
+        val prev = aimd
+        val next = MjpegAimd.onWrite(prev, writeMs, drops)
+        aimd = next
+        if (next.idx != prev.idx) {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-video",
+                "qualité vidéo ADAPTÉE au débit : q${prev.quality} → q${next.quality} " +
+                    (if (next.idx < prev.idx)
+                        "(write ${writeMs} ms${if (drops > 0) ", $drops trame(s) jetée(s)" else ""} — circuit encombré)"
+                    else "(writes rapides soutenus — circuit sain, on remonte)")
+            )
+        }
+    }
+
+    /** v0.2.63 — listener MJPEG PARTAGÉ ([startSendingMjpeg] /
+     *  [switchSendingToMjpeg]) : anti-chevauchement + trames périmées jetées
+     *  + QUALITÉ ADAPTATIVE autour du write. */
+    private fun onMjpegImageAvailable(r: ImageReader) {
+        if (stopped || sendingStopped) return
+        if (!mjpegBusy.compareAndSet(false, true)) {
+            // La trame précédente est encore en compression/émission :
+            // on JETTE les périmées (acquireLatestImage vide la file) — le
+            // compte nourrit l'adaptation de qualité (circuit encombré).
+            mjpegDrops.incrementAndGet()
+            runCatching { r.acquireLatestImage()?.close() }
+            return
+        }
+        try {
+            mjpegExecutor?.execute {
+                try {
+                    val img = r.acquireLatestImage() ?: return@execute
+                    try {
+                        if (transmit && !stopped) {
+                            val jpeg = compressJpeg(img)
+                            if (jpeg != null) {
+                                val t0 = android.os.SystemClock.elapsedRealtime()
+                                write(P2pProtocol.F_VIDEO, jpeg)
+                                adaptMjpegQuality(android.os.SystemClock.elapsedRealtime() - t0)
+                            }
+                        }
+                    } finally {
+                        img.close()
+                    }
+                } catch (e: Exception) {
+                    if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
+                } finally {
+                    mjpegBusy.set(false)
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // v0.2.59 — exécuteur arrêté (stopSendingOnly) : trame jetée,
+            // jamais de crash sur le thread caméra.
+            mjpegBusy.set(false)
+        }
+    }
 
     /**
      * Démarre la caméra + l'encodeur. Renvoie le csd H.264 (SPS+PPS
@@ -269,38 +352,7 @@ class CallVideo(
             val (w, h) = pickCaptureSize()
             val handler = ensureCameraHandler()
             val reader = ImageReader.newInstance(w, h, android.graphics.ImageFormat.YUV_420_888, 2)
-            reader.setOnImageAvailableListener({ r ->
-                if (stopped || sendingStopped) return@setOnImageAvailableListener
-                if (!mjpegBusy.compareAndSet(false, true)) {
-                    // La trame précédente est encore en compression/émission :
-                    // on JETTE les périmées (acquireLatestImage vide la file).
-                    runCatching { r.acquireLatestImage()?.close() }
-                    return@setOnImageAvailableListener
-                }
-                try {
-                    mjpegExecutor?.execute {
-                        try {
-                            val img = r.acquireLatestImage() ?: return@execute
-                            try {
-                                if (transmit && !stopped) {
-                                    val jpeg = compressJpeg(img)
-                                    if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
-                                }
-                            } finally {
-                                img.close()
-                            }
-                        } catch (e: Exception) {
-                            if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
-                        } finally {
-                            mjpegBusy.set(false)
-                        }
-                    }
-                } catch (_: java.util.concurrent.RejectedExecutionException) {
-                    // v0.2.59 — exécuteur arrêté (stopSendingOnly) : trame jetée,
-                    // jamais de crash sur le thread caméra.
-                    mjpegBusy.set(false)
-                }
-            }, handler)
+            reader.setOnImageAvailableListener({ r -> onMjpegImageAvailable(r) }, handler)
             mjpegReader = reader
             mjpegExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
                 Thread(r, "nyx-video-mj").apply { isDaemon = true }
@@ -320,7 +372,7 @@ class CallVideo(
             net.nyx.messenger.diag.DiagLog.i(
                 "nyx-video",
                 "visio MJPEG démarrée PRÉ-TOURNÉE (${outW}x${outH} " +
-                    "${if (outW < outH) "portrait" else "paysage"}, YUV→JPEG q$MJPEG_QUALITY — " +
+                    "${if (outW < outH) "portrait" else "paysage"}, YUV→JPEG q${aimd.quality} (adaptatif) — " +
                     "la résolution suit l'orientation) — interop bureau"
             )
             onLocalRotation(currentRot)
@@ -363,35 +415,7 @@ class CallVideo(
             val (w, h) = pickCaptureSize()
             val handler = ensureCameraHandler()
             val reader = ImageReader.newInstance(w, h, android.graphics.ImageFormat.YUV_420_888, 2)
-            reader.setOnImageAvailableListener({ r ->
-                if (stopped || sendingStopped) return@setOnImageAvailableListener
-                if (!mjpegBusy.compareAndSet(false, true)) {
-                    runCatching { r.acquireLatestImage()?.close() }
-                    return@setOnImageAvailableListener
-                }
-                try {
-                    mjpegExecutor?.execute {
-                        try {
-                            val img = r.acquireLatestImage() ?: return@execute
-                            try {
-                                if (transmit && !stopped) {
-                                    val jpeg = compressJpeg(img)
-                                    if (jpeg != null) write(P2pProtocol.F_VIDEO, jpeg)
-                                }
-                            } finally {
-                                img.close()
-                            }
-                        } catch (e: Exception) {
-                            if (!stopped) android.util.Log.w("nyx-video", "trame MJPEG sautée : ${e.message}")
-                        } finally {
-                            mjpegBusy.set(false)
-                        }
-                    }
-                } catch (_: java.util.concurrent.RejectedExecutionException) {
-                    // v0.2.59 — exécuteur arrêté : trame jetée, jamais de crash.
-                    mjpegBusy.set(false)
-                }
-            }, handler)
+            reader.setOnImageAvailableListener({ r -> onMjpegImageAvailable(r) }, handler)
             mjpegReader = reader
             if (mjpegExecutor == null) {
                 mjpegExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -523,7 +547,7 @@ class CallVideo(
             nv21, android.graphics.ImageFormat.NV21, w, h, null
         )
         val out = java.io.ByteArrayOutputStream(16 * 1024)
-        if (!yuv.compressToJpeg(android.graphics.Rect(0, 0, w, h), MJPEG_QUALITY, out)) {
+        if (!yuv.compressToJpeg(android.graphics.Rect(0, 0, w, h), aimd.quality, out)) {
             return null
         }
         return out.toByteArray()
@@ -807,6 +831,13 @@ class CallVideo(
                                 s.setRepeatingRequest(req.build(), null, handler)
                                 cameraOn = true
                                 camRetries = 0
+                                // v0.2.63 — HORODATAGE de santé : une erreur FATALE survenant
+                                // ≥ 30 s APRÈS cette ouverture productive réarme le budget
+                                // de récupération (terrain 29/10 10:34 : erreur 3 à 24 s puis
+                                // HAL mort — 2 essais espacés donnent une vraie chance ; un
+                                // crash isolé des heures plus tard ne doit PAS être privé de
+                                // récupération par un budget brûlé au début de l'appel).
+                                lastCamHealthyMs = android.os.SystemClock.elapsedRealtime()
                                 net.nyx.messenger.diag.DiagLog.i(
                                     "nyx-video", "caméra active (visio en émission)"
                                 )
@@ -878,26 +909,42 @@ class CallVideo(
                 if (gen != camGen.get() || stopped) return
                 camera = null
                 cameraOn = false
-                // v0.2.60 — RÉCUPÉRATION UNE FOIS (terrain 28/10 20:16:55 : erreur
-                // fatale 3 [ERROR_CAMERA_DEVICE] à 19 s d'une visio saine — le
-                // HAL de certains téléphones meurt d'un coup puis REVIENT) :
-                // fermeture complète + 1,2 s de repos + réouverture fraîche
+                // v0.2.60 — RÉCUPÉRATION après erreur FATALE (terrain 28/10
+                // 20:16:55 : erreur 3 [ERROR_CAMERA_DEVICE] à 19 s d'une visio
+                // saine — le HAL de certains téléphones meurt d'un coup puis
+                // REVIENT) : fermeture complète + repos + réouverture fraîche
                 // AVANT de dégrader. La réception du pair continue pendant
-                // l'essai (miroir micro HS) ; en cas de nouvel échec →
+                // l'essai (miroir micro HS) ; en cas d'échec épuisé →
                 // dégradation honnête habituelle.
+                //
+                // v0.2.63 — DEUX tentatives + RÉARMEMENT sur santé (terrain
+                // 29/10 10:34:36 : réouverture faite à +1,2 s puis erreur 3
+                // IMMÉDIATE — le HAL mort n'avait pas eu le temps de rendre la
+                // main ; l'unique essai a gaspillé le budget pour rien) : (1)
+                // budget 2 essais PAR ÉPISODE avec repos croissant 1,2 s puis
+                // 3 s ; (2) une caméra productive depuis ≥ 30 s réarme TOUT le
+                // budget — un crash isolé des minutes plus tard retrouve ses
+                // 2 essais. L'épisode (rafales d'erreurs rapprochées) reste
+                // borné : 2 essais puis dégradation, la réception continue.
                 val fatal = error == 3 /* ERROR_CAMERA_DEVICE */ ||
                     error == 10 /* ERROR_CAMERA_SERVICE */
-                if (fatal && !stopped && !sendingStopped &&
-                    fatalCamRecoveries.getAndIncrement() < 1 && !screenSource
-                ) {
-                    net.nyx.messenger.diag.DiagLog.w(
-                        "nyx-video",
-                        "caméra en erreur FATALE ($error) — TENTATIVE DE RÉCUPÉRATION 1/1 (réouverture dans 1,2 s)"
-                    )
-                    val surface = mjpegReader?.surface ?: pendingEncoderSurface
-                    if (surface != null) {
-                        scheduleCameraRecovery(surface)
-                        return
+                if (fatal && !stopped && !sendingStopped && !screenSource) {
+                    val healthyMs = android.os.SystemClock.elapsedRealtime() - lastCamHealthyMs
+                    if (healthyMs >= CAM_HEALTHY_RESET_MS) {
+                        fatalCamRecoveries.set(0) // période saine écoulée : budget réarmé
+                    }
+                    val attempt = fatalCamRecoveries.getAndIncrement() + 1
+                    if (attempt <= FATAL_CAM_RECOVERY_BUDGET) {
+                        val restMs = if (attempt == 1) 1_200L else 3_000L
+                        net.nyx.messenger.diag.DiagLog.w(
+                            "nyx-video",
+                            "caméra en erreur FATALE ($error) — TENTATIVE DE RÉCUPÉRATION $attempt/$FATAL_CAM_RECOVERY_BUDGET (réouverture dans ${restMs / 1000.0} s${if (attempt > 1) " — repos long : le HAL doit rendre la main" else ""})"
+                        )
+                        val surface = mjpegReader?.surface ?: pendingEncoderSurface
+                        if (surface != null) {
+                            scheduleCameraRecovery(surface, restMs)
+                            return
+                        }
                     }
                 }
                 if (!stopped) onVideoLost("caméra en erreur ($error)")
@@ -930,30 +977,36 @@ class CallVideo(
         }, 400L)
     }
 
-    /** v0.2.60 — compteur de récupérations après erreur FATALE (max 1 par appel). */
+    /** v0.2.60 — compteur de récupérations après erreur FATALE ; v0.2.63 —
+     *  budget [FATAL_CAM_RECOVERY_BUDGET] par ÉPISODE (réarmé par santé). */
     private val fatalCamRecoveries = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** v0.2.63 — dernière ouverture caméra productive (réarme le budget). */
+    @Volatile private var lastCamHealthyMs = 0L
 
     /** v0.2.60 — dernière surface d'encodeur demandée (pour la récupération). */
     @Volatile private var pendingEncoderSurface: Surface? = null
 
     /**
      * v0.2.60 — RÉCUPÉRATION après erreur caméra FATALE : fermeture complète,
-     * repos 1,2 s (le HAL doit rendre la main), PUIS réouverture fraîche.
-     * Une seule tentative par appel — l'échec retombe dans la dégradation
-     * honnête (émission coupée, réception maintenue — terrain 28/10).
+     * repos (le HAL doit rendre la main), PUIS réouverture fraîche.
+     * v0.2.63 — le repos est PARAMÉTRÉ (1,2 s au 1ᵉʳ essai, 3 s au 2ᵉ : le
+     * terrain 29/10 a montré un HAL mort qui n'avait pas rendu la main à
+     * +1,2 s). L'échec épuisé retombe dans la dégradation honnête (émission
+     * coupée, réception maintenue — terrain 28/10).
      */
-    private fun scheduleCameraRecovery(surface: Surface) {
+    private fun scheduleCameraRecovery(surface: Surface, restMs: Long) {
         val h = runCatching { ensureCameraHandler() }.getOrNull() ?: return
         camGen.incrementAndGet()
-        // Repos 1,2 s pour laisser le HAL rendre la main, PUIS fermeture et
+        // Repos pour laisser le HAL rendre la main, PUIS fermeture et
         // réouverture fraîches (sur le handler caméra — jamais l'appel).
         h.postDelayed({
             if (!stopped && !sendingStopped) {
                 runCatching { stopCamera() }
                 runCatching { openCamera(surface) }
-                net.nyx.messenger.diag.DiagLog.i("nyx-video", "récupération caméra : réouverture effectuée")
+                net.nyx.messenger.diag.DiagLog.i("nyx-video", "récupération caméra : réouverture effectuée (repos ${restMs / 1000.0} s)")
             }
-        }, 1_200L)
+        }, restMs)
     }
 
     /** Handler unique du looper caméra (callbacks caméra + rotation d'écran). */
@@ -1098,12 +1151,39 @@ class CallVideo(
      *  vérifier la géométrie ; désormais la PREUVE est dans l'export). */
     @Volatile private var mjpegRenderLogged = false
 
-    /** v0.2.55 — JPEG du bureau → Bitmap → Canvas (fit centré sur la surface). */
+    /** v0.2.63 — dernières dimensions réelles rendues (détection de CHANGEMENT
+     *  d'aspect du pair : bascule caméra↔écran, etc.). */
+    @Volatile private var mjpegPeerW = 0
+    @Volatile private var mjpegPeerH = 0
+
+    /** v0.2.55 — JPEG du bureau → Bitmap → Canvas sur la surface distante.
+     *
+     *  v0.2.63 — UNE SEULE ÉTAPE DE LETTERBOX (retour 29/10 : « la video pc
+     *  se centre mal sur le téléphone ») : AVANT, la trame était ajustée
+     *  (fit centré) DANS le buffer à la taille ANNONCÉE, PUIS la matrice de la
+     *  vue ajustait CE buffer à nouveau — deux letterbox empilés ; dès que
+     *  l'annonce déviait des trames réelles (bascule écran du PC, budget
+     *  adaptatif…), l'image rétrécissait au centre de bandes noires
+     *  gigognes. Désormais la trame remplit TOUT le canvas et SEULE la
+     *  matrice ([VideoFit] — buffer mis à la taille RÉELLE par
+     *  [onPeerFrameSize]) letterboxe : proportions d'origine GARANTIES,
+     *  bandes noires symétriques, jamais d'étirement. */
     private fun renderMjpeg(jpeg: ByteArray) {
         if (jpeg.size > MJPEG_MAX_FRAME_BYTES) return
         val bmp = runCatching {
             android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
         }.getOrNull() ?: return
+        if (bmp.width != mjpegPeerW || bmp.height != mjpegPeerH) {
+            mjpegPeerW = bmp.width
+            mjpegPeerH = bmp.height
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-video",
+                "rendu MJPEG : trame ${bmp.width}x${bmp.height} (aspect %.3f) — la vue suit la TRAME, pas l'annonce".format(
+                    bmp.width.toFloat() / bmp.height
+                )
+            )
+            onPeerFrameSize(bmp.width, bmp.height)
+        }
         val s = synchronized(lock) { remoteSurface }
         if (s == null) { bmp.recycle(); return }
         runCatching {
@@ -1114,20 +1194,12 @@ class CallVideo(
                     mjpegRenderLogged = true
                     net.nyx.messenger.diag.DiagLog.i(
                         "nyx-video",
-                        "rendu MJPEG : trame ${bmp.width}x${bmp.height} → surface ${canvas.width}x${canvas.height} (fit centré)"
+                        "rendu MJPEG : trame ${bmp.width}x${bmp.height} → surface ${canvas.width}x${canvas.height} — étirée au canvas, letterbox porté par la MATRICE de la vue"
                     )
                 }
-                val scale = minOf(
-                    canvas.width.toFloat() / bmp.width,
-                    canvas.height.toFloat() / bmp.height
-                )
-                val dw = bmp.width * scale
-                val dh = bmp.height * scale
-                val left = (canvas.width - dw) / 2f
-                val top = (canvas.height - dh) / 2f
                 canvas.drawBitmap(
                     bmp, null,
-                    android.graphics.RectF(left, top, left + dw, top + dh),
+                    android.graphics.RectF(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat()),
                     android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
                 )
             } finally {
@@ -1202,7 +1274,16 @@ class CallVideo(
         /** v0.2.53 — anti-rebond du suivi d'orientation (ms). */
         const val ROT_DEBOUNCE_MS = 600L
 
-        /** v0.2.55 — qualité JPEG de l'émission MJPEG (miroir bureau ~0.55). */
+        /** v0.2.63 — nb d'essais de récupération par épisode d'erreurs fatales
+         *  caméra (1,2 s puis 3 s de repos — terrain 29/10 : HAL mort à +1,2 s). */
+        const val FATAL_CAM_RECOVERY_BUDGET = 2
+
+        /** v0.2.63 — santé caméra ≥ 30 s → budget de récupération réarmé. */
+        const val CAM_HEALTHY_RESET_MS = 30_000L
+
+        /** v0.2.63 — qualité de BASE : le SOMMET de l'échelle adaptative
+         *  ([MjpegAimd.LEVELS], la montée ne le dépasse JAMAIS) ; le niveau
+         *  EFFECTIF vit dans [aimd] (AIMD sur le write Tor). */
         const val MJPEG_QUALITY = 55
 
         /** v0.2.55 — poids max accepté d'une trame JPEG reçue (défense). */

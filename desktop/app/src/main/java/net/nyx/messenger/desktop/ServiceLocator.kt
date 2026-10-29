@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.14"
+    const val VERSION = "0.3.15"
 
     /** v0.3.4 — mode de session (miroir SessionMode Android v0.2.18) :
      * PANIC = session LEURRE (données vides dans un répertoire séparé,
@@ -359,16 +359,27 @@ object ServiceLocator {
                 // TestPlan « build-propre-v14 ».
                 DesktopLog.i(
                     "nyx-boot",
-                    "câblage v0.3.14 vérifié : VIDÉO SUR LA CARTE FLOTTANTE (l'aperçu du pair vit " +
-                        "sur la carte toujours au premier plan — retour 29/10 « côté pc je ne vois pas " +
-                        "les videos »), NOTIFICATION DE PARTAGE D'ÉCRAN (bulle + dialogue ✓/✕ sur la " +
-                        "carte flottante), ANNULER/ARRÊTER LE PARTAGE (F_SCREEN_STOP dans les DEUX " +
-                        "états), BYE = FIN IMMÉDIATE (un raccroché ne déclenche PLUS la reconnexion), " +
-                        "WEBCAM 640×360 (640 au lieu de 480 — « problème de résolution pc »), AUCUNE " +
-                        "TRAME SILENCIEUSE (inconnue/sans gestionnaire = journalisée), VALIDATION PAR " +
-                        "LOGS des items v0.3.13 sur la carte — ACQUIS v0.3.13 : fenêtre de décrochage " +
-                        "devant, appel annulé jamais actif, offre parallèle, reconnexion média, frame " +
-                        "skipping, webcam par défaut, partage d'écran validé"
+                    "câblage v0.3.15 vérifié : PLEIN ÉCRAN VIDÉO + APERÇU LOCAL EN COIN " +
+                        "(bouton ⛶ : la vidéo REÇUE occupe tout l'écran maximisé en ContentScale.Fit — " +
+                        "proportions d'origine respectées, bandes noires symétriques, JAMAIS de " +
+                        "déformation — et NOTRE vidéo envoyée vit en petite fenêtre en haut à droite), " +
+                        "QUALITÉ VIDÉO ADAPTATIVE AU DÉBIT (échelle AIMD q0.30→q0.55 pilotée par le " +
+                        "write Tor, miroir Android v0.2.63 — « je veux que la qualité du flux video " +
+                        "s'adapte au débit de connexion entre les 2 messengers connectés »), " +
+                        "ANNULATION HONNÊTE MÊME MÉDIA MORT (« BYE non remis au pair (…) — média déjà " +
+                        "mort ; annulation relayée par le journal » — terrain 29/10 cid 441c689b : le tel " +
+                        "sonnait 4,3 s dans le vide), JETON " +
+                        "DRIVE VIF EMBARQUÉ (le bouton d'envoi de logs repart sans manipulation manuelle) " +
+                        "— ACQUIS v0.3.14 : VIDÉO SUR LA CARTE FLOTTANTE (l'aperçu du pair vit " +
+                        "sur la carte toujours au premier plan), NOTIFICATION DE PARTAGE D'ÉCRAN " +
+                        "(bulle + dialogue ✓/✕ sur la carte flottante), ANNULER/ARRÊTER LE PARTAGE " +
+                        "(F_SCREEN_STOP dans les DEUX états), BYE = FIN IMMÉDIATE (un raccroché ne " +
+                        "déclenche PLUS la reconnexion), WEBCAM 640×360 (640 au lieu de 480 — « problème " +
+                        "de résolution pc »), AUCUNE TRAME SILENCIEUSE (inconnue/sans gestionnaire = " +
+                        "journalisée), VALIDATION PAR LOGS des items v0.3.13 sur la carte — ACQUIS " +
+                        "v0.3.13 : fenêtre de décrochage devant, appel annulé jamais actif, offre " +
+                        "parallèle, reconnexion média, frame skipping, webcam par défaut, partage " +
+                        "d'écran validé"
                 )
                 onBootstrapReady()
                 startLoops()

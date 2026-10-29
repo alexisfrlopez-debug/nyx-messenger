@@ -59,6 +59,37 @@ object TestPlan {
      *  « je n'ai pas non plus de notification pour le partage d'écran » +
      *  « besoin aussi d'un bouton pour annuler le partage d'écran lorsqu'il
      *  est proposé ou activé » + défauts détectés dans l'export du jour). */
+    /** v0.3.15 — items de validation (miroir de docs/releases/v0.3.15-desktop.md
+     *  — demande opérateur 29/10 : plein écran + PiP, letterbox, qualité
+     *  adaptative ; jeton Drive vif embarqué (l'opérateur a dû téléverser le
+     *  log bureau À LA MAIN — « token embarqué par l'appli expiré »). */
+    val ITEMS_V0_3_15 = listOf(
+        Item(
+            "plein-ecran-video",
+            "PLEIN ÉCRAN VIDÉO + APERÇU LOCAL EN COIN — ITEM DÉCISIF n°1 (NOUVEAU v0.3.15, demande verbatim 29/10 : « sur pc, je veux la possibilité de mettre la video reçue en plein écran en gardant la video envoyée en fenêtre dans le coin en haut à droite ») : pendant une visio ACTIVE, bouton ⛶ Plein écran → la vidéo DU PAIR occupe TOUTE la fenêtre (MAXIMISÉE OS) avec la vidéo ENVOYÉE en petite fenêtre en HAUT À DROITE (aperçu « votre vidéo ») ; bouton « ⤢ Quitter le plein écran » → retour au mode compact SANS laisser la fenêtre maximisée ; un RACCROCHÉ en plein écran restaure AUSSI la fenêtre (jamais de maximisée fantôme)"
+        ),
+        Item(
+            "letterbox-proportions",
+            "PROPORTIONS D'ORIGINE RESPECTÉES, BANDES NOIRES SYMÉTRIQUES — ITEM DÉCISIF n°2 (NOUVEAU v0.3.15, demande verbatim 29/10 : « je veux que l'application qui reçoit un flux video adapte le format du flux reçu pour l'afficher correctement en respectant les proportions d'origine par ajout de bandes noires afin d'éviter les déformations ») : visio depuis un téléphone en PORTRAIT (trame 240x320) → sur le PC en plein écran, l'image est DROITE, NON ÉTIRÉE, centrée avec des bandes noires SYMÉTRIQUES à gauche/droite ; tourner le téléphone en PAYSAGE → l'aspect suit en ~1 s SANS coupure ; idem en mode compact (boîte à l'aspect de la trame) ; JAMAIS d'image aplatie ni recadrée"
+        ),
+        Item(
+            "qualite-adaptive-pc",
+            "QUALITÉ ADAPTATIVE AU DÉBIT (NOUVEAU v0.3.15, miroir Android v0.2.63 — demande verbatim 29/10 : « je veux que la qualité du flux video s'adapte au débit de connexion entre les 2 messengers connectés ») : sur un circuit Tor ENCOMBRÉ (visio + réseau médiocre), l'export contient « qualité vidéo ADAPTÉE au débit : q0.55 → q0.40/0.30 (write NNN ms — circuit encombré) » et l'appel TIENT sans mourir ; quand le circuit respire, « … → on remonte » après ~24 trames saines ; sur un circuit SAIN : AUCUNE ligne d'adaptation (q0.55 maintenu) ; le frame skipping v0.3.13 reste actif en complément (cadence)"
+        ),
+        Item(
+            "logs-token-vif",
+            "ENVOI DE LOGS DU PC REPARTI SANS MANIPULATION (NOUVEAU v0.3.15, retour 29/10 : « j'ai uploadé le log pc à la main car token embarqué par l'appli expiré ») : bouton rouge d'envoi de logs du build test → le fichier part DANS le Drive logs-terrain SANS ERREUR (« dépôt Drive OK : … » dans l'export) ; aucune manipulation manuelle requise (le refresh token vif du 29/10 08:35 est EMBARQUÉ au build)"
+        ),
+        Item(
+            "bye-honnete-annulation",
+            "ANNULATION HONNÊTE MÊME MÉDIA MORT (NOUVEAU v0.3.15, preuve 29/10 cid 441c689b : Windows a tué la socket média du PC à 11:33:38, le BYE du cancel est parti dans le runCatching SANS UNE LIGNE — le tel n'a jamais su l'annulation et a sonné jusqu'au décroché dans le vide) : ANNULER un appel sortant pendant que le média vient de mourir → l'export contient « BYE non remis au pair (…) — média déjà mort ; annulation relayée par le journal » ; l'annulation hors-bande (journal OP_BYE) part TOUJOURS ; le tel v0.2.63 arrête sa sonnerie sur l'EOF/RST en < 2 s (item sonnerie-mort-media Android)"
+        ),
+        Item(
+            "build-propre-v15",
+            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.3.15 vérifié : PLEIN ÉCRAN VIDÉO + APERÇU LOCAL EN COIN » (chaîne complète du marqueur — cf. notes de release)"
+        ),
+    )
+
     val ITEMS_V0_3_14 = listOf(
         Item(
             "video-carte-flottante",
@@ -357,7 +388,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_14 + ITEMS_V0_3_13 + ITEMS_V0_3_12 + ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_15 + ITEMS_V0_3_14 + ITEMS_V0_3_13 + ITEMS_V0_3_12 + ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable

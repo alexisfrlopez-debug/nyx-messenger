@@ -427,7 +427,8 @@ object CallManager {
                 val engine = CallVideo(ctx,
                     { t, p -> sendMedia(t, p) }, { reason -> scope.launch { onMediaLostOrEnd(reason) } },
                     { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) },
-                    onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } })
+                    onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } },
+                    onPeerFrameSize = { w, h -> _ui.value = _ui.value.copy(videoPeerW = w, videoPeerH = h) })
                 val vSend = runCatching { engine.startSending() }.getOrNull()
                 if (vSend?.csd != null) {
                     video = engine
@@ -1027,9 +1028,41 @@ object CallManager {
                         P2pProtocol.read(c.input)
                     } catch (_: java.net.SocketTimeoutException) {
                         continue
-                    } catch (_: Exception) {
-                        break
-                    } ?: break // EOF : le pair a fermé pendant la sonnerie
+                    } catch (e: Exception) {
+                        // v0.2.63 — SOCKET MORTE pendant la sonnerie (reset
+                        // réseau / circuit Tor effondré) : terrain 29/10 cid
+                        // 441c689b — Windows a tué la socket du PC 10:33:38,
+                        // l'EOF/RST est arrivé sur le média du tel… et le
+                        // break SILENCIEUX d'avant laissait la sonnerie
+                        // courir : l'opérateur a décroché dans le vide
+                        // (« CALL_ACCEPT non remis : Broken pipe » 10:33:42).
+                        // Un pair qui disparaît pendant la sonnerie = annulation.
+                        if (ringWatchGen == gen && _ui.value.phase == Phase.INCOMING &&
+                            _ui.value.cid == cid) {
+                            net.nyx.messenger.diag.DiagLog.i(
+                                "nyx-call",
+                                "média du pair MORT pendant la sonnerie (${e.javaClass.simpleName}) — sonnerie arrêtée (cid ${cid.take(8)}…)"
+                            )
+                            end("annulé par le pair (média perdu pendant la sonnerie)")
+                        }
+                        return@Thread
+                    }
+                    if (frame == null) {
+                        // v0.2.63 — EOF (le pair a FERMÉ pendant la sonnerie) :
+                        // le commentaire v0.2.62 prétendait « EOF = annulation
+                        // aussi » mais le code SE TAISAIT (break sans end —
+                        // terrain 29/10 cid 441c689b : sonnerie poursuivie
+                        // 4,3 s après la fermeture). Désormais : fin réelle.
+                        if (ringWatchGen == gen && _ui.value.phase == Phase.INCOMING &&
+                            _ui.value.cid == cid) {
+                            net.nyx.messenger.diag.DiagLog.i(
+                                "nyx-call",
+                                "fermeture du pair pendant la sonnerie (EOF) — sonnerie arrêtée (cid ${cid.take(8)}…)"
+                            )
+                            end("annulé par le pair (bye pendant la sonnerie)")
+                        }
+                        return@Thread
+                    }
                     when (frame.type) {
                         P2pProtocol.F_BYE, P2pProtocol.F_CALL_REJECT -> {
                             if (ringWatchGen == gen && _ui.value.phase == Phase.INCOMING &&
@@ -1145,7 +1178,8 @@ object CallManager {
                 { t, p -> sendMedia(t, p) }, { reason -> scope.launch { onMediaLostOrEnd(reason) } },
                 { rot -> _ui.value = _ui.value.copy(videoLocalRot = rot) },
                 useMjpeg = chosenMjpeg,
-                onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } })
+                onVideoLost = { reason -> scope.launch { onVideoDegraded(reason) } },
+                onPeerFrameSize = { w, h -> _ui.value = _ui.value.copy(videoPeerW = w, videoPeerH = h) })
             val vSend = runCatching { vEngine.startSending() }.getOrNull()
             if (vSend?.csd != null) {
                 video = vEngine
