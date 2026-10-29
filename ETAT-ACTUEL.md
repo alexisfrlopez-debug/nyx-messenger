@@ -29,7 +29,7 @@
 - **Messagerie desktop** : **v0.3.14** — livrée (release GitHub v0.3.14-desktop + Drive, exe + zip + SUMS, v0.3.13 archivée)
 - **Serveur** : v0.2.38 — binaire en asset GitHub (convention Drive respectée)
 - **Console admin** : v0.8.12 (dépôt privé nyx-admin)
-- **Fiche de présentation** : 26ᵉ édition (36 pages) — cite v0.2.61/v0.3.13 (mise à jour à la prochaine édition)
+- **Fiche de présentation** : 27ᵉ édition (36 pages) — cite v0.2.62/v0.3.14 (vidéo sur la carte flottante bureau, notification + ANNULER/ARRÊTER le partage d'écran, badge PROUVÉ par logs, webcam 640×360 ; QA pdftotext v0.2.62×10 / v0.3.14×10, bug de concaténation du Tableau 5 corrigé)
 - **Terrain attendu** : retour d'expérience sur v0.2.62 / v0.3.14 → TestPlan v0.2.62 (7 items, décisifs `bye-pendant-sonnerie` + `annuler-partage-tel`) + v0.3.14 (7 items, décisifs `video-carte-flottante` + `notif-partage-ecran`) — la carte affiche déjà les items VALIDÉS PAR LOGS du 29/10 (badge + preuve) ; voir §3 RESTART.md (pointeur rapide session 84).
 
 ## Contenu de la session 84 (closeout)
@@ -54,7 +54,7 @@ Identité = adresse onion · Tor embarqué (ADR-007) · 100 % réseau zéro loca
 AGPL-3.0-only (ADR-011) · binaires HORS git (Releases GitHub §9.6) ·
 closeout obligatoire (§9.11) · **ETAT-ACTUEL.md à jour à CHAQUE clôture (session 83+)**.
 
-> **POUR METTRE À JOUR CE FICHIEER après clôture** : mettre à jour les sections
+> **POUR METTRE À JOUR CE FICHIER après clôture** : mettre à jour les sections
 > ci-dessus (clôture, versions, session suivante) puis exécuter
 > `python3 scripts/session_closeout.py` — le contrôle `[etat]` vérifie la
 > cohérence avec les versions annoncées dans les pointeurs rapides du RESTART.md.

@@ -354,7 +354,7 @@ def build_story():
 
     para(story,
          "Cette fiche décrit l'application telle qu'elle existe aujourd'hui "
-         "(messagerie Android v0.2.61 et client Windows v0.3.13, au "
+         "(messagerie Android v0.2.62 et client Windows v0.3.14, au "
          "29 octobre 2026), la compare honnêtement aux "
          "messageries existantes, puis transforme les inconvénients constatés en "
          "axes d'amélioration pour les versions futures — en restant strictement "
@@ -378,7 +378,7 @@ def build_story():
               ["Serveurs", "Nœuds nyx-server (Go) en onion v3, journal signé répliqué par "
                            "gossip, administrés depuis la console"],
               ["Licence", "AGPL-3.0-only, code et protocoles publics (dépôt nyx-messenger)"],
-              ["Versions livrées", "Messagerie Android v0.2.61 · Client Windows v0.3.13 · "
+              ["Versions livrées", "Messagerie Android v0.2.62 · Client Windows v0.3.14 · "
                                    "Console v0.8.12 · Serveur v0.2.38 "
                                    "(29 octobre 2026)"],
           ],
@@ -623,8 +623,11 @@ def build_story():
                  "v0.2.60/v0.3.12 : PARTAGE D'ÉCRAN VALIDÉ + WEBCAM du PC "
                  "détectée ; v0.2.61/v0.3.13 : appels FIABLES (annulation "
                  "propagée + reconnexion média + RACCROCHER depuis la "
-                 "notification + accusé lu au tap + sonnerie dès le HELLO)",
-               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56 · v0.2.58 · v0.2.59 · v0.2.60 · v0.2.61"],
+                 "notification + accusé lu au tap + sonnerie dès le HELLO) ; v0.2.62 : "
+                 "VALIDATION PAR LOGS des tests (badge PROUVÉ sur la carte) + "
+                 "appel ANNULÉ = sonnerie ARRÊTÉE à l'instant + BYE = fin "
+                 "immédiate + ANNULER/ARRÊTER le partage d'écran",
+               "v0.2.x · v0.2.34 · v0.2.44 · v0.2.48 · v0.2.56 · v0.2.58 · v0.2.59 · v0.2.60 · v0.2.61 · v0.2.62"],
               ["Plateformes", "CLIENT DESKTOP WINDOWS (ADR-019, Compose Desktop) : "
                  "même noyau Kotlin que l'Android, partagé 1:1 — messagerie "
                  "complète E2E (texte, fichiers 64 Mo, accusés, alias, "
@@ -642,7 +645,11 @@ def build_story():
                  "RACCROCHER au premier plan ; v0.3.12 : WEBCAM ENFIN DÉTECTÉE + "
                  "PARTAGE D'ÉCRAN VALIDÉ ; v0.3.13 : appels FIABLES (décrochage "
                  "toujours DEVANT, annulation jamais active, reconnexion "
-                 "média) ; v0.3.8 : SONNERIE bureau audible enfin (bi-ton "
+                 "média) ; v0.3.14 : LA VIDÉO VIT SUR LA CARTE FLOTTANTE (fin du "
+                 "« côté pc je ne vois pas les vidéos ») + NOTIFICATION de "
+                 "demande de partage d'écran + dialogue ✓/✕ sur la carte + "
+                 "ANNULER/ARRÊTER le partage des deux côtés + webcam 640×360 ; "
+                 "v0.3.8 : SONNERIE bureau audible enfin (bi-ton "
                  "440+480 Hz généré en mémoire, stop déterministe < 150 ms — le "
                  "bureau était MUET : un appel visio entrant de 54 s n'avait "
                  "jamais été remarqué) + fenêtre ramenée au premier plan "
@@ -672,7 +679,7 @@ def build_story():
                  "circuit Tor froid expliqué à l'écran de démarrage (~1 min "
                  "au premier lancement, plus d'exception brute en rouge) ; "
                  "appels audio/visio = phase 2 documentée (visio LIVRÉE v0.3.7)",
-                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8 · v0.3.9 · v0.3.10 · v0.3.11 · v0.3.12 · v0.3.13"],
+                 "desktop v0.3.0 · v0.3.1 · v0.3.2 · v0.3.3 · v0.3.4 · v0.3.5 · v0.3.6 · v0.3.7 · v0.3.8 · v0.3.9 · v0.3.10 · v0.3.11 · v0.3.12 · v0.3.13 · v0.3.14"],
               ["Résilience", "Bascule automatique entre réplicas (round-robin)", "v0.2.25"],
               ["Résilience", "Réplicas temporaires hébergés par les téléphones",
                "v0.2.25 · toutes versions v0.2.35"],
@@ -703,7 +710,7 @@ def build_story():
           ],
           [0.20, 0.62, 0.18],
           caption="Tableau 2 — Récapitulatif des fonctionnalités de la messagerie et de la console "
-                  "(version v0.2.61 / v0.8.12 · client Windows v0.3.13).",
+                  "(version v0.2.62 / v0.8.12 · client Windows v0.3.14).",
           align_center_cols={2})
 
     # ================= 4. Comparatif =================
@@ -843,7 +850,7 @@ def build_story():
               ["Pas de groupes", "Les conversations sont individuelles (1:1). Les "
                "groupes exigent des sender keys / MLS — prévus en phase 2 (roadmap)."],
               ["Pas de client iOS", "Le client bureau WINDOWS du messager est livré "
-               "(v0.3.13, ADR-019, parité Android complète + appels audio ET "
+               "(v0.3.14, ADR-019, parité Android complète + appels audio ET "
                "VISIO interop — MJPEG, caméra du PC par défaut, bascule écran — + "
                "DÉCROCHAGE ÉCRAN VERROUILLÉ + SONNERIE bureau + RETOUR D'APPEL — "
                "messagerie confirmée opérationnelle dans les deux sens par les "
@@ -900,34 +907,35 @@ def build_story():
                "TOUJOURS premier et la boucle de lecture route les trames "
                "précoces) ; (b) le chemin micro ADPCM n'appelait jamais "
                "startRecording() → 16 431 erreurs « Error -38 » en 147 ms → "
-               "CPU saturé + ANR + process tué (corrigé + garde "
+               "ANR + process tué (corrigé + garde "
                "anti-tourbillon) ; (c) les tampons de lecture accumulation "
-               "le retard (512 ms Android, 256 ms bureau — réduits à ~128 ms "
-               "+ garde anti-arriéré : un bloc en avance de plus de 150 ms sur "
-               "l'horloge réelle est sauté, on rejoint le direct) ; la "
+               "le retard (réduits à ~128 ms "
+               "+ garde anti-arriéré : un bloc en avance de plus de 150 ms est "
+               "sauté, on rejoint le direct) ; la "
                "DÉCROCHABILITÉ ÉCRAN VERROUILLÉ est livrée par la même "
-               "occasion (demande opérateur : activité d'appel sur le "
-               "keyguard + boutons sur la notification + sonnerie bureau) ; validés au "
-               "passage par les exports du 28/10 : v0.2.57 (crash caméra du "
-               "décroché visio verrouillé corrigé — caméra perdue = visio "
-               "perdue PAS appel perdu) puis v0.2.58 + bureau v0.3.10 sur les "
+               "occasion (activité d'appel sur le "
+               "keyguard + boutons sur la notification + sonnerie bureau) ; validés "
+               "par les exports du 28/10 : v0.2.57 (crash caméra au "
+               "décroché verrouillé corrigé — caméra perdue ≠ appel "
+               "perdu) puis v0.2.58 + bureau v0.3.10 sur les "
                "preuves du 4ᵉ export : (a) appel entrant bureau créé À "
-               "L'INSTANT de la connexion média (carte ✓/✕ + sonnerie, offre "
-               "du poll en confirmation, poll 15 s, RETOUR D'APPEL chez "
-               "l'appelant) ; (b) CAMÉRA du PC par défaut en visio (ffmpeg "
+               "L'INSTANT de la connexion média (carte ✓/✕ + sonnerie + RETOUR "
+               "D'APPEL, l'offre du poll en confirmation) ; (b) CAMÉRA du PC par "
+               "défaut en visio (ffmpeg "
                "embarqué, bascule 📹/🖥️ à chaud) ; (c) trames PRÉ-TOURNÉES "
                "(portrait 240x320 ↔ paysage 320x240 — la résolution suit "
-               "l'orientation) ; notifications bureau dédupliquées ; et la "
+               "l'orientation) ; notifications bureau dédupliquées ; la "
                "v0.2.59 + bureau v0.3.11 clos enfin la visio : la bascule "
-               "H.264→MJPEG et le rattachement d'aperçu se coursaient sur "
-               "le téléphone (« unconfigured Surface » → caméra "
+               "H.264→MJPEG et le rattachement d'aperçu se coursaient "
+               "(« unconfigured Surface » → caméra "
                "morte) — garde de génération + relances + débounce ; la "
                "caméra perdue ne coupe plus que l'émission locale "
                "(réception maintenue) ; chien de garde 8 s côté bureau ; "
                "v0.2.60/v0.3.12 : WEBCAM du PC enfin détectée + PARTAGE ; "
-                  "v0.2.61/v0.3.13 : fiabilité des appels (annulation propagée, "
-                  "reconnexion média, raccrocher depuis la notification) "
-               "D'ÉCRAN VALIDÉ PAR LE PAIR."],
+                  "v0.2.61/v0.3.13 : fiabilité des appels (annulation, reconnexion "
+                  "média, raccrocher notifié) ; v0.2.62/v0.3.14 : le partage "
+                  "s'ANNULE et s'ARRÊTE, BYE = fin immédiate, annulation = "
+                  "sonnerie tuée, tests PROUVÉS par les logs."],
               ["Jeunesse du projet", "Version 0.2.x pré-release : pas encore d'audit "
                "externe, base d'utilisateurs très restreinte, documentation "
                "utilisateur à venir (v1.0)."],
@@ -941,7 +949,7 @@ def build_story():
                "sans jamais la perdre."],
           ],
           [0.30, 0.70],
-          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.56) et leur contexte.")
+          caption="Tableau 5 — Limites actuelles de Nyx (v0.2.62) et leur contexte.")
 
     # ================= 6. Axes d'amélioration =================
     p6 = Paragraph(
@@ -958,7 +966,7 @@ def build_story():
              Paragraph(
                  "Le tableau suivant croise chaque limite avec la réponse prévue "
                  "par le projet, son horizon et son état d'avancement au "
-                 "29 octobre 2026 (messagerie v0.2.61 · client Windows v0.3.13). "
+                 "29 octobre 2026 (messagerie v0.2.62 · client Windows v0.3.14). "
                  "Les horizons reprennent la roadmap officielle "
                  "du dépôt (docs/04-roadmap.md) et les décisions d'architecture "
                  "anticipées (ADR-006).", S["body"]))
@@ -975,18 +983,17 @@ def build_story():
                "csd calculé v0.2.51, lot v0.2.52 confirmé terrain 25/10, "
                "orientation v0.2.53) ; relais "
                "TURN (ADR-014) pour les réseaux hostiles",
-               "v0.2.44-v0.2.61 puis phase 2",
-               "Audio et visio confirmés terrain ; v0.2.54/v0.3.6 : appels audio "
-               "téléphone↔PC par codec ADPCM négocié ; v0.2.55/v0.3.7 : VISIO "
-               "PC↔téléphone par codec MJPEG ; v0.2.56/v0.3.8 : visio qui TIENT, "
-               "v0.2.58/v0.3.10 : caméra du PC par défaut, trames pré-tournées, "
-               "retour d'appel ; v0.2.59/v0.3.11 : visio bidirectionnelle "
-               "fiable, messages tel→PC notifiés/accusés, carte d'appel "
-               "toujours au premier plan ; micro ADPCM réparé (ANR) ; "
-               "décrochage écran verrouillé ; "
-               "v0.2.60/v0.3.12 : PARTAGE D'ÉCRAN VALIDÉ + webcam ; "
+               "v0.2.44-v0.2.62 puis phase 2",
+               "Audio et visio confirmés ; v0.2.54/v0.3.6 : appels audio "
+               "tel↔PC (ADPCM) ; v0.2.55/v0.3.7 : VISIO PC↔tel (MJPEG) ; "
+               "v0.2.56/v0.3.8 : visio qui TIENT ; v0.2.58/v0.3.10 : caméra "
+               "PC par défaut, trames pré-tournées ; v0.2.59/v0.3.11 : visio "
+               "bidirectionnelle, carte au premier plan, micro ADPCM réparé "
+               "(ANR) ; v0.2.60/v0.3.12 : PARTAGE D'ÉCRAN VALIDÉ + webcam ; "
                "v0.2.61/v0.3.13 : appels fiables (annulation, reconnexion, "
-               "raccrocher notifié, accusé lu)"],
+               "raccrocher notifié) ; v0.2.62/v0.3.14 : BYE = fin immédiate, "
+               "sonnerie tuée à l'annulation, partage ANNULE/ARRÊTÉ, tests "
+               "PROUVÉS par les logs"],
               ["Pas de client iOS", "Client bureau Windows LIVRÉ (v0.3.8, ADR-019 : "
                "portage Compose Desktop, noyau Kotlin partagé 1:1 avec "
                "l'Android, Tor et runtime Java embarqués, installateur + zip "
@@ -1151,6 +1158,18 @@ def build_story():
               "connexion réplica dès 75 % de bootstrap. Et la RÈGLE ZÉRO "
               "anti-résumé-périmé (ETAT-ACTUEL.md) : chaque session relit "
               "l'état RÉEL du dépôt."],
+              ["27ᵉ édition", "29 octobre 2026", "Messagerie Android v0.2.62 · "
+              "Client Windows v0.3.14 · Console v0.8.12 · Serveur v0.2.38",
+              "Le test v0.2.61/v0.3.13 (2 exports, 29/10 06:29) VALIDÉ PAR LOGS "
+              "cinq items d'un coup — la carte de tests marque PROUVÉS les items "
+              "que l'export confirme (raccrocher depuis la notification, jamais de "
+              "résurrection après annulation, sonnerie DÈS le HELLO à ~5 s, ✓✓ lu "
+              "en 28 s). L'annulation d'appel ARRÊTE la sonnerie à l'instant (le "
+              "BYE du média gardé n'était jamais lu), un RACCROCHÉ pair = FIN "
+              "IMMÉDIATE (plus de reconnexion fantôme), le partage d'écran "
+              "s'ANNULE et s'ARRÊTE des deux côtés, la VIDÉO vit SUR LA CARTE "
+              "FLOTTANTE du bureau avec notification + dialogue de partage, et "
+              "la webcam passe en 640×360."],
               ["25ᵉ édition", "29 octobre 2026", "Messagerie Android v0.2.60 · "
               "Client Windows v0.3.12 (VERSION TEST) · Console v0.8.12 · "
               "Serveur v0.2.38",
@@ -1495,9 +1514,10 @@ def build_story():
 
     para(story,
          "La qualité est suivie en continu par une batterie de tests "
-         "automatisés : 302 tests JVM exécutés sur deux variantes de build "
-         "(604 exécutions), les tests Go du serveur, et 57 tests pour la "
-         "console. Chaque livraison passe un audit de code strict (zéro défaut "
+         "automatisés : 346 tests JVM exécutés sur quatre variantes de build "
+         "Android (1 384 exécutions), 247 tests JVM côté bureau Windows plus "
+         "l'autotest embarqué (selftest 5/5), les tests Go du serveur, et les "
+         "tests de la console. Chaque livraison passe un audit de code strict (zéro défaut "
          "critique ou majeur toléré), et les APK sont signés avec la clé de "
          "release officielle — les sommes de contrôle SHA-256 sont publiées "
          "avec chaque version. Sur le terrain, les builds de test embarquent "
