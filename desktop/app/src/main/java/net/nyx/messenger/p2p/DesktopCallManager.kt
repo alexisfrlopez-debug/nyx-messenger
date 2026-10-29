@@ -906,6 +906,15 @@ object DesktopCallManager {
      */
     private fun onMediaLostOrEnd(reason: String) {
         val st = _ui.value
+        // v0.3.14 — UN BYE EST UN RACCROCHÉ, PAS UNE PERTE DE CIRCUIT
+        // (preuve 29/10 06:17:07 : le tel raccroche depuis la notification, le
+        // PC a ré-essayé 2 fois 5 s durant « reconnexion impossible — fin de
+        // l'appel ») : fin immédiate, AUCUN essai.
+        if (reason.contains("bye", ignoreCase = true)) {
+            DesktopLog.i("nyx-call", "pair raccroché (BYE) — fin immédiate (cid ${st.cid.take(8)}…, pas de reconnexion)")
+            end("terminé")
+            return
+        }
         if (st.phase != Phase.ACTIVE || reconnectsLeft <= 0 || reconnecting) {
             end(reason)
             return
@@ -1067,7 +1076,16 @@ object DesktopCallManager {
             return
         }
         if (state.screenSharePending) return  // REQ déjà en vol
-        runCatching { c.send(P2pProtocol.F_SCREEN_REQ, P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)) }
+        // v0.3.14 — ÉMISSION HONNÊTE (défaut miroir du tel : plus de
+        // « REQ émis » de facade si l'écriture échoue).
+        val sent = runCatching {
+            c.send(P2pProtocol.F_SCREEN_REQ, P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)); true
+        }.getOrDefault(false)
+        if (!sent) {
+            DesktopLog.w("nyx-video", "envoi trame 0x19 impossible — liaison perdue : demande de partage NON émise")
+            _ui.value = state.copy(screenNotice = "Partage d'écran : envoi impossible (liaison perdue).")
+            return
+        }
         _ui.value = state.copy(screenSharePending = true, screenNotice = "Demande de partage d'écran envoyée — en attente du pair…")
         DesktopLog.i("nyx-video", "F_SCREEN_REQ émis — attente de la validation du pair")
         // Garde-fou : pas de réponse en 30 s → REQ annulée (caméra maintenue).
@@ -1080,6 +1098,48 @@ object DesktopCallManager {
                     screenNotice = "Partage d'écran : aucune réponse du pair — caméra maintenue."
                 )
             }
+        }
+    }
+
+    /**
+     * v0.3.14 — ANNULER NOTRE demande de partage en attente (demande
+     * opérateur 29/10 : « besoin aussi d'un bouton pour annuler le partage
+     * d'écran lorsqu'il est proposé ou activé ») : F_SCREEN_STOP au pair,
+     * attente levée, caméra maintenue — le pair voit « partage refusé ».
+     */
+    fun cancelScreenShareRequest() {
+        val state = _ui.value
+        if (!state.screenSharePending) return
+        val c = conn
+        val sent = if (c != null) runCatching { c.send(P2pProtocol.F_SCREEN_STOP); true }.getOrDefault(false) else false
+        _ui.value = state.copy(
+            screenSharePending = false,
+            screenNotice = if (sent) "Demande de partage annulée — caméra." else ""
+        )
+        DesktopLog.i("nyx-video", "demande de partage ANNULEE par l'utilisateur (F_SCREEN_STOP${if (sent) ", émis" else " — liaison perdue"})")
+    }
+
+    /**
+     * v0.3.14 — ARRÊTER un partage ACTIF, les DEUX sens (demande opérateur
+     * 29/10) : NOUS partageons (retour caméra + F_SCREEN_STOP) ou le PAIR
+     * partage (révocation + F_SCREEN_STOP — il voit « révoqué par le pair »).
+     */
+    fun stopScreenShare() {
+        val state = _ui.value
+        if (state.phase != Phase.ACTIVE) return
+        val c = conn
+        if (state.videoIsScreen) {
+            val back = video?.switchSource()
+            if (c != null) runCatching { c.send(P2pProtocol.F_SCREEN_STOP) }
+            _ui.value = state.copy(
+                videoIsScreen = back == DesktopCallVideo.Source.SCREEN,
+                screenNotice = if (back != DesktopCallVideo.Source.SCREEN) "Partage d'écran arrêté — caméra." else ""
+            )
+            DesktopLog.i("nyx-video", "partage d'écran ARRÊTÉ par l'utilisateur (retour caméra, F_SCREEN_STOP au pair)")
+        } else if (state.peerScreenShare) {
+            if (c != null) runCatching { c.send(P2pProtocol.F_SCREEN_STOP) }
+            _ui.value = state.copy(peerScreenShare = false, screenNotice = "Partage du pair révoqué — sa caméra revient.")
+            DesktopLog.i("nyx-video", "partage du pair RÉVOQUÉ par l'utilisateur (F_SCREEN_STOP)")
         }
     }
 
@@ -1115,11 +1175,25 @@ object DesktopCallManager {
                 // Le pair demande à partager SON écran : dialogue ✓/✕ (l'ancien
                 // partage unilatéral est mort — session 78 verbatim).
                 if (_ui.value.phase != Phase.ACTIVE || !peerScreenProtocol) {
+                    // v0.3.14 — PLUS AUCUN REFUS SILENCIEUX (défaut détecté
+                    // 29/10 06:22:06 : le F_SCREEN_REQ du tel a disparu SANS
+                    // UNE LIGNE — le diagnostic était impossible).
+                    DesktopLog.w(
+                        "nyx-video",
+                        "F_SCREEN_REQ du pair REFUSÉ (phase ${_ui.value.phase}${if (!peerScreenProtocol) ", pair sans protocole sc" else ""}) — STOP renvoyé"
+                    )
                     runCatching { conn?.send(P2pProtocol.F_SCREEN_STOP) }
                     return
                 }
                 _ui.value = _ui.value.copy(screenShareRequest = true)
-                DesktopLog.i("nyx-video", "F_SCREEN_REQ du pair — dialogue ✓/✕ affiché")
+                // v0.3.14 — NOTIFICATION OS (demande 29/10 : « je n'ai pas non
+                // plus de notification pour le partage d'écran ») : le dialogue
+                // ✓/✕ vit désormais AUSSI sur la CARTE FLOTTANTE (au premier
+                // plan), la bulle l'annonce quand la fenêtre principale est
+                // enterrée.
+                val s = _ui.value
+                net.nyx.messenger.notify.DesktopNotifier.screenShareRequest(s.peer, s.alias)
+                DesktopLog.i("nyx-video", "F_SCREEN_REQ du pair — dialogue ✓/✕ affiché (carte flottante + notification)")
             }
             P2pProtocol.F_SCREEN_ACCEPT -> {
                 // Notre REQ validée → bascule effective de NOTRE source.

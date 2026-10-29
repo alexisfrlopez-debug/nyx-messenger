@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ServiceLocator {
 
-    const val VERSION = "0.3.13"
+    const val VERSION = "0.3.14"
 
     /** v0.3.4 — mode de session (miroir SessionMode Android v0.2.18) :
      * PANIC = session LEURRE (données vides dans un répertoire séparé,
@@ -137,6 +137,10 @@ object ServiceLocator {
         // v0.3.4 — plan de tests de validation (portage miroir diag/TestPlan.kt
         // Android v0.2.20 : carte plan de tests du build test).
         net.nyx.messenger.diag.TestPlan.init(DesktopPaths.dataDir)
+        // v0.3.14 — VALIDATION PAR LOGS (demande opérateur 29/10) : les items
+        // prouvés par l'export terrain émettent leurs lignes PASS au démarrage
+        // — lisible dans CHAQUE export, sans la carte.
+        runCatching { net.nyx.messenger.diag.TestPlan.logValidatedProofs() }
         identity = DesktopIdentity(File(DesktopPaths.dataDir, "identity.json"))
         store = DesktopStore().apply { ensureLoaded() }
         settings = DesktopSettings(File(DesktopPaths.dataDir, "settings.json"))
@@ -350,6 +354,22 @@ object ServiceLocator {
                 attemptBackendStart(me)
                 _torState.value = TorState(TorPhase.READY, 100, me)
                 DesktopLog.i("nyx-tor", "backend PRÊT (Tor bootstrappé + onion publié)")
+                // v0.3.14 — MARQUEUR DE CÂBLAGE (preuve de build dans chaque
+                // export, miroir Android) : la chaîne complète attendue par le
+                // TestPlan « build-propre-v14 ».
+                DesktopLog.i(
+                    "nyx-boot",
+                    "câblage v0.3.14 vérifié : VIDÉO SUR LA CARTE FLOTTANTE (l'aperçu du pair vit " +
+                        "sur la carte toujours au premier plan — retour 29/10 « côté pc je ne vois pas " +
+                        "les videos »), NOTIFICATION DE PARTAGE D'ÉCRAN (bulle + dialogue ✓/✕ sur la " +
+                        "carte flottante), ANNULER/ARRÊTER LE PARTAGE (F_SCREEN_STOP dans les DEUX " +
+                        "états), BYE = FIN IMMÉDIATE (un raccroché ne déclenche PLUS la reconnexion), " +
+                        "WEBCAM 640×360 (640 au lieu de 480 — « problème de résolution pc »), AUCUNE " +
+                        "TRAME SILENCIEUSE (inconnue/sans gestionnaire = journalisée), VALIDATION PAR " +
+                        "LOGS des items v0.3.13 sur la carte — ACQUIS v0.3.13 : fenêtre de décrochage " +
+                        "devant, appel annulé jamais actif, offre parallèle, reconnexion média, frame " +
+                        "skipping, webcam par défaut, partage d'écran validé"
+                )
                 onBootstrapReady()
                 startLoops()
 

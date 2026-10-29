@@ -528,6 +528,12 @@ class DesktopCallVideo(
     /** Trame F_VIDEO du pair (JPEG complet) — appelé par la boucle de lecture audio. */
     fun feedVideo(jpeg: ByteArray) {
         if (stopped || jpeg.size > MAX_FRAME_BYTES * 2) return
+        // v0.3.14 — PREUVE D'ARRIVÉE (retour 29/10 : « côté pc je ne vois pas
+        // les videos » — aucun journal ne montrait si les trames ARRIVAIENT
+        // au moteur ; désormais la première est horodatée, dimensions comprises).
+        if (frameVersion == 0L) {
+            DesktopLog.i("nyx-video", "1ʳᵉ trame vidéo du pair reçue (${jpeg.size} o — décodage skia, affichage carte flottante + overlay)")
+        }
         latestJpeg = jpeg
         frameVersion++
     }
@@ -616,7 +622,13 @@ class DesktopCallVideo(
 
     companion object {
         /** Largeur max d'émission (le téléphone affiche ≤ ~480 px — économie Tor). */
-        const val CAP_W = 480
+        const val CAP_W = 640
+        // v0.3.14 — 640 (au lieu de 480) : retour terrain 29/10 « problème de
+        // résolution pc » — une webcam 16:9 sort désormais 640×360 au lieu de
+        // 480×270 (+78 % de pixels, nettement moins floue agrandie sur l'écran
+        // du téléphone) ; le frame skipping existant adapte la cadence si le
+        // circuit ne suit pas, et [recompress] borne toujours les trames.
+        // L'écran de repli suit (mêmes bornes).
 
         /** Qualité JPEG courante (0-1). */
         const val JPEG_QUALITY = 0.55f
@@ -636,7 +648,9 @@ class DesktopCallVideo(
         const val CAM_FPS = 10
 
         /** Poids max conseillé d'une trame (recompression au-delà). */
-        const val MAX_FRAME_BYTES = 32 * 1024
+        const val MAX_FRAME_BYTES = 48 * 1024
+        // v0.3.14 — 48 Ko (au lieu de 32) : la webcam 640×360 produit des trames
+        // plus riches ; [recompress] (q 0,35) reste le garde-fou au-delà.
     }
 }
 

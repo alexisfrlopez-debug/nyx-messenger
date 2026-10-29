@@ -196,3 +196,12 @@ desktop/app/src/main/java/net/nyx/messenger/notify/DesktopRinger.kt:portage-miro
 # tourne QUE pendant l'appel, aucune image ne quitte l'appareil sans le
 # canal média chiffré Tor E2E, rien n'est stocké).
 android/app/src/main/AndroidManifest.xml:android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION
+
+# v0.3.14 — APERÇU VIDÉO DU PAIR : le bloc de poll LaunchedEffect (moteur
+# latestJpeg/frameVersion → décodage skia) est volontairement IDENTIQUE entre
+# la carte flottante (toujours au premier plan — la vidéo doit y vivre,
+# retour 29/10 « côté pc je ne vois pas les videos ») et l'overlay principal
+# (plein écran). Convention portage-miroir établie session 70 : le même
+# blocCompose dans DEUX fenêtres Compose indépendantes, facteur commun
+# impossible sans casser la granularité des recompositions de chaque fenêtre.
+desktop/app/src/main/java/net/nyx/messenger/ui/CallFloatWindow.kt:portage-miroir

@@ -76,6 +76,13 @@ object DesktopNotifier {
         windowActive = active
     }
 
+    /** v0.3.14 — ramène la fenêtre principale devant (démimimisée + focus) —
+     *  utilisé par la CARTE FLOTTANTE (clic sur l'aperçu vidéo) et l'icône
+     *  du plateau. */
+    fun activateWindow() {
+        bringToFront?.invoke()
+    }
+
     fun messageReceived(onion: String, alias: String, text: String) {
         if (!enabled() || (windowActive && suppressedPeer == onion.trim().lowercase())) return
         val preview = text.replace('\n', ' ').trim().take(140)
@@ -124,6 +131,22 @@ object DesktopNotifier {
         // Pas d'annulation d'info-bulle portable en AWT — no-op volontaire
         // (l'overlay d'appel EST la source de vérité ; miroir des limites
         // documentées pour les invitations).
+    }
+
+    /**
+     * v0.3.14 — DEMANDE DE PARTAGE D'ÉCRAN DU PAIR (demande terrain 29/10 :
+     * « je n'ai pas non plus de notification pour le partage d'écran » — le
+     * dialogue ✓/✕ vivait dans la fenêtre principale non focalisée). La
+     * bulle annonce la demande ; le dialogue ✓/✕ vit sur la CARTE FLOTTANTE
+     * (au premier plan). Cliquer l'icône du plateau ramène la fenêtre.
+     */
+    fun screenShareRequest(onion: String, alias: String) {
+        if (!enabled()) return
+        val label = alias.ifBlank { onion.take(10) + "…" }
+        balloon(
+            "$label demande à partager son écran",
+            "Autoriser (✓) ou Refuser (✕) sur la carte d'appel flottante."
+        )
     }
 
     private fun enabled(): Boolean = trayIcon != null &&

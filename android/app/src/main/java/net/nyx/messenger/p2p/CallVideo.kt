@@ -1025,6 +1025,7 @@ class CallVideo(
     fun startReceiving(peerCsd: ByteArray) {
         if (mjpeg) {
             synchronized(lock) { peerCsdBuf = ByteArray(0) }
+            mjpegRenderLogged = false // v0.2.62 — la preuve de rendu partira à la 1ʳᵉ trame
             net.nyx.messenger.diag.DiagLog.i("nyx-video", "réception MJPEG prête (JPEG → Canvas)")
             return
         }
@@ -1092,6 +1093,11 @@ class CallVideo(
         }
     }
 
+    /** v0.2.62 — première trame rendue seulement (retour 29/10 : « la video
+     *  pc se centre mal sur le téléphone » — AUCUN journal ne permettait de
+     *  vérifier la géométrie ; désormais la PREUVE est dans l'export). */
+    @Volatile private var mjpegRenderLogged = false
+
     /** v0.2.55 — JPEG du bureau → Bitmap → Canvas (fit centré sur la surface). */
     private fun renderMjpeg(jpeg: ByteArray) {
         if (jpeg.size > MJPEG_MAX_FRAME_BYTES) return
@@ -1104,6 +1110,13 @@ class CallVideo(
             val canvas = s.lockCanvas(null)
             try {
                 canvas.drawColor(android.graphics.Color.BLACK)
+                if (!mjpegRenderLogged) {
+                    mjpegRenderLogged = true
+                    net.nyx.messenger.diag.DiagLog.i(
+                        "nyx-video",
+                        "rendu MJPEG : trame ${bmp.width}x${bmp.height} → surface ${canvas.width}x${canvas.height} (fit centré)"
+                    )
+                }
                 val scale = minOf(
                     canvas.width.toFloat() / bmp.width,
                     canvas.height.toFloat() / bmp.height

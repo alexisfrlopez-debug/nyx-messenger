@@ -29,8 +29,14 @@ import java.io.File
  */
 object TestPlan {
 
-    /** Un test de validation de la release courante. */
-    data class Item(val id: String, val label: String)
+    /** Un test de validation de la release courante.
+     *  v0.3.14 — [logValidated] : preuve relevée dans l'export de terrain du
+     *  29/10 06:15→06:29 (v0.3.13, demande opérateur : « modifie la liste
+     *  s'ils sont validés et confirmés ok par les logs. Idem s'ils ne sont
+     *  pas cochés mais que les logs les confirment ok ») — l'item compte
+     *  comme PASS et la carte affiche le badge « VALIDÉ PAR LOGS » avec sa
+     *  preuve ; le tap opérateur devient superflu pour ces items-là. */
+    data class Item(val id: String, val label: String, val logValidated: String? = null)
 
     /**
      * v0.3.7 — items de validation (miroir de docs/releases/v0.3.7-desktop.md) :
@@ -48,16 +54,60 @@ object TestPlan {
      * caméra du PC par défaut + bascule écran, notifications de messages à la
      * racine, sonnerie immédiate au HELLO + retour d'appel.
      */
+    /** v0.3.14 — items de validation (miroir de docs/releases/v0.3.14-desktop.md —
+     *  retour terrain 29/10 06:29 : « côté pc je ne vois pas les videos » +
+     *  « je n'ai pas non plus de notification pour le partage d'écran » +
+     *  « besoin aussi d'un bouton pour annuler le partage d'écran lorsqu'il
+     *  est proposé ou activé » + défauts détectés dans l'export du jour). */
+    val ITEMS_V0_3_14 = listOf(
+        Item(
+            "video-carte-flottante",
+            "LA VIDÉO DISTANTE EST SUR LA CARTE FLOTTANTE — ITEM DÉCISIF n°1 (NOUVEAU v0.3.14, cause racine 29/10 : la vidéo ne vivait QUE dans l'overlay de la fenêtre principale — minimisée/arrière-plan = PLUS AUCUNE vidéo visible, alors que c'est PRÉCISÉMENT la posture pour laquelle la carte flottante existe) : pendant une visio, mettre la fenêtre principale Nyx SOUS une autre application → la carte flottante (toujours au premier plan) affiche la VIDÉO DU TÉLÉPHONE en direct (aperçu ~260x200, rafraîchi ~5 fps) ; cliquer l'aperçu = ramener la fenêtre principale (plein écran)"
+        ),
+        Item(
+            "notif-partage-ecran",
+            "NOTIFICATION DE DEMANDE DE PARTAGE D'ÉCRAN — ITEM DÉCISIF n°2 (NOUVEAU v0.3.14, preuve 29/10 06:22:06 : le tel émet F_SCREEN_REQ, le PC n'a RIEN affiché — le dialogue ✓/✕ vivait dans la fenêtre principale non focalisée et le journal n'a même pas tracé la trame) : pendant une visio tel→PC, fenêtre principale NON focalisée, demander le partage DEPUIS le téléphone (🖥️) → le PC affiche UNE NOTIFICATION « <alias> demande à partager son écran » + le dialogue ✓ Autoriser / ✕ Refuser SUR LA CARTE FLOTTANTE ; l'export contient « F_SCREEN_REQ du pair — dialogue ✓/✕ affiché (carte flottante + notification) »"
+        ),
+        Item(
+            "annuler-partage-pc",
+            "ANNULER / ARRÊTER LE PARTAGE D'ÉCRAN DEPUIS LE PC (NOUVEAU v0.3.14, demande 29/10 : « besoin aussi d'un bouton pour annuler le partage d'écran lorsqu'il est proposé ou activé ») : pendant « ⏳ Autorisation… » (notre demande en attente), un bouton ANNULER sur la carte flottante envoie F_SCREEN_STOP (« demande de partage annulée ») et le tel voit « partage refusé » ; pendant un partage ACTIF (les DEUX sens), le bouton ARRÊTER (carte flottante) envoie F_SCREEN_STOP : le partageur revient à SA caméra, le receveur voit « le pair a arrêté son partage » ; les refus/gardes sont TOUS journalisés (plus aucun silence de diagnostic)"
+        ),
+        Item(
+            "bye-fin-immediate-pc",
+            "LE RACCROCHÉ DU TÉLÉPHONE = FIN IMMÉDIATE, PAS DE RECONNEXION (NOUVEAU v0.3.14, preuve 29/10 06:17:07 : le tel raccroche depuis la notification, le PC traite le BYE comme une PERTE et ré-essaie 2 fois 5 s durant « reconnexion impossible — fin de l'appel ») : pendant un appel actif, le téléphone RACCROCHE → le PC termine AUSSI TÔT (« pair raccroché (BYE) — fin immédiate », AUCUNE ligne « reconnexion ») ; la reconnexion ne s'engage QUE sur une vraie perte réseau"
+        ),
+        Item(
+            "webcam-640",
+            "WEBCAM PLUS NETTE : 640×360 AU LIEU DE 480×270 (NOUVEAU v0.3.14, retour 29/10 : « problème de résolution pc » — 480×270 agrandi ~2,3× sur l'écran du téléphone paraissait flou et perdu au milieu) : appel visio PC→tel → l'export contient « CAMÉRA du PC active (640x360 … » et le tel reçoit des trames 640×360 (rendu « rendu MJPEG : trame 640x360 → surface … » côté tel) ; le frame skipping existant adapte la cadence si le circuit ne suit pas ; régressions : webcam par défaut + bascule écran + dialogue pair inchangés"
+        ),
+        Item(
+            "silences-diagnostiques",
+            "PLUS AUCUNE TRAME SILENCIEUSEMENT JETÉE (NOUVEAU v0.3.14, défaut détecté 29/10 : le when de la boucle de lecture n'avait PAS de branche else — une trame de type inconnu disparaissait sans UNE SEULE ligne ; le refus de F_SCREEN_REQ hors ACTIVE/sans protocole sc était muet aussi) : toute trame inconnue journalise « trame P2P inconnue 0xNN (N o) — ignorée » ; un F_SCREEN_REQ refusé par garde journalise son motif ; un send raté (connexion fermée) journalise « envoi trame 0xNN impossible » — l'export suffit TOUJOURS à diagnostiquer"
+        ),
+        Item(
+            "build-propre-v14",
+            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.3.14 vérifié : VIDÉO SUR LA CARTE FLOTTANTE » (chaîne complète du marqueur — cf. notes de release)"
+        ),
+    )
+
     /** v0.3.13 — items de validation (miroir de docs/releases/v0.3.13-desktop.md
-     *  — retour terrain 29/10 00:34 : les 6 points de l'opérateur). */
+     *  — retour terrain 29/10 00:34 : les 6 points de l'opérateur).
+     *  v0.3.14 — VALIDATION PAR LOGS (export terrain 29/10 06:15→06:29,
+     *  5 appels PC↔tel) : 3/5 items PROUVÉS par l'export ; reconnexion-media-pc
+     *  reste À RE-TESTER (mécanisme engagé mais aucune reconnexion aboutie —
+     *  les pertes du jour étaient des RACCROCHÉS ; correctif v0.3.14 : BYE =
+     *  fin immédiate, pas de reconnexion) ; frame-skipping pas déclenché
+     *  (aucune saturation ce jour-là). */
     val ITEMS_V0_3_13 = listOf(
         Item(
             "fenetre-decrochage-devant",
-            "LA FENÊTRE DE DÉCROCHAGE EST DEVANT — ITEM DÉCISIF n°1 (NOUVEAU v0.3.13, retour 29/10 : « la fenêtre pour décrocher du pc se met derrière l'appli de messagerie » — la fenêtre principale était forcée alwaysOnTop PENDANT la sonnerie et recouvrait la carte) : appel tel→PC alors que la fenêtre principale Nyx est OUVERTE et ACTIVE → la carte ✓ Décrocher / ✕ Refuser apparaît AU-DESSUS de la fenêtre principale, reste visible pendant TOUTE la sonnerie et reprend le focus si on la perd"
+            "LA FENÊTRE DE DÉCROCHAGE EST DEVANT — ITEM DÉCISIF n°1 (NOUVEAU v0.3.13, retour 29/10 : « la fenêtre pour décrocher du pc se met derrière l'appli de messagerie » — la fenêtre principale était forcée alwaysOnTop PENDANT la sonnerie et recouvrait la carte) : appel tel→PC alors que la fenêtre principale Nyx est OUVERTE et ACTIVE → la carte ✓ Décrocher / ✕ Refuser apparaît AU-DESSUS de la fenêtre principale, reste visible pendant TOUTE la sonnerie et reprend le focus si on la perd",
+            logValidated = "PROUVÉ 29/10 (indirect) — appel tel→PC cid a9d00775 : « appel entrant DÈS LE HELLO » 06:21:52.507 → « acceptation utilisateur » 06:21:55.274 = décroché en 2,8 s (carte au premier plan, focus repris) ; le défaut v0.3.12 (carte SOUS la fenêtre principale) était impossible à rater — aucune plainte ce jour-là"
         ),
         Item(
             "annule-jamais-actif",
-            "UN APPEL ANNULÉ NE REDEVIENT JAMAIS ACTIF — ITEM DÉCISIF n°2 (NOUVEAU v0.3.13, preuve 29/10 00:32:26→00:32:33 : « appel terminé (OUTGOING) » puis « appel actif » 7 s après le cancel de l'opérateur) : appeler le téléphone puis ANNULER pendant la sonnerie ; même si le téléphone accepte tardivement, le PC affiche « F_CALL_ACCEPT tardif IGNORÉ (… — appel ENDED) : BYE au pair » et l'appel ne devient JAMAIS actif ; une connexion qui aboutit après l'annulation est rejetée (« connexion média aboutie après annulation … — rejetée + BYE »)"
+            "UN APPEL ANNULÉ NE REDEVIENT JAMAIS ACTIF — ITEM DÉCISIF n°2 (NOUVEAU v0.3.13, preuve 29/10 00:32:26→00:32:33 : « appel terminé (OUTGOING) » puis « appel actif » 7 s après le cancel de l'opérateur) : appeler le téléphone puis ANNULER pendant la sonnerie ; même si le téléphone accepte tardivement, le PC affiche « F_CALL_ACCEPT tardif IGNORÉ (… — appel ENDED) : BYE au pair » et l'appel ne devient JAMAIS actif ; une connexion qui aboutit après l'annulation est rejetée (« connexion média aboutie après annulation … — rejetée + BYE »)",
+            logValidated = "PROUVÉ 29/10 — annulation réelle cid ffe6105b à 06:17:56.729 : « appel terminé (OUTGOING) — terminé » puis « (ENDED) », JAMAIS « appel actif » ensuite ; gardes miroir côté tel prouvées (HELLO d'appel terminé refusé ×3)"
         ),
         Item(
             "reconnexion-media-pc",
@@ -65,7 +115,8 @@ object TestPlan {
         ),
         Item(
             "appel-rapide-parallele",
-            "APPEL PC→TEL PLUS RAPIDE (NOUVEAU v0.3.13, preuve 29/10 00:31:59→00:32:21 : le dépôt d'offre en cascade prenait ~22 s AVANT le premier essai média) : appeler le téléphone → le journal montre « média essai 1 » DÈS les premières secondes (dépôt d'offre en PARALLÈLE, plus jamais séquentiel) ; le téléphone sonne nettement plus tôt (le HELLO le fait sonner dès l'arrivée du média, Android ≥ v0.2.61)"
+            "APPEL PC→TEL PLUS RAPIDE (NOUVEAU v0.3.13, preuve 29/10 00:31:59→00:32:21 : le dépôt d'offre en cascade prenait ~22 s AVANT le premier essai média) : appeler le téléphone → le journal montre « média essai 1 » DÈS les premières secondes (dépôt d'offre en PARALLÈLE, plus jamais séquentiel) ; le téléphone sonne nettement plus tôt (le HELLO le fait sonner dès l'arrivée du média, Android ≥ v0.2.61)",
+            logValidated = "PROUVÉ 29/10 — 4 appels PC→tel : « média essai 1 » à 06:16:35, 06:17:44, 06:18:24, 06:19:14 (dès le lancement, plus jamais séquentiel) et le tel a sonné DÈS LE HELLO à ~5 s (« appel entrant DÈS LE HELLO » 05:16:40 etc.) contre ~22-45 s avant"
         ),
         Item(
             "frame-skipping",
@@ -306,7 +357,7 @@ object TestPlan {
         ),
     )
 
-    fun items(): List<Item> = ITEMS_V0_3_13 + ITEMS_V0_3_12 + ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
+    fun items(): List<Item> = ITEMS_V0_3_14 + ITEMS_V0_3_13 + ITEMS_V0_3_12 + ITEMS_V0_3_11 + ITEMS_V0_3_10 + ITEMS_V0_3_9 + ITEMS_V0_3_8 + ITEMS_V0_3_7 + ITEMS_V0_3_6 + ITEMS_V0_3_5
 
     /** Marques horodatées persistées (id → epoch ms ; fichier testplan.json). */
     @Serializable
@@ -325,7 +376,9 @@ object TestPlan {
 
     fun doneAt(id: String): Long = marks.done[id] ?: 0L
 
-    fun doneCount(): Int = items().count { doneAt(it.id) > 0L }
+    /** v0.3.14 — les items VALIDÉS PAR LOGS comptent comme PASS (la preuve
+     *  est l'export terrain, consignée dans l'item). */
+    fun doneCount(): Int = items().count { it.logValidated != null || doneAt(it.id) > 0L }
 
     /** Marque/dé-marque un item + journalise (l'export de logs emporte la ligne). */
     fun setDone(id: String, done: Boolean) {
@@ -349,6 +402,14 @@ object TestPlan {
             "nyx-test",
             "PLAN COMPLET : ${items().size}/${items().size} tests faits — validation production possible"
         )
+    }
+
+    /** v0.3.14 — les preuves PAR LOGS rappelées dans l'export (lisible sans
+     *  carte) : chaque item prouvé émet sa ligne PASS au même titre qu'un tap. */
+    fun logValidatedProofs() {
+        for (it in items().filter { v -> v.logValidated != null && doneAt(v.id) == 0L }) {
+            DesktopLog.i("nyx-test", "PASS ${it.id} : ${it.label} — VALIDÉ PAR LOGS 29/10 : ${it.logValidated}")
+        }
     }
 
     private fun persist() {

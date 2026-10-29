@@ -806,6 +806,9 @@ object CallManager {
         val state = _ui.value
         if (state.phase != Phase.INCOMING) return
         acceptedCid = state.cid
+        // v0.2.62 — le SURVEILLANT DE SONNERIE doit être mort AVANT que le
+        // moteur audio ne lise la socket (jamais deux lecteurs).
+        stopRingByeWatch(join = true)
         // v0.2.33 — trace persistante de l'INSTANT d'acceptation (l'export
         // post-redémarrage ne voyait jamais QUAND l'utilisateur avait appuyé).
         net.nyx.messenger.diag.DiagLog.i(
@@ -965,6 +968,7 @@ object CallManager {
                     )
                     net.nyx.messenger.notify.ContactNotifier.incomingCall(fromOnion, label, wantsVideo)
                     net.nyx.messenger.notify.CallRinger.start()
+                    startRingByeWatch(connection, cid) // v0.2.62 — l'annulation du pair tue la sonnerie
                     // Garde-fou : média sans offre suivie (pair disparu) → pas
                     // de sonnerie à l'infini (miroir du chemin offre).
                     scope.launch {
@@ -986,6 +990,7 @@ object CallManager {
                 if (state.phase == Phase.INCOMING) {
                     // L'appui « accepter » viendra : la connexion patiente.
                     net.nyx.messenger.diag.DiagLog.i("nyx-call", "média arrivé pendant la sonnerie — en attente d'acceptation")
+                    startRingByeWatch(connection, state.cid) // v0.2.62 — l'annulation du pair tue la sonnerie
                     return@launch
                 }
             }
@@ -995,6 +1000,66 @@ object CallManager {
 
     /** Connexions média gardées avant l'offre (course journal/poll). */
     private val waited = HashMap<String, P2pCallConnection>()
+
+    /* ---------------- v0.2.62 — SURVEILLANT DE SONNERIE ----------------
+     * Preuve 29/10 cid ffe6105b : le PC annule 05:17:56, le tel a CONTINUÉ
+     * de sonner jusqu'au « appel manqué » 05:18:02 — le BYE arrivé sur le
+     * média GARDE pendant la sonnerie n'était JAMAIS lu (personne ne lisait
+     * la socket avant le décroché). Un lecteur léger consomme les trames
+     * pendant INCOMING : F_BYE/F_CALL_REJECT tuent la sonnerie À L'INSTANT
+     * (« appel terminé (INCOMING) — annulé par le pair (bye pendant la
+     * sonnerie) ») ; EOF (pair fermé) = annulation aussi ; toute autre trame
+     * est consommée silencieusement (flux gardé parsé). Arrêt DÉTERMINISTE
+     * avant la finalisation (génération + join + soTimeout) — jamais deux
+     * lecteurs sur la même socket. */
+    @Volatile private var ringWatchGen = 0
+    @Volatile private var ringWatchThread: Thread? = null
+
+    private fun startRingByeWatch(c: P2pCallConnection, cid: String) {
+        stopRingByeWatch(join = true)
+        val gen = ++ringWatchGen
+        val t = Thread({
+            try { c.socket.soTimeout = 250 } catch (_: Exception) {}
+            try {
+                while (!c.closed.get() && ringWatchGen == gen &&
+                    _ui.value.phase == Phase.INCOMING && _ui.value.cid == cid) {
+                    val frame = try {
+                        P2pProtocol.read(c.input)
+                    } catch (_: java.net.SocketTimeoutException) {
+                        continue
+                    } catch (_: Exception) {
+                        break
+                    } ?: break // EOF : le pair a fermé pendant la sonnerie
+                    when (frame.type) {
+                        P2pProtocol.F_BYE, P2pProtocol.F_CALL_REJECT -> {
+                            if (ringWatchGen == gen && _ui.value.phase == Phase.INCOMING &&
+                                _ui.value.cid == cid) {
+                                net.nyx.messenger.diag.DiagLog.i(
+                                    "nyx-call",
+                                    "BYE du pair pendant la sonnerie (cid ${cid.take(8)}…) — sonnerie arrêtée à l'instant"
+                                )
+                                end("annulé par le pair (bye pendant la sonnerie)")
+                            }
+                            return@Thread
+                        }
+                        else -> Unit // trames précoces consommées (flux parsé)
+                    }
+                }
+            } finally {
+                try { c.socket.soTimeout = 0 } catch (_: Exception) {}
+            }
+        }, "nyx-ring-watch")
+        t.isDaemon = true
+        ringWatchThread = t
+        t.start()
+    }
+
+    private fun stopRingByeWatch(join: Boolean) {
+        ringWatchGen++
+        val t = ringWatchThread ?: return
+        ringWatchThread = null
+        if (join) runCatching { t.join(1_500) }
+    }
 
     /** Offre traitée : adopte la connexion média gardée, s'il y en a une. */
     private fun adoptWaitedConnection(cid: String) {
@@ -1006,6 +1071,7 @@ object CallManager {
         }
         net.nyx.messenger.diag.DiagLog.i("nyx-call", "offre reçue — connexion média déjà là, adoptée (cid ${cid.take(8)}…)")
         conn = held // la sonnerie continue — finalisation à l'acceptation
+        startRingByeWatch(held, cid) // v0.2.62 — un BYE d'annulation tue la sonnerie à l'instant
     }
 
     private fun tryFinalizeWaitedConnection() {
@@ -1177,6 +1243,18 @@ object CallManager {
      */
     private fun onMediaLostOrEnd(reason: String) {
         val st = _ui.value
+        // v0.2.62 — UN BYE EST UN RACCROCHÉ, PAS UNE PERTE DE CIRCUIT
+        // (preuve 29/10 05:22:24 : le PC raccroche, le tel journalise
+        // « média perdu en cours d'appel (bye) — reconnexion » puis ré-essaie
+        // 4 s — la reconnexion n'est QUE pour les vraies morts de réseau) :
+        // fin immédiate, aucun essai.
+        if (reason.contains("bye", ignoreCase = true)) {
+            net.nyx.messenger.diag.DiagLog.i(
+                "nyx-call", "pair raccroché (BYE) — fin immédiate (cid ${st.cid.take(8)}…, pas de reconnexion)"
+            )
+            end("terminé")
+            return
+        }
         if (st.phase != Phase.ACTIVE || reconnectsLeft <= 0 || reconnecting || !interopAdpcm) {
             end(reason)
             return
@@ -1322,6 +1400,17 @@ object CallManager {
             _ui.value = state.copy(screenSharing = false, screenNotice = "Partage d'écran arrêté — caméra.")
             return
         }
+        if (state.peerScreenShare) {
+            // v0.2.62 — le PAIR partage : le même bouton RÉVOQUE son partage
+            // (demande 29/10 : « besoin aussi d'un bouton pour annuler le
+            // partage d'écran lorsqu'il est proposé ou activé » — les DEUX
+            // états, les DEUX sens). Il voit « révoqué par le pair » et
+            // revient à SA caméra.
+            runCatching { c.send(P2pProtocol.F_SCREEN_STOP) }
+            _ui.value = state.copy(peerScreenShare = false, screenNotice = "Partage du PC révoqué — sa caméra revient.")
+            net.nyx.messenger.diag.DiagLog.i("nyx-video", "partage du PC RÉVOQUÉ par l'utilisateur (F_SCREEN_STOP)")
+            return
+        }
         if (!peerScreenProtocol) {
             _ui.value = state.copy(
                 screenNotice = "Partage d'écran : le PC ne le valide pas (≥ v0.3.12 requis)."
@@ -1329,7 +1418,19 @@ object CallManager {
             return
         }
         if (state.screenSharePending) return
-        runCatching { c.send(P2pProtocol.F_SCREEN_REQ, P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)) }
+        // v0.2.62 — ÉMISSION HONNÊTE (défaut détecté 29/10 06:22:06 : le tel
+        // journalisait « F_SCREEN_REQ émis » même si l'écriture échouait
+        // silencieusement — le PC n'a rien vu, le diagnostic était impossible).
+        val sent = runCatching {
+            c.send(P2pProtocol.F_SCREEN_REQ, P2pProtocol.SC_PROTOCOL.toByteArray(Charsets.US_ASCII)); true
+        }.getOrDefault(false)
+        if (!sent) {
+            net.nyx.messenger.diag.DiagLog.w(
+                "nyx-video", "envoi trame 0x19 impossible — liaison perdue : demande de partage NON émise"
+            )
+            _ui.value = state.copy(screenNotice = "Partage d'écran : envoi impossible (liaison perdue).")
+            return
+        }
         _ui.value = state.copy(screenSharePending = true, screenNotice = "Demande envoyée — en attente du PC…")
         net.nyx.messenger.diag.DiagLog.i("nyx-video", "F_SCREEN_REQ émis — attente de la validation du PC")
         val reqAt = nowMs()
@@ -1342,6 +1443,28 @@ object CallManager {
                 )
             }
         }
+    }
+
+    /** v0.2.62 — ANNULER NOTRE demande de partage en attente (demande
+     *  opérateur 29/10 : « besoin aussi d'un bouton pour annuler le partage
+     *  d'écran lorsqu'il est proposé ou activé ») : F_SCREEN_STOP au pair,
+     *  attente levée, caméra maintenue — le pair voit « partage refusé ». */
+    fun cancelScreenShareRequest() {
+        val state = _ui.value
+        if (!state.screenSharePending) return
+        val c = conn
+        val sent = if (c != null) {
+            runCatching { c.send(P2pProtocol.F_SCREEN_STOP); true }.getOrDefault(false)
+        } else false
+        _ui.value = state.copy(
+            screenSharePending = false,
+            screenNotice = if (sent) "Demande de partage annulée — caméra." else ""
+        )
+        net.nyx.messenger.diag.DiagLog.i(
+            "nyx-video",
+            "demande de partage ANNULEE par l'utilisateur (F_SCREEN_STOP" +
+                (if (sent) ", émis" else " — liaison perdue") + ")"
+        )
     }
 
     /** v0.2.60 — RÉPONSE à la demande DU PC (boutons ✓/✕ de l'écran d'appel). */
@@ -1530,6 +1653,9 @@ object CallManager {
 
     /** Termine et nettoie ; l'écran affiche [reason] 3 s puis revient à IDLE. */
     private fun end(reason: String) {
+        // v0.2.62 — le SURVEILLANT DE SONNERIE meurt avec l'appel (fin,
+        // refus, garde-fou 120 s — jamais de lecteur fantôme sur la socket).
+        stopRingByeWatch(join = false)
         // v0.2.59 — la fin d'appel est JOURNALISÉE (miroir bureau « appel
         // terminé (phase) — motif ») : les exports terrain ne montraient JAMAIS
         // pourquoi un appel s'arrêtait côté téléphone.

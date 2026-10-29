@@ -87,7 +87,10 @@ fun TestPlanCard() {
                     .verticalScroll(rememberScrollState())
             ) {
                 if (expanded) for (item in items) {
-                    val done = remember(tick) { TestPlan.doneAt(item.id) > 0L }
+                    // v0.3.14 — VALIDÉ PAR LOGS : la preuve est dans l'export
+                    // terrain du 29/10 — l'item s'affiche COCHÉ avec son badge.
+                    val logValid = item.logValidated
+                    val done = remember(tick) { TestPlan.doneAt(item.id) > 0L || logValid != null }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -111,13 +114,28 @@ fun TestPlanCard() {
                                 else MaterialTheme.colorScheme.onSurface
                             )
                             if (done) {
-                                Text(
-                                    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                                        .format(Date(TestPlan.doneAt(item.id))),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                if (logValid != null && TestPlan.doneAt(item.id) == 0L) {
+                                    Text(
+                                        "✓ VALIDÉ PAR LOGS (29/10)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.tertiary
+                                    )
+                                    Text(
+                                        logValid,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    Text(
+                                        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                                            .format(Date(TestPlan.doneAt(item.id))),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }

@@ -212,10 +212,40 @@ class DesktopCallAudio(
                             }
                         }
                         P2pProtocol.F_BYE -> { onFatal("bye"); return@Thread }
-                        P2pProtocol.F_VIDEO -> videoSink?.invoke(frame.payload)
-                        P2pProtocol.F_VIDEO_ROT -> rotSink?.invoke(frame.payload)
+                        P2pProtocol.F_VIDEO -> {
+                            if (videoSink == null) {
+                                // v0.3.14 — PLUS AUCUN SILENCE (défaut détecté
+                                // 29/10 : une trame routée vers un sink absent
+                                // disparaissait sans UNE LIGNE).
+                                DesktopLog.w("nyx-call", "trame vidéo reçue SANS moteur vidéo — ignorée")
+                            }
+                            videoSink?.invoke(frame.payload)
+                        }
+                        P2pProtocol.F_VIDEO_ROT -> {
+                            if (rotSink == null) DesktopLog.w("nyx-call", "trame rotation reçue SANS moteur — ignorée")
+                            rotSink?.invoke(frame.payload)
+                        }
                         P2pProtocol.F_SCREEN_REQ, P2pProtocol.F_SCREEN_ACCEPT,
-                        P2pProtocol.F_SCREEN_STOP -> screenSink?.invoke(frame.type, frame.payload)
+                        P2pProtocol.F_SCREEN_STOP -> {
+                            if (screenSink == null) {
+                                // v0.3.14 — LE point de diagnostic du 29/10 : le
+                                // F_SCREEN_REQ du tel a disparu ICI sans trace.
+                                DesktopLog.w(
+                                    "nyx-call",
+                                    "trame partage 0x${frame.type.toString(16)} reçue SANS gestionnaire — ignorée (${frame.payload.size} o)"
+                                )
+                            }
+                            screenSink?.invoke(frame.type, frame.payload)
+                        }
+                        else -> {
+                            // v0.3.14 — TOUTE trame inconnue est journalisée (le
+                            // when muet rendait une évolution de protocole
+                            // INDIAGNOSTIQUABLE — jamais plus).
+                            DesktopLog.w(
+                                "nyx-call",
+                                "trame P2P inconnue 0x${frame.type.toString(16)} (${frame.payload.size} o) — ignorée"
+                            )
+                        }
                     }
                 }
             } catch (e: Exception) {

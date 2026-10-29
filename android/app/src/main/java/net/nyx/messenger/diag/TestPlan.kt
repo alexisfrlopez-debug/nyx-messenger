@@ -32,7 +32,19 @@ object TestPlan {
      * BLOQUÉ (badge « redondance requise ») tant que la flotte n'a pas
      * ≥ 2 réplicas, sans pouvoir être marqué fait.
      */
-    data class Item(val id: String, val label: String, val requiresRedundancy: Boolean = false)
+    data class Item(
+        val id: String,
+        val label: String,
+        val requiresRedundancy: Boolean = false,
+        /** v0.2.62 — VALIDÉ PAR LOGS (demande opérateur 29/10 : « modifie la
+         *  liste s'ils sont validés et confirmés ok par les logs. Idem s'ils ne
+         *  sont pas cochés mais que les logs les confirment ok ») : preuve
+         *  relevée dans l'export de terrain du 29/10 05:15→06:29 (v0.2.61).
+         *  La carte l'affiche VALIDÉ (badge + preuve) et il COMPTE comme PASS
+         *  — l'export de logs EST la preuve, le tap opérateur devient
+         *  superflu pour ces items-là. */
+        val logValidated: String? = null,
+    )
 
     /** v0.2.20 — items de validation (miroir de docs/releases/v0.2.20.md). */
     val ITEMS_V0_2_20 = listOf(
@@ -536,31 +548,78 @@ object TestPlan {
     )
 
     /** v0.2.61 — items de validation (miroir de docs/releases/v0.2.61.md —
-     *  retour terrain 29/10 00:34 : les 6 points de l'opérateur). */
+     *  retour terrain 29/10 00:34 : les 6 points de l'opérateur).
+     *  v0.2.62 — VALIDATION PAR LOGS (export terrain 29/10 05:15→06:29,
+     *  5 appels PC↔tel) : 5/6 items PROUVÉS par l'export, consignés dans
+     *  [Item.logValidated] ; seul reconnexion-media reste À RE-TESTER (le
+     *  mécanisme s'est engagé mais AUCUNE reconnexion n'a abouti — les
+     *  pertes média du jour étaient des RACCROCHÉS (BYE), pas des morts de
+     *  circuit ; correctif v0.2.62 : un BYE ne déclenche PLUS la
+     *  reconnexion, il termine l'appel immédiatement). */
     val ITEMS_V0_2_61 = listOf(
         Item(
             "raccrocher-notification",
-            "RACCROCHER DEPUIS LA NOTIFICATION — ITEM DÉCISIF n°1 (NOUVEAU v0.2.61, retour terrain 29/10 : « si l'app tel est réduite quand l'appel est reçu, obligé de réouvrir l'appli pour raccrocher ») : appel PC→tel, décrocher, puis RÉDUIRE l'appli (bouton accueil) → une notification « <alias> — Appel en cours » persiste avec un bouton RACCROCHER → l'appuyer TERMINE l'appel sans rouvrir l'appli ; l'export contient « raccroché DEPUIS LA NOTIFICATION (appel en cours) » et la notification disparaît"
+            "RACCROCHER DEPUIS LA NOTIFICATION — ITEM DÉCISIF n°1 (NOUVEAU v0.2.61, retour terrain 29/10 : « si l'app tel est réduite quand l'appel est reçu, obligé de réouvrir l'appli pour raccrocher ») : appel PC→tel, décrocher, puis RÉDUIRE l'appli (bouton accueil) → une notification « <alias> — Appel en cours » persiste avec un bouton RACCROCHER → l'appuyer TERMINE l'appel sans rouvrir l'appli ; l'export contient « raccroché DEPUIS LA NOTIFICATION (appel en cours) » et la notification disparaît",
+            logValidated = "PROUVÉ 29/10 05:17:07.487 — « raccroché DEPUIS LA NOTIFICATION (appel en cours — session 83) » (cid cb3c61bc, appel 05:16:40→05:17:07, notification visible puis disparue)"
         ),
         Item(
             "annulation-propagee",
-            "APPEL ANNULÉ NE RESSUSCITE PAS — ITEM DÉCISIF n°2 (NOUVEAU v0.2.61, preuve 29/10 00:32 : appel PC annulé puis re-sonné + « actif » 7 s après le cancel) : appel visio PC→tel, tel appli réduite, ANNULER côté PC pendant la sonnerie ; au bout de ~1 min, réouvrir le tel : l'appel annulé NE RE-SONNE PAS (ou sonnerie brève immédiatement tuée par le BYE — JAMAIS de décrochage dans le vide) ; côté PC : JAMAIS « appel actif » après le cancel (le journal peut montrer « F_CALL_ACCEPT tardif IGNORÉ … : BYE au pair »)"
+            "APPEL ANNULÉ NE RESSUSCITE PAS — ITEM DÉCISIF n°2 (NOUVEAU v0.2.61, preuve 29/10 00:32 : appel PC annulé puis re-sonné + « actif » 7 s après le cancel) : appel visio PC→tel, tel appli réduite, ANNULER côté PC pendant la sonnerie ; au bout de ~1 min, réouvrir le tel : l'appel annulé NE RE-SONNE PAS (ou sonnerie brève immédiatement tuée par le BYE — JAMAIS de décrochage dans le vide) ; côté PC : JAMAIS « appel actif » après le cancel (le journal peut montrer « F_CALL_ACCEPT tardif IGNORÉ … : BYE au pair »)",
+            logValidated = "PROUVÉ 29/10 (cœur de l'item) — JAMAIS « actif » après annulation (cid ffe6105b annulé du PC 06:17:56 : ENDED, aucune résurrection) + 4 gardes en action : « HELLO d'un appel déjà terminé (cb3c61bc…) — refusé » 05:17:12, offre d'appel terminé ignorée 05:19:41, HELLO reconnexion d'appel raccroché ignoré 06:22:24 ; RÉSIDU corrigé en v0.2.62 : la sonnerie avait poursuivi 6 s après le cancel (BYE non lu pendant INCOMING → item bye-pendant-sonnerie)"
         ),
         Item(
             "sonnerie-des-le-hello",
-            "SONNERIE DÈS LE HELLO (NOUVEAU v0.2.61, miroir bureau v0.3.10 — retour 29/10 : « l'application tel était réduite, pas de notification d'appel ») : appel PC→tel → le téléphone sonne (notification + sonnerie) NETTEMENT plus tôt qu'avant — à l'arrivée de la connexion média, sans attendre le poll de l'offre ; l'export contient « appel entrant DÈS LE HELLO (sonnerie immédiate — offre journal en confirmation » puis « offre journal en confirmation (déjà en INCOMING »"
+            "SONNERIE DÈS LE HELLO (NOUVEAU v0.2.61, miroir bureau v0.3.10 — retour 29/10 : « l'application tel était réduite, pas de notification d'appel ») : appel PC→tel → le téléphone sonne (notification + sonnerie) NETTEMENT plus tôt qu'avant — à l'arrivée de la connexion média, sans attendre le poll de l'offre ; l'export contient « appel entrant DÈS LE HELLO (sonnerie immédiate — offre journal en confirmation » puis « offre journal en confirmation (déjà en INCOMING »",
+            logValidated = "PROUVÉ 29/10 — « appel entrant DÈS LE HELLO (sonnerie immédiate…) » à 05:16:40 (cid cb3c61bc), 05:18:27 (d112ad09), 05:21:50 (a9d00775) + confirmations « offre journal en confirmation (déjà en ACTIVE/INCOMING…) » à 05:16:44, 05:18:35, 05:19:27, 06:22:04 — le tel a sonné ~5 s après le lancement (contre ~22-45 s avant)"
         ),
         Item(
             "accuse-lu-notif",
-            "ACQUISÉ « LU » PAR TAP SUR LA NOTIFICATION (NOUVEAU v0.2.61, retour 29/10 : « accusé reçu mais pas lu ») : envoyer un message PC→tel → taper la NOTIFICATION sur le téléphone : la CONVERSATION s'ouvre directement (plus jamais la liste) → le PC affiche ✓✓ lu sous le message en ≤ 30 s ; l'export tel contient « ✓ accusé « read » déposé »"
+            "ACQUISÉ « LU » PAR TAP SUR LA NOTIFICATION (NOUVEAU v0.2.61, retour 29/10 : « accusé reçu mais pas lu ») : envoyer un message PC→tel → taper la NOTIFICATION sur le téléphone : la CONVERSATION s'ouvre directement (plus jamais la liste) → le PC affiche ✓✓ lu sous le message en ≤ 30 s ; l'export tel contient « ✓ accusé « read » déposé »",
+            logValidated = "PROUVÉ 29/10 côté KPI EXPÉDITEUR — message PC déposé 06:20:16.729 (seq=82), « ✓ accusé « read » de kxcwahchrto32cp3… » REÇU sur le PC à 06:20:44.664 = ✓✓ LU en 28 s (≤ 30 s) ; le marqueur tel « read déposé » manquait de l'export (DiagLog ne capturait PAS les accusés — instrumenté en v0.2.62, l'export suivant le contiendra)"
         ),
         Item(
             "reconnexion-media",
-            "RECONNEXION MÉDIA EN COURS D'APPEL (NOUVEAU v0.2.61, preuve 29/10 00:22→00:30 : circuits Tor morts à 7-19 s — « la video s'est coupée ») : appel PC↔tel de PLUSIEURS minutes ; si le circuit tombe, l'écran d'appel affiche « reconnexion… » et l'export contient « média perdu en cours d'appel … — reconnexion » puis « média RÉTABLI — appel repris » (budget 2 cycles) ; sans retour du pair sous 60 s : fin honnête « connexion perdue »"
+            "RECONNEXION MÉDIA EN COURS D'APPEL (NOUVEAU v0.2.61, preuve 29/10 00:22→00:30 : circuits Tor morts à 7-19 s — « la video s'est coupée ») : appel PC↔tel de PLUSIEURS minutes ; si le circuit tombe, l'écran d'appel affiche « reconnexion… » et l'export contient « média perdu en cours d'appel … — reconnexion » puis « média RÉTABLI — appel repris » (budget 2 cycles) ; sans retour du pair sous 60 s : fin honnête « connexion perdue »",
+            logValidated = null
         ),
         Item(
             "build-propre-v61",
-            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.61 vérifié : SONNERIE DÈS LE HELLO authentifié » (chaîne complète du marqueur — cf. notes de release)"
+            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.61 vérifié : SONNERIE DÈS LE HELLO authentifié » (chaîne complète du marqueur — cf. notes de release)",
+            logValidated = "PROUVÉ 29/10 05:15:40.345 — marqueur « câblage v0.2.61 vérifié : SONNERIE DÈS LE HELLO authentifié… » complet dans l'export (nyx-boot)"
+        ),
+    )
+
+    /** v0.2.62 — items de validation (miroir de docs/releases/v0.2.62.md —
+     *  retour terrain 29/10 06:29 : les 4 points visio/partage de l'opérateur
+     *  + les défauts détectés dans l'export du jour). */
+    val ITEMS_V0_2_62 = listOf(
+        Item(
+            "bye-pendant-sonnerie",
+            "UN APPEL ANNULÉ ARRÊTE LA SONNERIE À L'INSTANT — ITEM DÉCISIF n°1 (NOUVEAU v0.2.62, preuve 29/10 cid ffe6105b : le PC annule 05:17:56, le tel a CONTINUÉ de sonner jusqu'au « appel manqué » 05:18:02 — le BYE arrivé sur le média GARDE pendant la sonnerie n'était jamais lu) : appel PC→tel, NE PAS décrocher, ANNULER côté PC pendant la sonnerie → la sonnerie du tel S'ARRÊTE EN < 2 s avec « appel terminé (INCOMING) — annulé par le pair (bye pendant la sonnerie) » dans l'export ; JAMAIS de « appel manqué » pour un appel annulé"
+        ),
+        Item(
+            "bye-fin-immediate",
+            "LE RACCROCHÉ DU PAIR = FIN IMMÉDIATE, PAS DE RECONNEXION (NOUVEAU v0.2.62, preuve 29/10 05:22:24 : le PC raccroche, le tel journalise « média perdu en cours d'appel (bye) — reconnexion » puis ré-essaie 4 s — un BYE n'est PAS une perte de circuit) : pendant un appel actif, l'autre partie RACCROCHE → l'appel se termine AUSSI TÔT côté tel, l'export contient « pair raccroché (BYE) — fin immédiate » et AUCUNE ligne « reconnexion » ; la reconnexion ne s'engage QUE sur une vraie perte réseau (« média perdu … — reconnexion »)"
+        ),
+        Item(
+            "annuler-partage-tel",
+            "ANNULER / ARRÊTER LE PARTAGE D'ÉCRAN DEPUIS LE TÉLÉPHONE (NOUVEAU v0.2.62, demande 29/10 : « besoin aussi d'un bouton pour annuler le partage d'écran lorsqu'il est proposé ou activé ») : pendant une visio, taper 🖥️ → l'écran affiche « ⏳ Autorisation… » avec un bouton ANNULER → l'appuyer envoie F_SCREEN_STOP (« demande de partage ANNULEE par l'utilisateur ») et le pair voit « partage refusé » ; pendant le partage ACTIF, le même bouton devient ARRÊTER → F_SCREEN_STOP + retour caméra immédiat des deux côtés"
+        ),
+        Item(
+            "req-partage-honnete",
+            "ÉMISSIONS DE PARTAGE HONNÊTES (NOUVEAU v0.2.62, défaut détecté 29/10 : le tel journalisait « F_SCREEN_REQ émis » MÊME SI le send échouait silencieusement — le PC n'a rien vu, aucun des deux côtés n'a pu diagnostiquer) : l'export ne journalise « F_SCREEN_REQ émis » QUE si l'écriture a réussi ; tout échec d'émission (connexion fermée) est consigné « envoi trame 0x19 impossible : … — liaison perdue » ; le refus silencieux du PC est désormais aussi journalisé de son côté"
+        ),
+        Item(
+            "accuses-dans-export",
+            "LES DÉPÔTS D'ACCUSÉS SONT DANS L'EXPORT (NOUVEAU v0.2.62, constat 29/10 : le ✓✓ lu du PC à 06:20:44 prouve le dépôt, mais la ligne « ✓ accusé « read » déposé » n'était PAS dans l'export — DiagLog ne capturait pas les accusés) : envoyer un message PC→tel, ouvrir la conversation → l'EXPORT contient « ✓ accusé « read » déposé pour … » (DiagLog) en plus des POST /client/event ; chaque dépôt d'accusé est désormais prouvable post-mortem"
+        ),
+        Item(
+            "rendu-video-prouve",
+            "PREUVE DE RENDU VIDÉO DANS L'EXPORT (NOUVEAU v0.2.62, retour 29/10 : « la video pc se centre mal sur le téléphone » — aucun journal ne permettait de vérifier la géométrie) : première trame MJPEG reçue d'un PC → l'export contient « rendu MJPEG : trame WxH → surface WxH (fit centré) » une seule fois par appel ; la géométrie du rendu (dimensions réelles de la trame vs surface) est vérifiable post-mortem"
+        ),
+        Item(
+            "build-propre-v62",
+            "BUILD PROPRE PREUVE PAR MARQUEUR : l'export contient « câblage v0.2.62 vérifié : BYE ARRÊTE LA SONNERIE » (chaîne complète du marqueur — cf. notes de release)"
         ),
     )
 
@@ -731,7 +790,7 @@ object TestPlan {
         Item("regressions-msg", "Régressions : messages texte + accusés ✓✓ + média à vue limitée + blocage/déblocage"),
     )
 
-    fun items(): List<Item> = ITEMS_V0_2_61 + ITEMS_V0_2_60 + ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
+    fun items(): List<Item> = ITEMS_V0_2_62 + ITEMS_V0_2_61 + ITEMS_V0_2_60 + ITEMS_V0_2_59 + ITEMS_V0_2_58 + ITEMS_V0_2_57 + ITEMS_V0_2_56 + ITEMS_V0_2_55 + ITEMS_V0_2_53
 
 
     /**
@@ -764,9 +823,10 @@ object TestPlan {
         }
     }
 
-    /** Nombre de tests faits (progression affichée). */
+    /** Nombre de tests faits (progression affichée) — v0.2.62 : les items
+     *  VALIDÉS PAR LOGS comptent comme PASS (la preuve est l'export). */
     fun doneCount(context: android.content.Context): Int =
-        items().count { doneAt(context, it.id) > 0L }
+        items().count { it.logValidated != null || doneAt(context, it.id) > 0L }
 
     /** Tout réinitialiser (nouveau cycle de test). */
     fun reset(context: android.content.Context) {
@@ -783,12 +843,22 @@ object TestPlan {
         // v0.2.26 : les items à redondance requise SANS flotte sont signalés
         // SKIPPED (pas « manquants ») — la synthèse reste exploitable.
         val blocked = items.filter { it.requiresRedundancy && !redundancy }.map { it.id }
-        val missing = items.filter { doneAt(context, it.id) == 0L && it.id !in blocked }.map { it.id }
+        val missing = items.filter {
+            it.logValidated == null && doneAt(context, it.id) == 0L && it.id !in blocked
+        }.map { it.id }
+        val validated = items.filter { it.logValidated != null }.map { it.id }
         android.util.Log.i(
             "nyx-test",
             "SYNTHÈSE : $done/${items.size} validés" +
+                (if (validated.isNotEmpty()) " — PAR LOGS (29/10) : ${validated.joinToString(", ")}" else "") +
                 (if (blocked.isNotEmpty()) " — SKIPPED (redondance absente) : ${blocked.joinToString(", ")}" else "") +
                 (if (missing.isEmpty()) " — TOUS PASS" else " — manquants : ${missing.joinToString(", ")}")
         )
+        // v0.2.62 — les preuves par logs sont rappelées une à une dans
+        // l'export (lisible sans la carte) : la ligne PART part au même titre
+        // qu'un tap opérateur.
+        for (it in items.filter { v -> v.logValidated != null && doneAt(context, v.id) == 0L }) {
+            android.util.Log.i("nyx-test", "PASS ${it.id} : ${it.label} — VALIDÉ PAR LOGS 29/10 : ${it.logValidated}")
+        }
     }
 }

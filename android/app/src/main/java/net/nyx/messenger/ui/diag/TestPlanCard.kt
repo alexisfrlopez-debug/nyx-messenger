@@ -90,7 +90,11 @@ fun TestPlanCard() {
                     .verticalScroll(rememberScrollState())
             ) {
             if (expanded) for (item in items) {
-                val done = remember(tick) { TestPlan.doneAt(context, item.id) > 0L }
+                // v0.2.62 — VALIDÉ PAR LOGS : l'export du 29/10 a prouvé
+                // l'item (preuve consignée dans l'objet) — il s'affiche
+                // COCHÉ avec son badge, sans exiger un tap.
+                val logValid = item.logValidated
+                val done = remember(tick) { TestPlan.doneAt(context, item.id) > 0L || logValid != null }
                 // v0.2.26 : les items destructeurs (couper le réplica, cycle
                 // sans serveur) sont BLOQUÉS sans redondance (≥ 2 réplicas ou
                 // réplica temporaire servi) — demande opérateur : « je préfère
@@ -127,13 +131,26 @@ fun TestPlanCard() {
                             }
                         )
                         if (done) {
-                            Text(
-                                java.text.DateFormat.getDateTimeInstance(
-                                    java.text.DateFormat.SHORT, java.text.DateFormat.SHORT
-                                ).format(java.util.Date(TestPlan.doneAt(context, item.id))),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            if (logValid != null && TestPlan.doneAt(context, item.id) == 0L) {
+                                Text(
+                                    "✓ VALIDÉ PAR LOGS (29/10)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                                Text(
+                                    logValid,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Text(
+                                    java.text.DateFormat.getDateTimeInstance(
+                                        java.text.DateFormat.SHORT, java.text.DateFormat.SHORT
+                                    ).format(java.util.Date(TestPlan.doneAt(context, item.id))),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         if (blocked) {
                             Text(

@@ -285,6 +285,20 @@ fun CallOverlay() {
                     color = MaterialTheme.colorScheme.tertiary
                 )
             }
+            // v0.2.62 — ANNULER NOTRE demande de partage en attente (demande
+            // opérateur 29/10 : « besoin aussi d'un bouton pour annuler le
+            // partage d'écran lorsqu'il est proposé ou activé ») : F_SCREEN_STOP
+            // au pair, caméra maintenue. Pendant le partage ACTIF, c'est le
+            // bouton 🖥️ lui-même qui devient « ARRÊTER » (requestScreenShare).
+            if (ui.phase == CallManager.Phase.ACTIVE && ui.screenSharePending) {
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { CallManager.cancelScreenShareRequest() },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Annuler la demande") }
+            }
             // v0.2.60 — DEMANDE DU PC (F_SCREEN_REQ) : validation ✓/✕ AVANT que
             // son écran n'arrive chez nous (partage VALIDÉ des 2 côtés).
             if (ui.phase == CallManager.Phase.ACTIVE && ui.screenShareRequest) {

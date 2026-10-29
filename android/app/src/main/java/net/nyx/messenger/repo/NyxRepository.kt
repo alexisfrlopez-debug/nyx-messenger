@@ -2221,6 +2221,12 @@ class NyxRepository(
                     onSuccess = {
                         messageDao.clearRcptPending(batch)
                         android.util.Log.i("nyx-send", "✓ accusé « read » déposé pour ${peer.take(16)}… (${batch.size} msg)")
+                        // v0.2.62 — PREUVE PERSISTANTE (constat 29/10 : le ✓✓ lu
+                        // du PC à 06:20:44 prouve le dépôt, mais la ligne n'était
+                        // PAS dans l'export — DiagLog ne capturait pas les accusés).
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-send", "✓ accusé « read » déposé pour ${peer.take(16)}… (${batch.size} msg)"
+                        )
                     },
                     onFailure = { e ->
                         android.util.Log.w("nyx-send", "✗ accusé « read » DIFFÉRÉ pour ${peer.take(16)}… : ${e.message}")
@@ -2233,6 +2239,9 @@ class NyxRepository(
                     onSuccess = {
                         messageDao.clearRcptPending(batch)
                         android.util.Log.i("nyx-send", "✓ accusé « delivered » déposé pour ${peer.take(16)}… (${batch.size} msg)")
+                        net.nyx.messenger.diag.DiagLog.i(
+                            "nyx-send", "✓ accusé « delivered » déposé pour ${peer.take(16)}… (${batch.size} msg)"
+                        )
                     },
                     onFailure = { e ->
                         android.util.Log.w("nyx-send", "✗ accusé « delivered » DIFFÉRÉ pour ${peer.take(16)}… : ${e.message}")
