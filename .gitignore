@@ -73,3 +73,8 @@ desktop/installer/nyx-messenger-windows-*.exe
 android/app/src/main/jniLibs/
 # Session 82 — clé de signature rendezvous (Drive « Messagerie », JAMAIS git)
 /rendezvous-ed25519.json
+
+# v0.2.62 (session 84) — la copie RACINE ne doit jamais partir (chemins de
+# build officiels : android/ + desktop/, ci-dessus) : le secret-scanning
+# GitHub BLOQUE le push (OAuth client_secret/refresh_token dedans).
+/test-upload.properties

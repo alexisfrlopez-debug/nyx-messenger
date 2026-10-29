@@ -22,25 +22,31 @@
 
 ---
 
-## État au 29 octobre 2026 (fin de session 83)
+## État au 29 octobre 2026 (fin de session 84)
 
-- **Dernière clôture** : session **83** — 2026-10-29, closeout §9.11 (le SHA du commit final est dans `git log`)
-- **Messagerie Android** : **v0.2.61** (versionCode 65) — livrée (release GitHub v0.2.61 + Drive, v0.2.60 archivée)
-- **Messagerie desktop** : **v0.3.13** — livrée (release GitHub v0.3.13-desktop + Drive, exe + zip + SUMS, v0.3.12 archivée)
+- **Dernière clôture** : session **84** — 2026-10-29, closeout §9.11 (le SHA du commit final est dans `git log`)
+- **Messagerie Android** : **v0.2.62** (versionCode 66) — livrée (release GitHub v0.2.62 + Drive, v0.2.61 archivée)
+- **Messagerie desktop** : **v0.3.14** — livrée (release GitHub v0.3.14-desktop + Drive, exe + zip + SUMS, v0.3.13 archivée)
 - **Serveur** : v0.2.38 — binaire en asset GitHub (convention Drive respectée)
 - **Console admin** : v0.8.12 (dépôt privé nyx-admin)
-- **Fiche de présentation** : 26ᵉ édition (36 pages) — cite v0.2.61/v0.3.13
-- **Terrain attendu** : retour d'expérience sur v0.2.61 / v0.3.13 → TestPlan v0.2.61 (6 items) + v0.3.13 (5 items), décisifs : `raccrocher-notification` + `annulation-propagee` (Android) / `fenetre-decrochage-devant` + `annule-jamais-actif` (desktop) — voir §3 RESTART.md (pointeur rapide session 83).
+- **Fiche de présentation** : 26ᵉ édition (36 pages) — cite v0.2.61/v0.3.13 (mise à jour à la prochaine édition)
+- **Terrain attendu** : retour d'expérience sur v0.2.62 / v0.3.14 → TestPlan v0.2.62 (7 items, décisifs `bye-pendant-sonnerie` + `annuler-partage-tel`) + v0.3.14 (7 items, décisifs `video-carte-flottante` + `notif-partage-ecran`) — la carte affiche déjà les items VALIDÉS PAR LOGS du 29/10 (badge + preuve) ; voir §3 RESTART.md (pointeur rapide session 84).
 
-## Contenu de la session 83 (closeout)
+## Contenu de la session 84 (closeout)
 
-Retour terrain 29/10 00:34 (6 points, logs dans `reports/logs-s83/`) : (1) appel annulé ne ressuscite plus —
-3 gardes anti-ghost-call ; (2) reconnexion média en cours d'appel (2 cycles, visio continue) ; (3) raccrocher
-depuis la notification d'appel en cours ; (4) accusé « lu » par deep-link notification→conversation ;
-(5) sonnerie dès le HELLO + offre parallèle + fenêtre décrochage devant ; (6) poll dès bootstrap 75 % +
-warm-up circuits + frame skipping. NOUVEAU AUSSI : RÈGLE ZÉRO anti-résumé-périmé — ce fichier devient la
-source unique de vérité, réécrite à chaque clôture et vérifiée par le contrôle `[etat]` de
-`scripts/session_closeout.py`.
+Retour terrain 29/10 06:29 (7 points, logs dans `reports/logs-s84/`) : (0) VALIDATION
+PAR LOGS — demande « modifie la liste s'ils sont validés et confirmés ok par les logs » :
+les TestPlans marquent PROUVÉS les items que l'export confirme (badge + preuve consignée +
+synthèse nyx-test — 5/6 Android, 3/5 desktop) ; (1) un appel ANNULÉ ARRÊTE LA SONNERIE à
+l'instant (surveillant de sonnerie sur le média gardé pendant INCOMING — preuve cid ffe6105b :
+PC annule 05:17:56, tel sonnait encore 05:18:02) ; (2) BYE = fin immédiate des deux côtés (un
+raccroché ne déclenche plus la reconnexion) ; (3) PARTAGE D'ÉCRAN : bouton ANNULER (demande
+en attente) + ARRÊTER/RÉVOQUER (partage actif, les deux sens) + émissions honnêtes ;
+(4) bureau : LA VIDÉO VIT SUR LA CARTE FLOTTANTE + notification de demande de partage +
+dialogue ✓/✕ sur la carte (retour « côté pc je ne vois pas les videos » / « pas de
+notification pour le partage d'écran ») ; (5) WEBCAM 640×360 (« problème de résolution pc ») ;
+(6) AUCUNE trame silencieusement jetée (when avec else, sinks null journalisés, 1ʳᵉ trame
+vidéo horodatée, accusés read/delivered dans DiagLog, preuve de rendu MJPEG).
 
 ## Invariants (ne jamais rouvrir sans ADR)
 
